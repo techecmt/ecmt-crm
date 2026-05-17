@@ -22,14 +22,20 @@ export type LeadStatus =
   | "registered_dropped_out";
 
 export type LeadSource =
-  | "facebook_ads"
-  | "google_ads"
-  | "organic_seo"
-  | "whatsapp_campaign"
-  | "referral"
-  | "walk_in"
-  | "event"
-  | "other";
+  | "tiktok_dm"
+  | "print_media"
+  | "tiktok_ads"
+  | "meta_ads"
+  | "refer_by_student"
+  | "refer_by_assignees_friend"
+  | "refer_by_agent"
+  | "owwa"
+  | "facebook_organic"
+  | "website"
+  | "direct_calls_whatsapp"
+  | "walk_in";
+
+export const DEFAULT_LEAD_SOURCE: LeadSource = "website";
 
 export type FollowUpType =
   | "call"
@@ -177,14 +183,18 @@ export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
 };
 
 export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
-  facebook_ads: "Facebook Ads",
-  google_ads: "Google Ads",
-  organic_seo: "Organic / SEO",
-  whatsapp_campaign: "WhatsApp Campaign",
-  referral: "Referral",
-  walk_in: "Walk-in",
-  event: "Event",
-  other: "Other",
+  tiktok_dm: "TikTok DM",
+  print_media: "Print Media",
+  tiktok_ads: "TikTok Ads",
+  meta_ads: "META ads",
+  refer_by_student: "Refer by Student",
+  refer_by_assignees_friend: "Refer by Assignee's Friend",
+  refer_by_agent: "Refer by Agent",
+  owwa: "OWWA",
+  facebook_organic: "Facebook Organic",
+  website: "Website",
+  direct_calls_whatsapp: "Direct - Calls/ WhatsApp",
+  walk_in: "Walk-In",
 };
 
 export const FOLLOW_UP_TYPE_LABELS: Record<FollowUpType, string> = {

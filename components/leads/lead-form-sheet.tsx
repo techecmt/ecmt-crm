@@ -35,6 +35,7 @@ import { useColleges } from "@/lib/hooks/use-colleges";
 import { useUpsertLead } from "@/lib/hooks/use-leads";
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import {
+  DEFAULT_LEAD_SOURCE,
   LEAD_SOURCE_LABELS,
   LEAD_STATUS_LABELS,
   type Lead,
@@ -89,7 +90,7 @@ export function LeadFormSheet({
       city: lead?.city ?? "",
       interested_course: lead?.interested_course ?? "",
       college_id: lead?.college_id ?? "",
-      source: (lead?.source as LeadSource) ?? "other",
+      source: (lead?.source as LeadSource) ?? DEFAULT_LEAD_SOURCE,
       status: (lead?.status as LeadStatus) ?? "inquiry_received",
       assigned_counsellor: lead?.assigned_counsellor ?? "",
       campaign: lead?.campaign ?? "",

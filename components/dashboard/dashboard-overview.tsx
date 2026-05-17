@@ -75,15 +75,19 @@ const STATUS_ORDER: LeadStatus[] = [
   "registered_dropped_out",
 ];
 
-const sourceColors: Record<string, string> = {
-  facebook_ads: "hsl(var(--chart-1))",
-  google_ads: "hsl(var(--chart-2))",
-  organic_seo: "hsl(var(--chart-3))",
-  whatsapp_campaign: "hsl(var(--chart-4))",
-  referral: "hsl(var(--chart-5))",
-  walk_in: "hsl(var(--chart-1))",
-  event: "hsl(var(--chart-2))",
-  other: "hsl(var(--chart-3))",
+const sourceColors: Record<LeadSource, string> = {
+  tiktok_dm: "hsl(var(--chart-1))",
+  print_media: "hsl(var(--chart-2))",
+  tiktok_ads: "hsl(var(--chart-3))",
+  meta_ads: "hsl(var(--chart-4))",
+  refer_by_student: "hsl(var(--chart-5))",
+  refer_by_assignees_friend: "hsl(var(--chart-1))",
+  refer_by_agent: "hsl(var(--chart-2))",
+  owwa: "hsl(var(--chart-3))",
+  facebook_organic: "hsl(var(--chart-4))",
+  website: "hsl(var(--chart-5))",
+  direct_calls_whatsapp: "hsl(var(--chart-1))",
+  walk_in: "hsl(var(--chart-2))",
 };
 
 export function DashboardOverview({ leads, colleges, usersCount, upcoming }: Props) {
