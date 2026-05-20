@@ -10,5 +10,10 @@ export default async function UsersPage() {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/auth/login");
   if (!isAdminRole(profile.role)) redirect("/dashboard");
-  return <UsersPageClient />;
+  return (
+    <UsersPageClient
+      currentUserId={profile.id}
+      canManageAuth={profile.role === "super_admin"}
+    />
+  );
 }

@@ -76,3 +76,67 @@ export function useToggleProfileActive() {
     onError: (err: Error) => toast.error(err.message),
   });
 }
+
+export function useUpdateProfileName() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, full_name }: { id: string; full_name: string }) => {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_name }),
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Failed to update name");
+    },
+    onSuccess: () => {
+      toast.success("Name updated");
+      qc.invalidateQueries({ queryKey: PROFILES_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useSetUserAuthAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      auth_enabled,
+    }: {
+      id: string;
+      auth_enabled: boolean;
+    }) => {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auth_enabled }),
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Failed to update auth access");
+    },
+    onSuccess: (_, vars) => {
+      toast.success(vars.auth_enabled ? "Auth access restored" : "Auth access removed");
+      qc.invalidateQueries({ queryKey: PROFILES_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "DELETE",
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Failed to delete user");
+    },
+    onSuccess: () => {
+      toast.success("User deleted");
+      qc.invalidateQueries({ queryKey: PROFILES_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}

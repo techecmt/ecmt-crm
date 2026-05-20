@@ -226,6 +226,58 @@ export function useDeleteLead() {
   });
 }
 
+export function useBulkUpdateLeads() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      ids,
+      status,
+      assignedCounsellor,
+    }: {
+      ids: string[];
+      status?: LeadStatus;
+      assignedCounsellor?: string | "unassigned";
+    }) => {
+      if (!ids.length) return;
+
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const updates: Record<string, unknown> = {};
+      if (status) {
+        updates.status = status;
+      }
+      if (assignedCounsellor !== undefined) {
+        updates.assigned_counsellor =
+          assignedCounsellor === "unassigned" ? null : assignedCounsellor;
+      }
+
+      if (Object.keys(updates).length === 0) return;
+
+      const { error } = await supabase.from("leads").update(updates).in("id", ids);
+      if (error) throw new Error(error.message);
+
+      if (user && status) {
+        await supabase.from("lead_activities").insert(
+          ids.map((leadId) => ({
+            lead_id: leadId,
+            user_id: user.id,
+            type: "status_change",
+            title: `Status changed to ${status} (bulk)`,
+          })),
+        );
+      }
+    },
+    onSuccess: () => {
+      toast.success("Leads updated");
+      qc.invalidateQueries({ queryKey: LEADS_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
 export function useAddLeadNote() {
   const qc = useQueryClient();
   return useMutation({
