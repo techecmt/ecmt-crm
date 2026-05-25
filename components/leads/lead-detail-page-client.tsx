@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { format, formatDistanceToNow } from "date-fns";
+import { differenceInCalendarDays, format, formatDistanceToNow, isPast } from "date-fns";
 import {
   ArrowLeft,
   Building2,
@@ -15,6 +15,7 @@ import {
   Pencil,
   Phone,
   StickyNote,
+  Target,
   UserCircle2,
 } from "lucide-react";
 
@@ -52,7 +53,9 @@ import {
   useLeadActivities,
 } from "@/lib/hooks/use-leads";
 import {
+  ADMISSION_GOAL_STATUS_LABELS,
   FOLLOW_UP_TYPE_LABELS,
+  FOLLOW_UP_PRIORITY_LABELS,
   LEAD_SOURCE_LABELS,
   type Lead,
 } from "@/lib/types";
@@ -60,16 +63,47 @@ import { LeadStatusBadge } from "@/components/leads/status-badge";
 import { LeadFormSheet } from "@/components/leads/lead-form-sheet";
 import { useFollowUps } from "@/lib/hooks/use-follow-ups";
 import { FollowUpFormDialog } from "@/components/follow-ups/follow-up-form-dialog";
+import {
+  useAdmissionGoals,
+  useRecordAdmissionGoalEvent,
+} from "@/lib/hooks/use-admission-goals";
 
 export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const { data: lead, isLoading } = useLead(leadId);
   const { data: activities } = useLeadActivities(leadId);
   const { data: followUps } = useFollowUps({ leadId });
+  const { data: admissionGoals } = useAdmissionGoals({ status: "all" });
   const addNote = useAddLeadNote();
+  const recordGoalEvent = useRecordAdmissionGoalEvent();
   const [editing, setEditing] = React.useState(false);
   const [followUpOpen, setFollowUpOpen] = React.useState(false);
   const [noteTitle, setNoteTitle] = React.useState("");
   const [noteBody, setNoteBody] = React.useState("");
+  const pendingFollowUps = React.useMemo(
+    () => (followUps ?? []).filter((f) => f.status === "pending"),
+    [followUps],
+  );
+  const lastCompletedFollowUp = React.useMemo(
+    () =>
+      (followUps ?? [])
+        .filter((f) => f.status === "completed" && f.completed_at)
+        .sort(
+          (a, b) =>
+            new Date(b.completed_at ?? b.scheduled_at).getTime() -
+            new Date(a.completed_at ?? a.scheduled_at).getTime(),
+        )[0],
+    [followUps],
+  );
+  const daysSinceLastFollowUp = lastCompletedFollowUp?.completed_at
+    ? differenceInCalendarDays(new Date(), new Date(lastCompletedFollowUp.completed_at))
+    : differenceInCalendarDays(new Date(), new Date(lead?.created_at ?? new Date()));
+  const linkedAdmissionGoals = React.useMemo(
+    () =>
+      (admissionGoals ?? []).filter((goal) =>
+        goal.links.some((link) => link.lead_id === leadId),
+      ),
+    [admissionGoals, leadId],
+  );
 
   const onAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,6 +218,14 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
             />
             <Field label="Course" value={lead.interested_course ?? "—"} />
             <Field label="Lead score" value={String(lead.lead_score)} />
+            <Field
+              label="Pending follow-ups"
+              value={pendingFollowUps.length ? String(pendingFollowUps.length) : "None"}
+            />
+            <Field
+              label="Lead aging"
+              value={`${daysSinceLastFollowUp} day${daysSinceLastFollowUp === 1 ? "" : "s"} since last follow-up`}
+            />
             {lead.notes ? (
               <div className="sm:col-span-2">
                 <div className="text-xs font-medium text-muted-foreground">
@@ -220,6 +262,66 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                 Add note
               </Button>
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Admission goals</CardTitle>
+            <CardDescription>
+              Goal links and milestone actions for this lead.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {linkedAdmissionGoals.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No linked admission goals yet.
+              </div>
+            ) : (
+              linkedAdmissionGoals.map((goal) => {
+                const hasVisa = goal.events.some(
+                  (event) =>
+                    event.lead_id === leadId && event.event_type === "visa_approved",
+                );
+                const progress =
+                  goal.target_count > 0
+                    ? Math.min(100, Math.round((goal.achieved_count / goal.target_count) * 100))
+                    : 0;
+                return (
+                  <div key={goal.id} className="rounded-md border p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Target className="h-4 w-4 text-muted-foreground" />
+                          {goal.title}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {goal.achieved_count}/{goal.target_count} admissions · {progress}%
+                        </div>
+                      </div>
+                      <Badge variant="secondary">
+                        {ADMISSION_GOAL_STATUS_LABELS[goal.status]}
+                      </Badge>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={hasVisa ? "secondary" : "outline"}
+                      disabled={hasVisa || recordGoalEvent.isPending}
+                      className="mt-3 w-full"
+                      onClick={() =>
+                        recordGoalEvent.mutate({
+                          goalId: goal.id,
+                          leadId,
+                          eventType: "visa_approved",
+                        })
+                      }
+                    >
+                      {hasVisa ? "Visa approved recorded" : "Mark visa approved"}
+                    </Button>
+                  </div>
+                );
+              })
+            )}
           </CardContent>
         </Card>
       </div>
@@ -287,10 +389,14 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                 <EmptyState text="No follow-ups yet. Schedule one to keep this lead warm." />
               ) : (
                 <ul className="divide-y">
-                  {followUps.map((f) => (
+                  {followUps.map((f) => {
+                    const overdue = f.status === "pending" && isPast(new Date(f.scheduled_at));
+                    return (
                     <li
                       key={f.id}
-                      className="flex flex-wrap items-center justify-between gap-2 py-3"
+                      className={`flex flex-wrap items-center justify-between gap-2 py-3 ${
+                        overdue ? "rounded-md bg-destructive/5 px-2" : ""
+                      }`}
                     >
                       <div>
                         <div className="flex items-center gap-2 text-sm font-medium">
@@ -299,12 +405,27 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                           ) : (
                             <Clock className="h-4 w-4 text-amber-600" />
                           )}
-                          {FOLLOW_UP_TYPE_LABELS[f.type]} —{" "}
+                          {FOLLOW_UP_TYPE_LABELS[f.followup_type ?? f.type]} —{" "}
                           {format(new Date(f.scheduled_at), "PPp")}
+                          <Badge
+                            variant={
+                              f.priority === "high" || f.priority === "urgent"
+                                ? "destructive"
+                                : "secondary"
+                            }
+                            className="text-[10px]"
+                          >
+                            {FOLLOW_UP_PRIORITY_LABELS[f.priority]}
+                          </Badge>
+                          {overdue ? (
+                            <Badge variant="destructive" className="text-[10px]">
+                              Overdue
+                            </Badge>
+                          ) : null}
                         </div>
-                        {f.notes ? (
+                        {f.remarks ?? f.notes ? (
                           <p className="ml-6 mt-1 text-xs text-muted-foreground">
-                            {f.notes}
+                            {f.remarks ?? f.notes}
                           </p>
                         ) : null}
                       </div>
@@ -320,7 +441,8 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                         {f.status}
                       </Badge>
                     </li>
-                  ))}
+                  );
+                  })}
                 </ul>
               )}
             </CardContent>

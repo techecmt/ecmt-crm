@@ -47,12 +47,22 @@ export type FollowUpType =
 
 export type FollowUpStatus = "pending" | "completed" | "missed" | "cancelled";
 
+export type FollowUpPriority = "low" | "normal" | "high" | "urgent";
+
 export type AdmissionStage =
   | "inquiry_received"
   | "contacted"
   | "counselling_done"
   | "registration_submitted"
   | "reg_fees_paid";
+
+export type AdmissionGoalStatus = "draft" | "active" | "completed" | "cancelled";
+
+export type AdmissionGoalEventType =
+  | "lead_qualified"
+  | "application_submitted"
+  | "admission_confirmed"
+  | "visa_approved";
 
 export type ActivityType =
   | "note"
@@ -124,11 +134,17 @@ export interface FollowUp {
   id: string;
   lead_id: string;
   assigned_to: string | null;
+  assigned_user_id: string | null;
   type: FollowUpType;
+  followup_type: FollowUpType;
   status: FollowUpStatus;
   scheduled_at: string;
+  due_date: string;
+  due_time: string;
+  priority: FollowUpPriority;
   completed_at: string | null;
   notes: string | null;
+  remarks: string | null;
   outcome: string | null;
   created_by: string | null;
   created_at: string;
@@ -143,6 +159,42 @@ export interface LeadActivity {
   title: string;
   description: string | null;
   metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AdmissionGoal {
+  id: string;
+  title: string;
+  target_count: number;
+  achieved_count: number;
+  start_date: string;
+  end_date: string;
+  course_name: string | null;
+  college_id: string | null;
+  intake: string | null;
+  assigned_users: string[];
+  status: AdmissionGoalStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdmissionGoalLink {
+  id: string;
+  goal_id: string;
+  lead_id: string;
+  matched_by: "auto" | "manual";
+  linked_at: string;
+}
+
+export interface AdmissionGoalEvent {
+  id: string;
+  goal_id: string;
+  lead_id: string;
+  event_type: AdmissionGoalEventType;
+  event_at: string;
+  created_by: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 
@@ -213,10 +265,31 @@ export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   cancelled: "Cancelled",
 };
 
+export const FOLLOW_UP_PRIORITY_LABELS: Record<FollowUpPriority, string> = {
+  low: "Low",
+  normal: "Normal",
+  high: "High",
+  urgent: "Urgent",
+};
+
 export const ADMISSION_STAGE_LABELS: Record<AdmissionStage, string> = {
   inquiry_received: "Inquiry Received",
   contacted: "Contacted",
   counselling_done: "Counselling Done",
   registration_submitted: "Registration Submitted",
   reg_fees_paid: "Registration Fees Paid",
+};
+
+export const ADMISSION_GOAL_STATUS_LABELS: Record<AdmissionGoalStatus, string> = {
+  draft: "Draft",
+  active: "Active",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const ADMISSION_GOAL_EVENT_LABELS: Record<AdmissionGoalEventType, string> = {
+  lead_qualified: "Lead Qualified",
+  application_submitted: "Application Submitted",
+  admission_confirmed: "Admission Confirmed",
+  visa_approved: "Visa Approved",
 };

@@ -8,8 +8,10 @@ import {
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
+import { ADMISSION_GOALS_KEY } from "@/lib/hooks/use-admission-goals";
 import type {
   AdmissionStage,
+  FollowUpPriority,
   Lead,
   LeadActivity,
   LeadSource,
@@ -125,6 +127,8 @@ export type LeadUpsertInput = {
   utm_source?: string | null;
   utm_medium?: string | null;
   utm_campaign?: string | null;
+  initial_follow_up_priority?: FollowUpPriority;
+  initial_follow_up_remarks?: string | null;
 };
 
 export function useUpsertLead() {
@@ -135,7 +139,12 @@ export function useUpsertLead() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      const payload = { ...input, created_by: user?.id ?? null };
+      const {
+        initial_follow_up_priority,
+        initial_follow_up_remarks,
+        ...leadInput
+      } = input;
+      const payload = { ...leadInput, created_by: user?.id ?? null };
       if (input.id) {
         const { data, error } = await supabase
           .from("leads")
@@ -144,6 +153,17 @@ export function useUpsertLead() {
           .select("*")
           .single();
         if (error) throw new Error(error.message);
+        if (initial_follow_up_priority || initial_follow_up_remarks) {
+          await supabase
+            .from("follow_ups")
+            .update({
+              priority: initial_follow_up_priority ?? "normal",
+              remarks: initial_follow_up_remarks ?? null,
+              notes: initial_follow_up_remarks ?? null,
+            })
+            .eq("lead_id", input.id)
+            .eq("status", "pending");
+        }
         return data as Lead;
       }
       const { data, error } = await supabase
@@ -152,6 +172,17 @@ export function useUpsertLead() {
         .select("*")
         .single();
       if (error) throw new Error(error.message);
+      if (initial_follow_up_priority || initial_follow_up_remarks) {
+        await supabase
+          .from("follow_ups")
+          .update({
+            priority: initial_follow_up_priority ?? "normal",
+            remarks: initial_follow_up_remarks ?? null,
+            notes: initial_follow_up_remarks ?? null,
+          })
+          .eq("lead_id", data.id)
+          .eq("status", "pending");
+      }
       // Log activity
       if (user) {
         await supabase.from("lead_activities").insert({
@@ -166,6 +197,8 @@ export function useUpsertLead() {
     onSuccess: () => {
       toast.success("Lead saved");
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ["follow_ups"] });
+      qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -205,6 +238,7 @@ export function useUpdateLeadStatus() {
     onSuccess: () => {
       toast.success("Status updated");
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -221,6 +255,7 @@ export function useDeleteLead() {
     onSuccess: () => {
       toast.success("Lead deleted");
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -273,6 +308,7 @@ export function useBulkUpdateLeads() {
     onSuccess: () => {
       toast.success("Leads updated");
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
     onError: (err: Error) => toast.error(err.message),
   });

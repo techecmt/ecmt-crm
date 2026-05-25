@@ -45,20 +45,24 @@ import {
 } from "@/lib/hooks/use-follow-ups";
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import {
+  FOLLOW_UP_PRIORITY_LABELS,
   FOLLOW_UP_TYPE_LABELS,
+  type FollowUpPriority,
   type FollowUpType,
   type FollowUp,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const types = Object.keys(FOLLOW_UP_TYPE_LABELS) as FollowUpType[];
+const priorities = Object.keys(FOLLOW_UP_PRIORITY_LABELS) as FollowUpPriority[];
 
 const schema = z.object({
   date: z.date({ required_error: "Pick a date" }),
   time: z.string().regex(/^\d{2}:\d{2}$/, "HH:MM"),
   type: z.enum(types as [FollowUpType, ...FollowUpType[]]),
+  priority: z.enum(priorities as [FollowUpPriority, ...FollowUpPriority[]]),
   assigned_to: z.string().optional().or(z.literal("")),
-  notes: z.string().optional().or(z.literal("")),
+  remarks: z.string().optional().or(z.literal("")),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -82,9 +86,10 @@ export function FollowUpFormDialog({
     return {
       date: initial,
       time: format(initial, "HH:mm"),
-      type: (followUp?.type as FollowUpType) ?? "call",
-      assigned_to: followUp?.assigned_to ?? "",
-      notes: followUp?.notes ?? "",
+      type: (followUp?.followup_type as FollowUpType) ?? (followUp?.type as FollowUpType) ?? "call",
+      priority: (followUp?.priority as FollowUpPriority) ?? "normal",
+      assigned_to: followUp?.assigned_user_id ?? followUp?.assigned_to ?? "",
+      remarks: followUp?.remarks ?? followUp?.notes ?? "",
     };
   }, [followUp]);
 
@@ -98,16 +103,15 @@ export function FollowUpFormDialog({
   }, [open, defaults, form]);
 
   const onSubmit = async (values: FormValues) => {
-    const [hh, mm] = values.time.split(":").map(Number);
-    const scheduled = new Date(values.date);
-    scheduled.setHours(hh, mm, 0, 0);
     await upsert.mutateAsync({
       id: followUp?.id,
       lead_id: leadId,
-      type: values.type,
-      assigned_to: values.assigned_to || null,
-      notes: values.notes || null,
-      scheduled_at: scheduled.toISOString(),
+      followup_type: values.type,
+      assigned_user_id: values.assigned_to || null,
+      due_date: format(values.date, "yyyy-MM-dd"),
+      due_time: values.time,
+      priority: values.priority,
+      remarks: values.remarks || null,
     });
     onOpenChange(false);
   };
@@ -227,13 +231,37 @@ export function FollowUpFormDialog({
                   </FormItem>
                 )}
               />
+              <FormField
+                control={form.control}
+                name="priority"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Priority</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {priorities.map((priority) => (
+                          <SelectItem key={priority} value={priority}>
+                            {FOLLOW_UP_PRIORITY_LABELS[priority]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
             <FormField
               control={form.control}
-              name="notes"
+              name="remarks"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes</FormLabel>
+                  <FormLabel>Remarks</FormLabel>
                   <FormControl>
                     <Textarea rows={3} {...field} />
                   </FormControl>

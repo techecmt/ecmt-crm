@@ -11,7 +11,7 @@ const defaultUrl = process.env.VERCEL_URL
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
-  title: "College CRM",
+  title: "Edusphere Group CRM",
   description: "Centralised CRM for managing colleges, leads and admissions.",
 };
 

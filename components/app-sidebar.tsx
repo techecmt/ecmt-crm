@@ -5,13 +5,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  ChartNoAxesCombined,
   ClipboardList,
   GraduationCap,
   LayoutDashboard,
   ListChecks,
   Megaphone,
+  MessageCircle,
   Settings2,
-  Trello,
   Users,
   UsersRound,
   X,
@@ -42,8 +43,9 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/leads", label: "Leads", icon: UsersRound },
+  { href: "/dashboard/whatsapp", label: "WhatsApp", icon: MessageCircle },
   { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks },
-  { href: "/dashboard/admissions", label: "Admissions", icon: Trello },
+  { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined },
   { href: "/dashboard/colleges", label: "Colleges", icon: Building2 },
   { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone },
   { href: "/dashboard/forms", label: "Forms", icon: ClipboardList },
@@ -149,7 +151,7 @@ export function AppSidebar({ role }: { role: UserRole }) {
     <aside className="hidden h-screen w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:flex">
       <div className="flex h-14 items-center gap-2 border-b px-4 font-semibold">
         <GraduationCap className="h-5 w-5" />
-        <span>College CRM</span>
+        <span>Edusphere Group CRM</span>
       </div>
       <ScrollArea className="flex-1">
         <NavList role={role} />

@@ -8,12 +8,24 @@ import {
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
-import type { FollowUp, FollowUpStatus, FollowUpType } from "@/lib/types";
+import type {
+  FollowUp,
+  FollowUpPriority,
+  FollowUpStatus,
+  FollowUpType,
+} from "@/lib/types";
 
 const FOLLOW_UPS_KEY = ["follow_ups"] as const;
 
 export type FollowUpWithRelations = FollowUp & {
-  lead: { id: string; full_name: string; phone: string } | null;
+  lead: {
+    id: string;
+    full_name: string;
+    phone: string;
+    status: string;
+    lead_score: number;
+    assigned_counsellor: string | null;
+  } | null;
   assignee: { id: string; full_name: string | null; email: string } | null;
 };
 
@@ -22,6 +34,8 @@ export function useFollowUps(opts?: {
   leadId?: string;
   assignedTo?: string;
   upcomingOnly?: boolean;
+  fromDate?: string;
+  toDate?: string;
 }) {
   return useQuery({
     queryKey: [...FOLLOW_UPS_KEY, opts],
@@ -30,15 +44,18 @@ export function useFollowUps(opts?: {
       let q = supabase
         .from("follow_ups")
         .select(
-          "*, lead:leads(id,full_name,phone), assignee:profiles!follow_ups_assigned_to_fkey(id,full_name,email)",
+          "*, lead:leads(id,full_name,phone,status,lead_score,assigned_counsellor), assignee:profiles!follow_ups_assigned_user_id_fkey(id,full_name,email)",
         )
-        .order("scheduled_at", { ascending: true });
+        .order("due_date", { ascending: true })
+        .order("due_time", { ascending: true });
       if (opts?.status && opts.status !== "all") q = q.eq("status", opts.status);
       if (opts?.leadId) q = q.eq("lead_id", opts.leadId);
-      if (opts?.assignedTo) q = q.eq("assigned_to", opts.assignedTo);
+      if (opts?.assignedTo) q = q.eq("assigned_user_id", opts.assignedTo);
       if (opts?.upcomingOnly) {
         q = q.gte("scheduled_at", new Date().toISOString());
       }
+      if (opts?.fromDate) q = q.gte("due_date", opts.fromDate);
+      if (opts?.toDate) q = q.lte("due_date", opts.toDate);
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       return (data ?? []) as FollowUpWithRelations[];
@@ -49,13 +66,18 @@ export function useFollowUps(opts?: {
 export type FollowUpInput = {
   id?: string;
   lead_id: string;
-  assigned_to?: string | null;
-  type: FollowUpType;
+  assigned_user_id?: string | null;
+  followup_type: FollowUpType;
+  due_date: string;
+  due_time: string;
+  priority?: FollowUpPriority;
   status?: FollowUpStatus;
-  scheduled_at: string;
-  notes?: string | null;
-  outcome?: string | null;
+  remarks?: string | null;
 };
+
+function scheduledAtFromTask(input: Pick<FollowUpInput, "due_date" | "due_time">) {
+  return new Date(`${input.due_date}T${input.due_time}`).toISOString();
+}
 
 export function useUpsertFollowUp() {
   const qc = useQueryClient();
@@ -65,7 +87,14 @@ export function useUpsertFollowUp() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      const payload = { ...input, created_by: user?.id ?? null };
+      const payload = {
+        ...input,
+        assigned_to: input.assigned_user_id ?? null,
+        type: input.followup_type,
+        scheduled_at: scheduledAtFromTask(input),
+        notes: input.remarks ?? null,
+        created_by: user?.id ?? null,
+      };
       if (input.id) {
         const { data, error } = await supabase
           .from("follow_ups")
@@ -87,9 +116,9 @@ export function useUpsertFollowUp() {
           lead_id: input.lead_id,
           user_id: user.id,
           type: "follow_up",
-          title: `Follow-up scheduled (${input.type})`,
-          description: input.notes ?? null,
-          metadata: { scheduled_at: input.scheduled_at },
+          title: `Follow-up scheduled (${input.followup_type})`,
+          description: input.remarks ?? null,
+          metadata: { due_date: input.due_date, due_time: input.due_time },
         });
       }
       return data as FollowUp;
@@ -133,6 +162,45 @@ export function useUpdateFollowUpStatus() {
     onSuccess: () => {
       toast.success("Follow-up updated");
       qc.invalidateQueries({ queryKey: FOLLOW_UPS_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export type CompleteFollowUpInput = {
+  id: string;
+  remarks: string;
+  next_followup_type?: FollowUpType;
+  next_due_date?: string | null;
+  next_due_time?: string | null;
+  next_priority?: FollowUpPriority;
+  next_assigned_user_id?: string | null;
+  next_remarks?: string | null;
+};
+
+export function useCompleteFollowUpTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CompleteFollowUpInput) => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("complete_follow_up_task", {
+        p_task_id: input.id,
+        p_remarks: input.remarks,
+        p_next_followup_type: input.next_followup_type ?? "call",
+        p_next_due_date: input.next_due_date ?? null,
+        p_next_due_time: input.next_due_time ?? null,
+        p_next_priority: input.next_priority ?? "normal",
+        p_next_assigned_user_id: input.next_assigned_user_id ?? null,
+        p_next_remarks: input.next_remarks ?? null,
+      });
+      if (error) throw new Error(error.message);
+      return data as FollowUp;
+    },
+    onSuccess: (task) => {
+      toast.success("Follow-up completed");
+      qc.invalidateQueries({ queryKey: FOLLOW_UPS_KEY });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["leads", task.lead_id, "activities"] });
     },
     onError: (err: Error) => toast.error(err.message),
   });
