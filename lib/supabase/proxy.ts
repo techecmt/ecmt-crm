@@ -50,6 +50,11 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith("/auth");
 
+  // Meta webhook verification and delivery requests must be publicly reachable.
+  if (pathname.startsWith("/api/webhook")) {
+    return supabaseResponse;
+  }
+
   if (pathname === "/") {
     const url = request.nextUrl.clone();
     url.pathname = user ? "/dashboard" : "/auth/login";
