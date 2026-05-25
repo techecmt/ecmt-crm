@@ -2,11 +2,6 @@ import "server-only";
 
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
-});
-
 const SYSTEM_PROMPT = `You are a helpful admissions counselor AI assistant for a college/educational institution. You help prospective students with:
 - Information about courses, programs, and admission requirements
 - Answering questions about fees, schedules, and campus facilities
@@ -22,9 +17,31 @@ export interface ChatMessage {
   content: string;
 }
 
+function createAIClient() {
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const baseURL = process.env.OPENROUTER_API_KEY
+    ? "https://openrouter.ai/api/v1"
+    : undefined;
+
+  return new OpenAI({
+    apiKey,
+    baseURL,
+  });
+}
+
 export async function getAIResponse(
   conversationHistory: ChatMessage[]
 ): Promise<string> {
+  const client = createAIClient();
+  if (!client) {
+    console.error(
+      "[AI] Missing API key. Set OPENROUTER_API_KEY (preferred) or OPENAI_API_KEY."
+    );
+    return "Thanks for your message. Our counselor team will reply shortly.";
+  }
+
   const model = process.env.AI_MODEL || "openai/gpt-4o-mini";
 
   const messages: ChatMessage[] = [
@@ -33,7 +50,7 @@ export async function getAIResponse(
   ];
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await client.chat.completions.create({
       model,
       messages,
       max_tokens: 500,
