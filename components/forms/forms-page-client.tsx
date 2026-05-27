@@ -22,7 +22,10 @@ import {
   Star,
   ArrowUpDown,
 } from "lucide-react";
-import * as XLSX from "xlsx";
+import writeXlsxFile, {
+  type Sheet,
+  type SheetData,
+} from "write-excel-file/browser";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -162,12 +165,33 @@ function getSortableValue(
 
 // ─── Excel export ────────────────────────────────────────────────────────────
 
-function exportToExcel(
+function toExcelCellValue(value: unknown) {
+  if (value === undefined || value === null) return "";
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value instanceof Date
+  ) {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function toColumns(headers: string[], minWidth = 14) {
+  return headers.map((h) => ({ width: Math.max(h.length + 2, minWidth) }));
+}
+
+async function exportToExcel(
   formTitle: string,
   fields: FormField[],
   submissions: FormSubmission[],
 ) {
-  const wb = XLSX.utils.book_new();
+  const sheets: Sheet<Blob>[] = [];
 
   // ── Sheet 1: Raw submissions ─────────────────────────────────────────────
   const activeFields = [...fields].sort((a, b) => a.field_order - b.field_order);
@@ -178,38 +202,38 @@ function exportToExcel(
     "Submitter Email",
     ...activeFields.map((f) => f.label),
   ];
-  const rows = submissions.map((s, idx) => [
+  const rows: SheetData = submissions.map((s, idx) => [
     idx + 1,
     format(new Date(s.submitted_at), "yyyy-MM-dd HH:mm"),
     s.submitter_name ?? "",
     s.submitter_email ?? "",
-    ...activeFields.map((f) => {
-      const val = s.values_json?.[f.field_key];
-      return val !== undefined && val !== null ? val : "";
-    }),
+    ...activeFields.map((f) => toExcelCellValue(s.values_json?.[f.field_key])),
   ]);
-  const wsRaw = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  // Auto-width
-  wsRaw["!cols"] = headers.map((h) => ({ wch: Math.max(h.length + 2, 14) }));
-  XLSX.utils.book_append_sheet(wb, wsRaw, "Submissions");
+  sheets.push({
+    sheet: "Submissions",
+    data: [headers, ...rows],
+    columns: toColumns(headers),
+  });
 
   // ── Sheet 2: Rating averages ────────────────────────────────────────────
   const ratingFields = activeFields.filter((f) => f.field_type === "rating");
   if (ratingFields.length > 0) {
     const avgHeaders = ["Question", "Average Rating (out of 5)", "Responses"];
-    const avgRows = ratingFields.map((f) => {
+    const avgRows: SheetData = ratingFields.map((f) => {
       const vals = submissions
         .map((s) => Number(s.values_json?.[f.field_key]))
         .filter((v) => !isNaN(v) && v > 0);
       return [
         f.label,
-        vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : "—",
+        vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : "-",
         vals.length,
       ];
     });
-    const wsAvg = XLSX.utils.aoa_to_sheet([avgHeaders, ...avgRows]);
-    wsAvg["!cols"] = [{ wch: 60 }, { wch: 28 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, wsAvg, "Rating Summary");
+    sheets.push({
+      sheet: "Rating Summary",
+      data: [avgHeaders, ...avgRows],
+      columns: [{ width: 60 }, { width: 28 }, { width: 12 }],
+    });
   }
 
   // ── Sheet 3: Text responses ─────────────────────────────────────────────
@@ -218,19 +242,23 @@ function exportToExcel(
   );
   if (textFields.length > 0) {
     const txtHeaders = ["Submitted At", "Submitter", ...textFields.map((f) => f.label)];
-    const txtRows = submissions.map((s) => [
+    const txtRows: SheetData = submissions.map((s) => [
       format(new Date(s.submitted_at), "yyyy-MM-dd HH:mm"),
       s.submitter_name ?? s.submitter_email ?? "",
-      ...textFields.map((f) => s.values_json?.[f.field_key] ?? ""),
+      ...textFields.map((f) => toExcelCellValue(s.values_json?.[f.field_key])),
     ]);
-    const wsTxt = XLSX.utils.aoa_to_sheet([txtHeaders, ...txtRows]);
-    wsTxt["!cols"] = txtHeaders.map((h, i) =>
-      i >= 2 ? { wch: 50 } : { wch: Math.max(h.length + 2, 20) },
-    );
-    XLSX.utils.book_append_sheet(wb, wsTxt, "Text Responses");
+    sheets.push({
+      sheet: "Text Responses",
+      data: [txtHeaders, ...txtRows],
+      columns: txtHeaders.map((h, i) =>
+        i >= 2 ? { width: 50 } : { width: Math.max(h.length + 2, 20) },
+      ),
+    });
   }
 
-  XLSX.writeFile(wb, `${formTitle.replace(/\s+/g, "_")}_submissions.xlsx`);
+  await writeXlsxFile(sheets).toFile(
+    `${formTitle.replace(/\s+/g, "_")}_submissions.xlsx`,
+  );
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────

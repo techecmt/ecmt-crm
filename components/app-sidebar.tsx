@@ -33,18 +33,32 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { UserRole } from "@/lib/types";
 import { isAdminRole } from "@/lib/types";
 
+type NavChild = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
 type NavItem = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  children?: NavChild[];
 };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/leads", label: "Leads", icon: UsersRound },
+  {
+    href: "/dashboard/leads",
+    label: "Leads",
+    icon: UsersRound,
+    children: [
+      { href: "/dashboard/leads", label: "All leads", icon: UsersRound },
+      { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks },
+    ],
+  },
   { href: "/dashboard/whatsapp", label: "WhatsApp", icon: MessageCircle },
-  { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks },
   { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined },
   { href: "/dashboard/colleges", label: "Colleges", icon: Building2 },
   { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone },
@@ -87,25 +101,61 @@ function NavList({
   return (
     <nav className="grid gap-1 p-2 text-sm">
       {items.map((item) => {
-        const isActive =
+        const Icon = item.icon;
+        const isItemActive =
           item.href === "/dashboard"
             ? pathname === "/dashboard"
             : pathname.startsWith(item.href);
-        const Icon = item.icon;
+        const hasChildren = !!item.children?.length;
+        const anyChildActive = hasChildren
+          ? item.children!.some((child) =>
+              child.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname.startsWith(child.href),
+            )
+          : false;
+        const isActive = isItemActive || anyChildActive;
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              isActive &&
-                "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            <span>{item.label}</span>
-          </Link>
+          <div key={item.href}>
+            <Link
+              href={item.href}
+              onClick={onNavigate}
+              className={cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                isActive &&
+                  "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{item.label}</span>
+            </Link>
+            {hasChildren && isActive ? (
+              <div className="ml-7 mt-1 grid gap-1 border-l pl-2">
+                {item.children!.map((child) => {
+                  const ChildIcon = child.icon;
+                  const childActive =
+                    child.href === "/dashboard"
+                      ? pathname === "/dashboard"
+                      : pathname.startsWith(child.href);
+                  return (
+                    <Link
+                      key={child.href}
+                      href={child.href}
+                      onClick={onNavigate}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                        childActive &&
+                          "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+                      )}
+                    >
+                      <ChildIcon className="h-3.5 w-3.5" />
+                      <span>{child.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         );
       })}
     </nav>

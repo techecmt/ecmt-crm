@@ -54,14 +54,18 @@ import {
 } from "@/lib/hooks/use-leads";
 import {
   ADMISSION_GOAL_STATUS_LABELS,
+  COUNSELLING_CHECK_KEYS,
+  COUNSELLING_CHECK_LABELS,
   FOLLOW_UP_TYPE_LABELS,
   FOLLOW_UP_PRIORITY_LABELS,
+  HIGHEST_QUALIFICATION_LABELS,
   LEAD_SOURCE_LABELS,
+  NOT_INTERESTED_REASON_LABELS,
   type Lead,
 } from "@/lib/types";
-import { LeadStatusBadge } from "@/components/leads/status-badge";
+import { LeadStatusSelect } from "@/components/leads/status-select";
 import { LeadFormSheet } from "@/components/leads/lead-form-sheet";
-import { useFollowUps } from "@/lib/hooks/use-follow-ups";
+import { useFollowUps, nextUpcomingPerLead } from "@/lib/hooks/use-follow-ups";
 import { FollowUpFormDialog } from "@/components/follow-ups/follow-up-form-dialog";
 import {
   useAdmissionGoals,
@@ -83,17 +87,32 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
     () => (followUps ?? []).filter((f) => f.status === "pending"),
     [followUps],
   );
-  const lastCompletedFollowUp = React.useMemo(
+  const nextPending = React.useMemo(() => {
+    const list = nextUpcomingPerLead(followUps ?? []);
+    return list[0];
+  }, [followUps]);
+  const completedFollowUps = React.useMemo(
     () =>
       (followUps ?? [])
-        .filter((f) => f.status === "completed" && f.completed_at)
+        .filter((f) => f.status === "completed")
         .sort(
           (a, b) =>
             new Date(b.completed_at ?? b.scheduled_at).getTime() -
             new Date(a.completed_at ?? a.scheduled_at).getTime(),
-        )[0],
+        ),
     [followUps],
   );
+  const counsellingFollowUps = React.useMemo(
+    () =>
+      (followUps ?? [])
+        .filter((f) => f.sequence != null)
+        .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)),
+    [followUps],
+  );
+  const completedCounsellingCount = counsellingFollowUps.filter(
+    (f) => f.status === "completed",
+  ).length;
+  const lastCompletedFollowUp = completedFollowUps[0];
   const daysSinceLastFollowUp = lastCompletedFollowUp?.completed_at
     ? differenceInCalendarDays(new Date(), new Date(lastCompletedFollowUp.completed_at))
     : differenceInCalendarDays(new Date(), new Date(lead?.created_at ?? new Date()));
@@ -185,7 +204,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               <CardTitle>Lead profile</CardTitle>
               <CardDescription>Contact, course and assignment.</CardDescription>
             </div>
-            <LeadStatusBadge status={lead.status} />
+            <LeadStatusSelect lead={lead} />
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <Field icon={<Phone className="h-4 w-4" />} label="Phone" value={lead.phone} />
@@ -198,6 +217,24 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               icon={<MapPin className="h-4 w-4" />}
               label="City"
               value={lead.city ?? "—"}
+            />
+            <Field
+              label="Nationality"
+              value={
+                lead.nationality === "Other" && lead.nationality_other
+                  ? `Other (${lead.nationality_other})`
+                  : lead.nationality ?? "—"
+              }
+            />
+            <Field
+              label="Highest qualification"
+              value={
+                lead.highest_qualification
+                  ? lead.highest_qualification === "other"
+                    ? `Other${lead.highest_qualification_other ? ` (${lead.highest_qualification_other})` : ""}`
+                    : HIGHEST_QUALIFICATION_LABELS[lead.highest_qualification]
+                  : "—"
+              }
             />
             <Field
               icon={<Building2 className="h-4 w-4" />}
@@ -232,6 +269,14 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                   Notes
                 </div>
                 <p className="text-sm">{lead.notes}</p>
+              </div>
+            ) : null}
+            {lead.status === "not_interested" && lead.not_interested_reason ? (
+              <div className="sm:col-span-2 rounded-md border bg-muted/30 p-3">
+                <div className="text-xs font-medium text-muted-foreground">
+                  Not Interested · {NOT_INTERESTED_REASON_LABELS[lead.not_interested_reason]}
+                </div>
+                <p className="mt-1 text-sm">{lead.not_interested_notes ?? "—"}</p>
               </div>
             ) : null}
           </CardContent>
@@ -326,6 +371,95 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
         </Card>
       </div>
 
+      {counsellingFollowUps.length > 0 || lead.status === "counselling_in_progress" || lead.status === "counselling_completed" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Counselling pipeline</CardTitle>
+            <CardDescription>
+              Mandatory 3 follow-ups at 72-hour intervals during counselling.
+              {lead.status === "counselling_completed" && lead.counselling_completed_at ? (
+                <>
+                  {" "}Completed {format(new Date(lead.counselling_completed_at), "PP")}.
+                </>
+              ) : null}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2 text-sm">
+              <Badge variant="secondary">
+                {completedCounsellingCount}/3 follow-ups completed
+              </Badge>
+              {nextPending && nextPending.sequence ? (
+                <Badge variant="outline">
+                  Next: follow-up #{nextPending.sequence} on{" "}
+                  {format(new Date(nextPending.scheduled_at), "PP p")}
+                </Badge>
+              ) : null}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {[1, 2, 3].map((seq) => {
+                const item = counsellingFollowUps.find((f) => f.sequence === seq);
+                const isDone = item?.status === "completed";
+                const isUpcoming = item?.status === "pending";
+                return (
+                  <div
+                    key={seq}
+                    className={`rounded-md border p-3 ${
+                      isDone ? "bg-emerald-50 dark:bg-emerald-500/10" : ""
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs font-medium">
+                      <span>Follow-up #{seq}</span>
+                      {isDone ? (
+                        <Badge variant="default" className="text-[10px]">Done</Badge>
+                      ) : isUpcoming ? (
+                        <Badge variant="secondary" className="text-[10px]">Scheduled</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">—</Badge>
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {item
+                        ? format(new Date(item.scheduled_at), "PP p")
+                        : "Not scheduled"}
+                    </div>
+                    {item?.completed_at ? (
+                      <div className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300">
+                        Completed {format(new Date(item.completed_at), "PP")}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            {lead.status === "counselling_completed" && (
+              <div className="grid gap-2 rounded-md border bg-muted/20 p-3">
+                <div className="text-sm font-medium">Counselling checks</div>
+                <ul className="grid gap-1 text-sm sm:grid-cols-2">
+                  {COUNSELLING_CHECK_KEYS.map((key) => (
+                    <li
+                      key={key}
+                      className="flex items-center gap-2 text-xs text-muted-foreground"
+                    >
+                      <span
+                        className={`inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] ${
+                          lead.counselling_checks?.[key]
+                            ? "border-emerald-500 bg-emerald-500 text-white"
+                            : "border-muted-foreground/40"
+                        }`}
+                      >
+                        {lead.counselling_checks?.[key] ? "✓" : ""}
+                      </span>
+                      {COUNSELLING_CHECK_LABELS[key]}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Tabs defaultValue="timeline">
         <TabsList>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
@@ -384,67 +518,34 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
         </TabsContent>
         <TabsContent value="follow-ups">
           <Card>
-            <CardContent className="pt-6">
-              {!followUps || followUps.length === 0 ? (
-                <EmptyState text="No follow-ups yet. Schedule one to keep this lead warm." />
-              ) : (
-                <ul className="divide-y">
-                  {followUps.map((f) => {
-                    const overdue = f.status === "pending" && isPast(new Date(f.scheduled_at));
-                    return (
-                    <li
-                      key={f.id}
-                      className={`flex flex-wrap items-center justify-between gap-2 py-3 ${
-                        overdue ? "rounded-md bg-destructive/5 px-2" : ""
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          {f.status === "completed" ? (
-                            <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          ) : (
-                            <Clock className="h-4 w-4 text-amber-600" />
-                          )}
-                          {FOLLOW_UP_TYPE_LABELS[f.followup_type ?? f.type]} —{" "}
-                          {format(new Date(f.scheduled_at), "PPp")}
-                          <Badge
-                            variant={
-                              f.priority === "high" || f.priority === "urgent"
-                                ? "destructive"
-                                : "secondary"
-                            }
-                            className="text-[10px]"
-                          >
-                            {FOLLOW_UP_PRIORITY_LABELS[f.priority]}
-                          </Badge>
-                          {overdue ? (
-                            <Badge variant="destructive" className="text-[10px]">
-                              Overdue
-                            </Badge>
-                          ) : null}
-                        </div>
-                        {f.remarks ?? f.notes ? (
-                          <p className="ml-6 mt-1 text-xs text-muted-foreground">
-                            {f.remarks ?? f.notes}
-                          </p>
-                        ) : null}
-                      </div>
-                      <Badge
-                        variant={
-                          f.status === "completed"
-                            ? "default"
-                            : f.status === "missed"
-                            ? "destructive"
-                            : "secondary"
-                        }
-                      >
-                        {f.status}
-                      </Badge>
-                    </li>
-                  );
-                  })}
-                </ul>
-              )}
+            <CardContent className="space-y-4 pt-6">
+              <div>
+                <div className="mb-2 text-sm font-medium">
+                  Next upcoming follow-up
+                </div>
+                {nextPending ? (
+                  <FollowUpRow followUp={nextPending} />
+                ) : (
+                  <EmptyState text="No upcoming follow-up." />
+                )}
+              </div>
+              <Separator />
+              <div>
+                <div className="mb-2 text-sm font-medium">
+                  Completed follow-ups
+                </div>
+                {completedFollowUps.length === 0 ? (
+                  <EmptyState text="No completed follow-ups yet." />
+                ) : (
+                  <ul className="divide-y">
+                    {completedFollowUps.map((f) => (
+                      <li key={f.id} className="py-3">
+                        <FollowUpRow followUp={f} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -461,6 +562,75 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
         leadId={leadId}
         followUp={null}
       />
+    </div>
+  );
+}
+
+function FollowUpRow({
+  followUp,
+}: {
+  followUp: import("@/lib/hooks/use-follow-ups").FollowUpWithRelations;
+}) {
+  const overdue =
+    followUp.status === "pending" && isPast(new Date(followUp.scheduled_at));
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-2 ${
+        overdue ? "rounded-md bg-destructive/5 px-2 py-1" : ""
+      }`}
+    >
+      <div>
+        <div className="flex items-center gap-2 text-sm font-medium">
+          {followUp.status === "completed" ? (
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+          ) : (
+            <Clock className="h-4 w-4 text-amber-600" />
+          )}
+          {FOLLOW_UP_TYPE_LABELS[followUp.followup_type ?? followUp.type]} —{" "}
+          {format(new Date(followUp.scheduled_at), "PPp")}
+          {followUp.sequence ? (
+            <Badge variant="outline" className="text-[10px]">
+              #{followUp.sequence}
+            </Badge>
+          ) : null}
+          <Badge
+            variant={
+              followUp.priority === "high" || followUp.priority === "urgent"
+                ? "destructive"
+                : "secondary"
+            }
+            className="text-[10px]"
+          >
+            {FOLLOW_UP_PRIORITY_LABELS[followUp.priority]}
+          </Badge>
+          {overdue ? (
+            <Badge variant="destructive" className="text-[10px]">
+              Overdue
+            </Badge>
+          ) : null}
+        </div>
+        {followUp.remarks ?? followUp.notes ? (
+          <p className="ml-6 mt-1 text-xs text-muted-foreground">
+            {followUp.remarks ?? followUp.notes}
+          </p>
+        ) : null}
+        {followUp.assignee ? (
+          <div className="ml-6 mt-1 text-[11px] text-muted-foreground">
+            Assigned to {followUp.assignee.full_name ?? followUp.assignee.email}
+          </div>
+        ) : null}
+      </div>
+      <Badge
+        variant={
+          followUp.status === "completed"
+            ? "default"
+            : followUp.status === "missed"
+            ? "destructive"
+            : "secondary"
+        }
+      >
+        {followUp.status}
+      </Badge>
     </div>
   );
 }

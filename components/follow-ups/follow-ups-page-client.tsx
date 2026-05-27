@@ -12,9 +12,10 @@ import {
   ChevronRight,
   Clock,
   Phone,
-  XCircle,
+  ShieldCheck,
 } from "lucide-react";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,80 +60,132 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   useCompleteFollowUpTask,
   useFollowUps,
-  useUpdateFollowUpStatus,
+  useUpsertFollowUp,
+  nextUpcomingPerLead,
   type FollowUpWithRelations,
 } from "@/lib/hooks/use-follow-ups";
+import { useProfiles } from "@/lib/hooks/use-profiles";
 import {
   FOLLOW_UP_PRIORITY_LABELS,
   FOLLOW_UP_TYPE_LABELS,
-  type FollowUpPriority,
-  type FollowUpType,
-  type LeadStatus,
+  isAdminRole,
+  type UserRole,
 } from "@/lib/types";
 
-const terminalStatuses = new Set<LeadStatus>([
-  "invalid",
-  "unable_to_reach",
-  "no_response",
-  "not_interested",
-  "registered_closed",
-  "registered_paid_reg_fee",
-  "registered_dropped_out",
-]);
+type Filter = "mine" | "all";
 
-const followUpTypes = Object.keys(FOLLOW_UP_TYPE_LABELS) as FollowUpType[];
-const priorities = Object.keys(FOLLOW_UP_PRIORITY_LABELS) as FollowUpPriority[];
+export function FollowUpsPageClient({
+  currentUserId,
+  role,
+}: {
+  currentUserId: string;
+  role: UserRole;
+}) {
+  const isAdmin = isAdminRole(role);
+  const [filter, setFilter] = React.useState<Filter>(isAdmin ? "all" : "mine");
+  const [assigneeFilter, setAssigneeFilter] = React.useState<string>("");
 
-export function FollowUpsPageClient() {
-  const { data: followUps, isLoading } = useFollowUps();
-  const update = useUpdateFollowUpStatus();
+  const assignedTo = React.useMemo(() => {
+    if (!isAdmin) return "me" as const;
+    if (filter === "mine") return "me" as const;
+    if (assigneeFilter) return assigneeFilter;
+    return undefined;
+  }, [assigneeFilter, filter, isAdmin]);
+
+  const { data: followUps, isLoading } = useFollowUps({ assignedTo });
+  const { data: profiles } = useProfiles();
   const complete = useCompleteFollowUpTask();
   const [completingTask, setCompletingTask] =
+    React.useState<FollowUpWithRelations | null>(null);
+  const [reassignTask, setReassignTask] =
     React.useState<FollowUpWithRelations | null>(null);
 
   const groups = React.useMemo(() => {
     const list = followUps ?? [];
     const now = new Date();
+    const nextUpcoming = nextUpcomingPerLead(list);
     return {
-      upcoming: list.filter(
-        (f) => f.status === "pending" && new Date(f.scheduled_at) >= now,
-      ),
-      overdue: list.filter(
-        (f) => f.status === "pending" && new Date(f.scheduled_at) < now,
-      ),
-      completed: list.filter((f) => f.status === "completed"),
-      missed: list.filter((f) => f.status === "missed" || f.status === "cancelled"),
+      upcoming: nextUpcoming.filter((f) => new Date(f.scheduled_at) >= now),
+      overdue: nextUpcoming.filter((f) => new Date(f.scheduled_at) < now),
+      completed: list
+        .filter((f) => f.status === "completed")
+        .sort(
+          (a, b) =>
+            new Date(b.completed_at ?? b.scheduled_at).getTime() -
+            new Date(a.completed_at ?? a.scheduled_at).getTime(),
+        ),
     };
   }, [followUps]);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Follow-ups</h1>
-        <p className="text-sm text-muted-foreground">
-          Daily activities and pending tasks across your team.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Follow-ups</h1>
+          <p className="text-sm text-muted-foreground">
+            Only the next upcoming follow-up per lead is shown. Complete it to
+            unlock the next one in the sequence.
+          </p>
+        </div>
+        {isAdmin ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
+              <TabsList>
+                <TabsTrigger value="mine">My follow-ups</TabsTrigger>
+                <TabsTrigger value="all">All counsellors</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {filter === "all" ? (
+              <Select
+                value={assigneeFilter || "all"}
+                onValueChange={(v) => setAssigneeFilter(v === "all" ? "" : v)}
+              >
+                <SelectTrigger className="h-9 w-[220px]">
+                  <SelectValue placeholder="Filter by counsellor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All counsellors</SelectItem>
+                  {(profiles ?? [])
+                    .filter((p) => p.is_active)
+                    .map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.full_name || p.email}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
+      {!isAdmin ? (
+        <Alert>
+          <ShieldCheck className="h-4 w-4" />
+          <AlertTitle>Personal queue</AlertTitle>
+          <AlertDescription>
+            You are viewing only the follow-ups assigned to you.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {groups.overdue.length > 0 ? (
-        <Card className="sticky top-4 z-10 border-destructive/40 bg-destructive/10 shadow-sm">
+        <Card className="border-destructive/40 bg-destructive/10 shadow-sm">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
             <div>
               <div className="text-sm font-medium text-destructive">
-                {groups.overdue.length} overdue follow-up{groups.overdue.length === 1 ? "" : "s"}
+                {groups.overdue.length} overdue follow-up
+                {groups.overdue.length === 1 ? "" : "s"}
               </div>
               <p className="text-xs text-muted-foreground">
                 Clear missed work first to keep counsellor queues healthy.
               </p>
             </div>
-            <Button asChild size="sm" variant="destructive">
-              <a href="#overdue-follow-ups">Review overdue</a>
-            </Button>
           </CardContent>
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <KpiCard
           title="Upcoming"
           value={groups.upcoming.length}
@@ -150,12 +203,6 @@ export function FollowUpsPageClient() {
           value={groups.completed.length}
           icon={<CheckCircle2 className="h-4 w-4" />}
           tone="success"
-        />
-        <KpiCard
-          title="Missed / cancelled"
-          value={groups.missed.length}
-          icon={<XCircle className="h-4 w-4" />}
-          tone="muted"
         />
       </div>
 
@@ -178,7 +225,6 @@ export function FollowUpsPageClient() {
             ) : null}
           </TabsTrigger>
           <TabsTrigger value="completed">Completed</TabsTrigger>
-          <TabsTrigger value="missed">Missed</TabsTrigger>
         </TabsList>
         <TabsContent value="upcoming">
           <FollowUpList
@@ -186,16 +232,20 @@ export function FollowUpsPageClient() {
             items={groups.upcoming}
             empty="No upcoming follow-ups."
             onComplete={setCompletingTask}
-            onMiss={(id) => update.mutate({ id, status: "missed" })}
+            isAdmin={isAdmin}
+            currentUserId={currentUserId}
+            onReassign={isAdmin ? setReassignTask : undefined}
           />
         </TabsContent>
-        <TabsContent value="overdue" id="overdue-follow-ups">
+        <TabsContent value="overdue">
           <FollowUpList
             isLoading={isLoading}
             items={groups.overdue}
             empty="Nothing overdue. Great job!"
             onComplete={setCompletingTask}
-            onMiss={(id) => update.mutate({ id, status: "missed" })}
+            isAdmin={isAdmin}
+            currentUserId={currentUserId}
+            onReassign={isAdmin ? setReassignTask : undefined}
           />
         </TabsContent>
         <TabsContent value="completed">
@@ -203,13 +253,8 @@ export function FollowUpsPageClient() {
             isLoading={isLoading}
             items={groups.completed}
             empty="No completed follow-ups yet."
-          />
-        </TabsContent>
-        <TabsContent value="missed">
-          <FollowUpList
-            isLoading={isLoading}
-            items={groups.missed}
-            empty="Nothing here."
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
           />
         </TabsContent>
       </Tabs>
@@ -224,6 +269,11 @@ export function FollowUpsPageClient() {
           setCompletingTask(null);
         }}
       />
+      <ReassignFollowUpDialog
+        task={reassignTask}
+        open={!!reassignTask}
+        onOpenChange={(open) => !open && setReassignTask(null)}
+      />
     </div>
   );
 }
@@ -233,13 +283,17 @@ function FollowUpList({
   empty,
   isLoading,
   onComplete,
-  onMiss,
+  onReassign,
+  isAdmin,
+  currentUserId,
 }: {
   items: FollowUpWithRelations[];
   empty: string;
   isLoading?: boolean;
   onComplete?: (task: FollowUpWithRelations) => void;
-  onMiss?: (id: string) => void;
+  onReassign?: (task: FollowUpWithRelations) => void;
+  isAdmin: boolean;
+  currentUserId: string;
 }) {
   if (isLoading) {
     return (
@@ -265,6 +319,9 @@ function FollowUpList({
         {items.map((f) => {
           const overdue =
             f.status === "pending" && isPast(new Date(f.scheduled_at));
+          const isOwn =
+            f.assigned_user_id === currentUserId ||
+            f.assigned_to === currentUserId;
           return (
             <div
               key={f.id}
@@ -275,11 +332,16 @@ function FollowUpList({
               <div className="flex items-start gap-3">
                 <CalendarClock className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
-                  <div className="flex items-center gap-2 text-sm font-medium">
+                  <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                     {f.lead?.full_name ?? "Unknown lead"}
                     <Badge variant="outline" className="text-[10px]">
                       {FOLLOW_UP_TYPE_LABELS[f.followup_type ?? f.type]}
                     </Badge>
+                    {f.sequence ? (
+                      <Badge variant="secondary" className="text-[10px]">
+                        Counselling #{f.sequence}
+                      </Badge>
+                    ) : null}
                     <Badge
                       variant={
                         f.priority === "high" || f.priority === "urgent"
@@ -295,6 +357,11 @@ function FollowUpList({
                         Overdue
                       </Badge>
                     ) : null}
+                    {isAdmin && !isOwn ? (
+                      <Badge variant="outline" className="text-[10px]">
+                        {f.assignee?.full_name ?? f.assignee?.email ?? "Unassigned"}
+                      </Badge>
+                    ) : null}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {format(new Date(f.scheduled_at), "PPp")}
@@ -305,30 +372,20 @@ function FollowUpList({
                     ) : null}
                   </div>
                   {f.notes ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {f.notes}
-                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{f.notes}</p>
                   ) : null}
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 {onComplete ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onComplete(f)}
-                  >
+                  <Button size="sm" variant="outline" onClick={() => onComplete(f)}>
                     <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
                     Complete
                   </Button>
                 ) : null}
-                {onMiss ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => onMiss(f.id)}
-                  >
-                    Mark missed
+                {onReassign ? (
+                  <Button size="sm" variant="ghost" onClick={() => onReassign(f)}>
+                    Reassign
                   </Button>
                 ) : null}
                 {f.lead ? (
@@ -351,22 +408,7 @@ function FollowUpList({
 type CompleteValues = {
   id: string;
   remarks: string;
-  next_followup_type?: FollowUpType;
-  next_due_date?: string | null;
-  next_due_time?: string | null;
-  next_priority?: FollowUpPriority;
-  next_remarks?: string | null;
 };
-
-function nextDate() {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  return date.toISOString().slice(0, 10);
-}
-
-function nextTime(task: FollowUpWithRelations | null) {
-  return task ? format(new Date(task.scheduled_at), "HH:mm") : "10:00";
-}
 
 function CompleteFollowUpDialog({
   task,
@@ -381,72 +423,30 @@ function CompleteFollowUpDialog({
   onOpenChange: (open: boolean) => void;
   onSubmit: (values: CompleteValues) => Promise<void>;
 }) {
-  const needsNext =
-    !!task?.lead?.status && !terminalStatuses.has(task.lead.status as LeadStatus);
-  const schema = React.useMemo(
-    () =>
-      z
-        .object({
-          remarks: z.string().trim().min(1, "Completion notes are required"),
-          next_followup_type: z.enum(followUpTypes as [FollowUpType, ...FollowUpType[]]),
-          next_due_date: z.string().optional().or(z.literal("")),
-          next_due_time: z.string().regex(/^\d{2}:\d{2}$/, "HH:MM").optional().or(z.literal("")),
-          next_priority: z.enum(priorities as [FollowUpPriority, ...FollowUpPriority[]]),
-          next_remarks: z.string().optional().or(z.literal("")),
-        })
-        .superRefine((values, ctx) => {
-          if (!needsNext) return;
-          if (!values.next_due_date) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["next_due_date"],
-              message: "Next follow-up date is required",
-            });
-          }
-          if (!values.next_due_time) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["next_due_time"],
-              message: "Next follow-up time is required",
-            });
-          }
-        }),
-    [needsNext],
-  );
+  const schema = z.object({
+    remarks: z.string().trim().min(1, "Completion notes are required"),
+  });
   type FormValues = z.infer<typeof schema>;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       remarks: "",
-      next_followup_type: task?.followup_type ?? task?.type ?? "call",
-      next_due_date: nextDate(),
-      next_due_time: nextTime(task),
-      next_priority: task?.priority ?? "normal",
-      next_remarks: "",
     },
   });
 
   React.useEffect(() => {
-    if (!open) return;
-    form.reset({
-      remarks: "",
-      next_followup_type: task?.followup_type ?? task?.type ?? "call",
-      next_due_date: nextDate(),
-      next_due_time: nextTime(task),
-      next_priority: task?.priority ?? "normal",
-      next_remarks: "",
-    });
-  }, [form, open, task]);
+    if (open) {
+      form.reset({ remarks: "" });
+    }
+  }, [form, open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Complete follow-up</DialogTitle>
-          <DialogDescription>
-            Add completion notes{needsNext ? " and schedule the next follow-up." : "."}
-          </DialogDescription>
+          <DialogDescription>Add completion notes.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form
@@ -455,11 +455,6 @@ function CompleteFollowUpDialog({
               onSubmit({
                 id: task?.id ?? "",
                 remarks: values.remarks,
-                next_followup_type: values.next_followup_type,
-                next_due_date: needsNext ? values.next_due_date || null : null,
-                next_due_time: needsNext ? values.next_due_time || null : null,
-                next_priority: values.next_priority,
-                next_remarks: values.next_remarks || null,
               }),
             )}
           >
@@ -470,116 +465,104 @@ function CompleteFollowUpDialog({
                 <FormItem>
                   <FormLabel>Completion notes</FormLabel>
                   <FormControl>
-                    <Textarea rows={3} placeholder="What happened on this follow-up?" {...field} />
+                    <Textarea
+                      rows={4}
+                      placeholder="What happened on this follow-up?"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            {needsNext ? (
-              <div className="rounded-lg border bg-muted/20 p-3">
-                <div className="mb-3 text-sm font-medium">Next follow-up</div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="next_due_date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Date</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="next_due_time"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Time</FormLabel>
-                        <FormControl>
-                          <Input type="time" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="next_followup_type"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Type</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {followUpTypes.map((type) => (
-                              <SelectItem key={type} value={type}>
-                                {FOLLOW_UP_TYPE_LABELS[type]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="next_priority"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Priority</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {priorities.map((priority) => (
-                              <SelectItem key={priority} value={priority}>
-                                {FOLLOW_UP_PRIORITY_LABELS[priority]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormField
-                  control={form.control}
-                  name="next_remarks"
-                  render={({ field }) => (
-                    <FormItem className="mt-3">
-                      <FormLabel>Next task remarks</FormLabel>
-                      <FormControl>
-                        <Textarea rows={2} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            ) : null}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={isSaving || !task}>
-                {isSaving ? "Completing..." : "Complete follow-up"}
+                {isSaving ? "Completing…" : "Complete follow-up"}
               </Button>
             </DialogFooter>
           </form>
         </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReassignFollowUpDialog({
+  task,
+  open,
+  onOpenChange,
+}: {
+  task: FollowUpWithRelations | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data: profiles } = useProfiles();
+  const upsert = useUpsertFollowUp();
+  const [assignee, setAssignee] = React.useState<string>(
+    task?.assigned_user_id ?? "",
+  );
+
+  React.useEffect(() => {
+    setAssignee(task?.assigned_user_id ?? "");
+  }, [task]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reassign follow-up</DialogTitle>
+          <DialogDescription>
+            Pick a counsellor to take ownership of this follow-up.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <Select value={assignee || "none"} onValueChange={setAssignee}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select counsellor" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">— Unassigned —</SelectItem>
+              {(profiles ?? [])
+                .filter((p) => p.is_active)
+                .map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.full_name || p.email}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!task || upsert.isPending}
+            onClick={async () => {
+              if (!task) return;
+              await upsert.mutateAsync({
+                id: task.id,
+                lead_id: task.lead_id,
+                followup_type: task.followup_type ?? task.type,
+                assigned_user_id: assignee === "none" ? null : assignee,
+                due_date: task.due_date,
+                due_time: task.due_time,
+                priority: task.priority,
+                remarks: task.remarks ?? task.notes ?? null,
+              });
+              onOpenChange(false);
+            }}
+          >
+            {upsert.isPending ? "Saving…" : "Reassign"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -604,7 +587,7 @@ function KpiCard({
   } as const;
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}
         </CardTitle>

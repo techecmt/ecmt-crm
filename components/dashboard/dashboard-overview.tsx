@@ -109,6 +109,15 @@ const TERMINAL_STATUSES = new Set<LeadStatus>([
   "registered_dropped_out",
 ]);
 
+function dedupeById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
 const sourceColors: Record<LeadSource, string> = {
   tiktok_dm: "hsl(var(--chart-1))",
   print_media: "hsl(var(--chart-2))",
@@ -278,7 +287,7 @@ export function DashboardOverview({ leads, colleges, usersCount, profile, follow
         <TaskListCard
           title={taskFirst ? "Your task queue" : "Today's follow-ups"}
           description="Task-first worklist for counsellors."
-          tasks={[...missedFollowUps, ...todaysFollowUps].slice(0, 8)}
+          tasks={dedupeById([...missedFollowUps, ...todaysFollowUps]).slice(0, 8)}
         />
         <TaskListCard
           title="High priority leads"

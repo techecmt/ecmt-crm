@@ -73,22 +73,22 @@ import {
   useBulkUpdateLeads,
   useDeleteLead,
   useLeads,
-  useUpdateLeadStatus,
   type LeadFilters,
 } from "@/lib/hooks/use-leads";
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import {
   LEAD_SOURCE_LABELS,
   LEAD_STATUS_LABELS,
+  PIPELINE_LEAD_STATUSES,
   type Lead,
   type LeadSource,
   type LeadStatus,
 } from "@/lib/types";
 import { LeadFormSheet } from "@/components/leads/lead-form-sheet";
-import { LeadStatusBadge } from "@/components/leads/status-badge";
+import { LeadStatusSelect } from "@/components/leads/status-select";
 import { cn } from "@/lib/utils";
 
-const statuses = Object.keys(LEAD_STATUS_LABELS) as LeadStatus[];
+const statuses = PIPELINE_LEAD_STATUSES;
 const sources = Object.keys(LEAD_SOURCE_LABELS) as LeadSource[];
 const NO_BULK_CHANGE = "__no_change";
 
@@ -146,7 +146,6 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
   } = useLeads({ ...filters, search: debouncedSearch });
   const { data: colleges } = useColleges();
   const { data: profiles } = useProfiles();
-  const updateStatus = useUpdateLeadStatus();
   const bulkUpdateLeads = useBulkUpdateLeads();
   const deleteLead = useDeleteLead();
 
@@ -278,7 +277,9 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
   const highIntentCount = sortedLeads.filter((lead) => lead.lead_score >= 80).length;
   const registeredCount = sortedLeads.filter(
     (lead) =>
-      lead.status === "registered_closed" || lead.status === "registered_paid_reg_fee",
+      lead.status === "registration_unpaid" ||
+      lead.status === "registered_paid_reg_fee" ||
+      lead.status === "registered_closed",
   ).length;
   const freshThisWeekCount = sortedLeads.filter(
     (lead) => new Date(lead.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000,
@@ -717,30 +718,7 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Select
-                      value={lead.status}
-                      onValueChange={(v) =>
-                        updateStatus.mutate({
-                          id: lead.id,
-                          status: v as LeadStatus,
-                        })
-                      }
-                    >
-                      <SelectTrigger className="h-8 w-[170px] text-xs">
-                        <SelectValue asChild>
-                          <span>
-                            <LeadStatusBadge status={lead.status} />
-                          </span>
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {statuses.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {LEAD_STATUS_LABELS[s]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <LeadStatusSelect lead={lead} />
                   </TableCell>
                   <TableCell className="text-right">
                     <Badge variant={lead.lead_score >= 80 ? "default" : "secondary"}>

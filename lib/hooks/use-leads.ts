@@ -9,13 +9,17 @@ import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
 import { ADMISSION_GOALS_KEY } from "@/lib/hooks/use-admission-goals";
+import { shouldClearPendingFollowUps } from "@/lib/lead-pipeline";
 import type {
   AdmissionStage,
+  CounsellingChecks,
   FollowUpPriority,
+  HighestQualification,
   Lead,
   LeadActivity,
   LeadSource,
   LeadStatus,
+  NotInterestedReason,
 } from "@/lib/types";
 
 const LEADS_KEY = ["leads"] as const;
@@ -111,9 +115,15 @@ export function useLeadActivities(leadId: string | undefined) {
 export type LeadUpsertInput = {
   id?: string;
   full_name: string;
+  first_name?: string | null;
+  last_name?: string | null;
   phone: string;
   email?: string | null;
   city?: string | null;
+  nationality?: string | null;
+  nationality_other?: string | null;
+  highest_qualification?: HighestQualification | null;
+  highest_qualification_other?: string | null;
   interested_course?: string | null;
   college_id?: string | null;
   source?: LeadSource;
@@ -204,27 +214,58 @@ export function useUpsertLead() {
   });
 }
 
+export type UpdateLeadStatusInput = {
+  id: string;
+  status: LeadStatus;
+  /** Optional counsellor override when (re)seeding follow-ups. */
+  assigned_user_id?: string | null;
+  /** Optional starting moment for the 72-hour follow-up sequence. */
+  counselling_first_at?: string;
+};
+
 export function useUpdateLeadStatus() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
       id,
       status,
-    }: {
-      id: string;
-      status: LeadStatus;
-    }) => {
+      assigned_user_id,
+      counselling_first_at,
+    }: UpdateLeadStatusInput) => {
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      const updates: Record<string, unknown> = { status };
+      if (status === "counselling_in_progress" && assigned_user_id) {
+        updates.assigned_counsellor = assigned_user_id;
+      }
       const { data, error } = await supabase
         .from("leads")
-        .update({ status })
+        .update(updates)
         .eq("id", id)
         .select("*")
         .single();
       if (error) throw new Error(error.message);
+
+      if (status === "counselling_in_progress") {
+        const { error: seedError } = await supabase.rpc(
+          "start_counselling_follow_ups",
+          {
+            p_lead_id: id,
+            p_assigned_user_id: assigned_user_id ?? null,
+            p_first_at: counselling_first_at ?? null,
+          },
+        );
+        if (seedError) throw new Error(seedError.message);
+      } else if (shouldClearPendingFollowUps(status)) {
+        const { error: clearError } = await supabase.rpc(
+          "clear_pending_follow_ups",
+          { p_lead_id: id },
+        );
+        if (clearError) throw new Error(clearError.message);
+      }
+
       if (user) {
         await supabase.from("lead_activities").insert({
           lead_id: id,
@@ -238,6 +279,144 @@ export function useUpdateLeadStatus() {
     onSuccess: () => {
       toast.success("Status updated");
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ["follow_ups"] });
+      qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export type CompleteCounsellingInput = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  nationality: string;
+  nationality_other?: string | null;
+  highest_qualification: HighestQualification;
+  highest_qualification_other?: string | null;
+  college_id: string;
+  interested_course: string;
+  counselling_checks: CounsellingChecks;
+};
+
+export function useCompleteCounselling() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CompleteCounsellingInput) => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const full_name = `${input.first_name.trim()} ${input.last_name.trim()}`.trim();
+      const { data, error } = await supabase
+        .from("leads")
+        .update({
+          status: "counselling_completed",
+          first_name: input.first_name.trim(),
+          last_name: input.last_name.trim(),
+          full_name,
+          phone: input.phone.trim(),
+          nationality: input.nationality.trim(),
+          nationality_other:
+            input.nationality === "Other"
+              ? input.nationality_other?.trim() || null
+              : null,
+          highest_qualification: input.highest_qualification,
+          highest_qualification_other:
+            input.highest_qualification === "other"
+              ? input.highest_qualification_other?.trim() || null
+              : null,
+          college_id: input.college_id,
+          interested_course: input.interested_course,
+          counselling_checks: input.counselling_checks,
+          counselling_completed_at: new Date().toISOString(),
+        })
+        .eq("id", input.id)
+        .select("*")
+        .single();
+      if (error) throw new Error(error.message);
+
+      const { error: clearError } = await supabase.rpc(
+        "clear_pending_follow_ups",
+        { p_lead_id: input.id },
+      );
+      if (clearError) throw new Error(clearError.message);
+
+      if (user) {
+        await supabase.from("lead_activities").insert({
+          lead_id: input.id,
+          user_id: user.id,
+          type: "status_change",
+          title: "Counselling completed",
+          description: "Counsellor confirmed all mandatory counselling checks.",
+          metadata: { counselling_checks: input.counselling_checks },
+        });
+      }
+      return data as Lead;
+    },
+    onSuccess: () => {
+      toast.success("Counselling completed");
+      qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ["follow_ups"] });
+      qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export type MarkNotInterestedInput = {
+  id: string;
+  reason: NotInterestedReason;
+  notes: string;
+};
+
+export function useMarkNotInterested() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason, notes }: MarkNotInterestedInput) => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const trimmedNotes = notes.trim();
+      if (!trimmedNotes) {
+        throw new Error("Notes are required when marking a lead Not Interested.");
+      }
+      const { data, error } = await supabase
+        .from("leads")
+        .update({
+          status: "not_interested",
+          not_interested_reason: reason,
+          not_interested_notes: trimmedNotes,
+        })
+        .eq("id", id)
+        .select("*")
+        .single();
+      if (error) throw new Error(error.message);
+
+      const { error: clearError } = await supabase.rpc(
+        "clear_pending_follow_ups",
+        { p_lead_id: id },
+      );
+      if (clearError) throw new Error(clearError.message);
+
+      if (user) {
+        await supabase.from("lead_activities").insert({
+          lead_id: id,
+          user_id: user.id,
+          type: "status_change",
+          title: "Marked Not Interested",
+          description: trimmedNotes,
+          metadata: { reason },
+        });
+      }
+      return data as Lead;
+    },
+    onSuccess: () => {
+      toast.success("Lead marked Not Interested");
+      qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ["follow_ups"] });
       qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
     onError: (err: Error) => toast.error(err.message),

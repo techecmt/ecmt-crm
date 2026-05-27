@@ -8,18 +8,43 @@ export type UserRole =
 
 export type LeadStatus =
   | "inquiry_received"
-  | "invalid"
-  | "unable_to_reach"
+  | "counselling_in_progress"
+  | "counselling_completed"
   | "no_response"
-  | "contacted_info_shared"
   | "not_interested"
+  | "invalid"
+  | "course_not_started"
+  | "registration_unpaid"
+  | "registered_paid_reg_fee"
+  // Legacy statuses kept for backward compatibility with existing data.
+  | "unable_to_reach"
+  | "contacted_info_shared"
   | "need_time_follow_up"
   | "refer_to_management"
-  | "course_not_started"
   | "on_discussions"
   | "registered_closed"
-  | "registered_paid_reg_fee"
   | "registered_dropped_out";
+
+export type HighestQualification =
+  | "o_level"
+  | "a_level"
+  | "30_year_above"
+  | "other";
+
+export type NotInterestedReason =
+  | "financial_issues"
+  | "employer_issues"
+  | "class_schedule_issues"
+  | "other";
+
+export type CounsellingCheckKey =
+  | "website_details"
+  | "mer"
+  | "policies"
+  | "fee_structure"
+  | "attendance";
+
+export type CounsellingChecks = Partial<Record<CounsellingCheckKey, boolean>>;
 
 export type LeadSource =
   | "tiktok_dm"
@@ -109,9 +134,15 @@ export interface Lead {
   id: string;
   college_id: string | null;
   full_name: string;
+  first_name: string | null;
+  last_name: string | null;
   phone: string;
   email: string | null;
   city: string | null;
+  nationality: string | null;
+  nationality_other: string | null;
+  highest_qualification: HighestQualification | null;
+  highest_qualification_other: string | null;
   interested_course: string | null;
   source: LeadSource;
   status: LeadStatus;
@@ -125,6 +156,10 @@ export interface Lead {
   utm_medium: string | null;
   utm_campaign: string | null;
   is_duplicate: boolean;
+  counselling_checks: CounsellingChecks;
+  counselling_completed_at: string | null;
+  not_interested_reason: NotInterestedReason | null;
+  not_interested_notes: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -142,6 +177,7 @@ export interface FollowUp {
   due_date: string;
   due_time: string;
   priority: FollowUpPriority;
+  sequence: number | null;
   completed_at: string | null;
   notes: string | null;
   remarks: string | null;
@@ -220,19 +256,99 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
 
 export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   inquiry_received: "Inquiry Received",
-  invalid: "Invalid",
-  unable_to_reach: "Unable to Reach",
+  counselling_in_progress: "Counselling In-Progress",
+  counselling_completed: "Counselling Completed",
   no_response: "No Response",
-  contacted_info_shared: "Contacted & Info Shared",
   not_interested: "Not Interested",
-  need_time_follow_up: "Need Time: To Be Followed Up",
-  refer_to_management: "Refer to Management",
-  course_not_started: "Course Not Started",
-  on_discussions: "On- Discussions",
-  registered_closed: "Registered (Closed)",
-  registered_paid_reg_fee: "Registered (Paid- Reg Fee)",
-  registered_dropped_out: "Registered & Dropped-out",
+  invalid: "Invalid Contact",
+  course_not_started: "Inactive Courses",
+  registration_unpaid: "Registration (Unpaid)",
+  registered_paid_reg_fee: "Registration (Paid)",
+  // Legacy labels kept for historical rows.
+  unable_to_reach: "Unable to Reach (legacy)",
+  contacted_info_shared: "Contacted & Info Shared (legacy)",
+  need_time_follow_up: "Need Time: Follow Up (legacy)",
+  refer_to_management: "Refer to Management (legacy)",
+  on_discussions: "On Discussions (legacy)",
+  registered_closed: "Registered Closed (legacy)",
+  registered_dropped_out: "Registered & Dropped-out (legacy)",
 };
+
+/** Pipeline statuses surfaced in the UI, in pipeline order. Legacy statuses are excluded. */
+export const PIPELINE_LEAD_STATUSES: LeadStatus[] = [
+  "inquiry_received",
+  "counselling_in_progress",
+  "counselling_completed",
+  "no_response",
+  "not_interested",
+  "invalid",
+  "course_not_started",
+  "registration_unpaid",
+  "registered_paid_reg_fee",
+];
+
+/** Statuses where the lead is considered to have entered counselling at least once. */
+export const COUNSELLING_STATUSES: LeadStatus[] = [
+  "counselling_in_progress",
+  "counselling_completed",
+];
+
+/** Status moves where pending follow-ups must be deleted. */
+export const STATUSES_THAT_CLEAR_PENDING_FOLLOWUPS: LeadStatus[] = [
+  "no_response",
+  "not_interested",
+  "invalid",
+  "course_not_started",
+  "registration_unpaid",
+  "registered_paid_reg_fee",
+];
+
+/** Statuses that do not require an ongoing pending follow-up. */
+export const TERMINAL_LEAD_STATUSES: LeadStatus[] = [
+  "no_response",
+  "not_interested",
+  "invalid",
+  "unable_to_reach",
+  "course_not_started",
+  "registration_unpaid",
+  "registered_paid_reg_fee",
+  "registered_closed",
+  "registered_dropped_out",
+];
+
+export function isTerminalLeadStatus(status: LeadStatus) {
+  return TERMINAL_LEAD_STATUSES.includes(status);
+}
+
+export const HIGHEST_QUALIFICATION_LABELS: Record<HighestQualification, string> = {
+  o_level: "'O' Level",
+  a_level: "'A' Level",
+  "30_year_above": "30 Years & Above",
+  other: "Other",
+};
+
+export const NOT_INTERESTED_REASON_LABELS: Record<NotInterestedReason, string> = {
+  financial_issues: "Financial Issues",
+  employer_issues: "Employer Issues",
+  class_schedule_issues: "Class Schedule Issues",
+  other: "Other",
+};
+
+export const COUNSELLING_CHECK_LABELS: Record<CounsellingCheckKey, string> = {
+  website_details: "Website Details",
+  mer: "MER (Merit / Eligibility Requirements)",
+  policies: "Policies",
+  fee_structure: "Fee Structure",
+  attendance: "Attendance Requirements",
+};
+
+export const COUNSELLING_CHECK_KEYS: CounsellingCheckKey[] = [
+  "website_details",
+  "mer",
+  "policies",
+  "fee_structure",
+  "attendance",
+];
 
 export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   tiktok_dm: "TikTok DM",
