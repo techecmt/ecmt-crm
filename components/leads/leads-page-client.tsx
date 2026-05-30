@@ -8,17 +8,13 @@ import {
   ArrowUpDown,
   Building2,
   ChevronRight,
-  CheckCircle2,
   RefreshCw,
   MoreHorizontal,
   Pencil,
   Plus,
   Search,
   SlidersHorizontal,
-  Sparkles,
-  Target,
   Trash2,
-  TrendingUp,
   UserCircle2,
   Users,
   X,
@@ -269,21 +265,19 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
     sortedLeads.some((lead) => selectedLeadIds.includes(lead.id)) && !allVisibleSelected;
 
   const selectedLeadsCount = selectedLeadIds.length;
-  const averageScore = sortedLeads.length
-    ? Math.round(
-        sortedLeads.reduce((sum, lead) => sum + lead.lead_score, 0) / sortedLeads.length,
-      )
-    : 0;
-  const highIntentCount = sortedLeads.filter((lead) => lead.lead_score >= 80).length;
-  const registeredCount = sortedLeads.filter(
-    (lead) =>
-      lead.status === "registration_unpaid" ||
-      lead.status === "registered_paid_reg_fee" ||
-      lead.status === "registered_closed",
-  ).length;
-  const freshThisWeekCount = sortedLeads.filter(
-    (lead) => new Date(lead.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000,
-  ).length;
+  const statusCounts = React.useMemo(() => {
+    const counts = Object.fromEntries(statuses.map((status) => [status, 0])) as Record<
+      LeadStatus,
+      number
+    >;
+    (leads ?? []).forEach((lead) => {
+      if (lead.status in counts) {
+        counts[lead.status] += 1;
+      }
+    });
+    return counts;
+  }, [leads]);
+  const totalLeadCount = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
 
   const onToggleAllVisible = (checked: boolean | "indeterminate") => {
     if (!checked) {
@@ -347,39 +341,41 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <ScoreCard
-          icon={Target}
-          title="Average lead score"
-          value={`${averageScore}`}
-          subtitle={`${sortedLeads.length} visible leads`}
-        />
-        <ScoreCard
-          icon={Sparkles}
-          title="High-intent leads"
-          value={`${highIntentCount}`}
-          subtitle="Score 80+"
-        />
-        <ScoreCard
-          icon={CheckCircle2}
-          title="Registered leads"
-          value={`${registeredCount}`}
-          subtitle="Closed or registration fee paid"
-        />
-        <ScoreCard
-          icon={TrendingUp}
-          title="Fresh this week"
-          value={`${freshThisWeekCount}`}
-          subtitle="Created in last 7 days"
-        />
-      </div>
-
       <Card className="border-border/70 shadow-sm">
         <CardHeader className="space-y-1 pb-3">
           <CardTitle className="text-base">Search, filter & sort</CardTitle>
           <CardDescription>
             Stripe-style controls for quick slicing, ranking, and expert-level querying.
           </CardDescription>
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <Button
+              type="button"
+              variant={filters.status === "all" ? "default" : "outline"}
+              size="sm"
+              className="h-8 rounded-full px-3"
+              onClick={() => setFilters((f) => ({ ...f, status: "all" }))}
+            >
+              All
+              <Badge variant="secondary" className="ml-2 h-5 rounded-full px-2 text-xs">
+                {totalLeadCount}
+              </Badge>
+            </Button>
+            {statuses.map((status) => (
+              <Button
+                key={status}
+                type="button"
+                variant={filters.status === status ? "default" : "outline"}
+                size="sm"
+                className="h-8 rounded-full px-3"
+                onClick={() => setFilters((f) => ({ ...f, status }))}
+              >
+                {LEAD_STATUS_LABELS[status]}
+                <Badge variant="secondary" className="ml-2 h-5 rounded-full px-2 text-xs">
+                  {statusCounts[status]}
+                </Badge>
+              </Button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 lg:grid-cols-12">
@@ -414,24 +410,6 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
               <ArrowUpDown className="mr-2 h-4 w-4" />
               {sortDir === "asc" ? "Asc" : "Desc"}
             </Button>
-            <Select
-              value={filters.status ?? "all"}
-              onValueChange={(v) =>
-                setFilters((f) => ({ ...f, status: v as LeadStatus | "all" }))
-              }
-            >
-              <SelectTrigger className="lg:col-span-2">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                {statuses.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {LEAD_STATUS_LABELS[s]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Select
               value={filters.source ?? "all"}
               onValueChange={(v) =>
@@ -803,32 +781,5 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  );
-}
-
-function ScoreCard({
-  icon: Icon,
-  title,
-  value,
-  subtitle,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  value: string;
-  subtitle: string;
-}) {
-  return (
-    <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <Icon className="h-4 w-4" />
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold tracking-tight">{value}</div>
-        <p className="text-xs text-muted-foreground">{subtitle}</p>
-      </CardContent>
-    </Card>
   );
 }

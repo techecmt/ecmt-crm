@@ -58,7 +58,7 @@ const NAV_ITEMS: NavItem[] = [
       { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks },
     ],
   },
-  { href: "/dashboard/whatsapp", label: "WhatsApp", icon: MessageCircle },
+  { href: "/dashboard/message-centre", label: "Message Centre", icon: MessageCircle },
   { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined },
   { href: "/dashboard/colleges", label: "Colleges", icon: Building2 },
   { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone },

@@ -102,6 +102,20 @@ If you wish to just develop locally and not deploy to Vercel, [follow the steps 
 
 Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).
 
+## Message Centre environment variables
+
+For the unified WhatsApp + Facebook Messenger Message Centre, set these variables:
+
+```env
+OPENROUTER_API_KEY=
+AI_MODEL=openai/gpt-4o-mini
+META_VERIFY_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_ACCESS_TOKEN=
+```
+
+Messenger page credentials are configured from the app in `Message Centre Settings` and stored in the `messaging_pages` table.
+
 ## More Supabase examples
 
 - [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)

@@ -102,7 +102,7 @@ export function ConversationDetail({ conversation }: ConversationDetailProps) {
             </h3>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Phone className="h-3 w-3" />
-              <span>{conversation.phone}</span>
+              <span>{conversation.phone || "No phone collected"}</span>
             </div>
           </div>
         </div>

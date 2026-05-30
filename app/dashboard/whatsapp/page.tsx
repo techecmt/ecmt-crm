@@ -1,7 +1,7 @@
-import { WhatsAppPageClient } from "@/components/whatsapp/whatsapp-page-client";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default function WhatsAppPage() {
-  return <WhatsAppPageClient />;
+  redirect("/dashboard/message-centre");
 }

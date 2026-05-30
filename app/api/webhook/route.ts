@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseWhatsAppWebhook, sendWhatsAppMessage } from "@/lib/whatsapp";
+import { fetchMessengerProfileName } from "@/lib/messaging/messenger";
+import { parseInboundWebhook } from "@/lib/messaging/router";
+import { sendMessage } from "@/lib/messaging/send";
 import { getAIResponse, type ChatMessage } from "@/lib/ai";
+import type { ParsedInboundMessage } from "@/lib/messaging/types";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -9,7 +12,9 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  const expectedToken =
+    process.env.META_VERIFY_TOKEN || process.env.WHATSAPP_VERIFY_TOKEN;
+  if (mode === "subscribe" && token === expectedToken) {
     console.log("[Webhook] Verification successful");
     return new NextResponse(challenge, { status: 200 });
   }
@@ -21,7 +26,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = await request.json();
 
-  const parsed = parseWhatsAppWebhook(body);
+  const parsed = parseInboundWebhook(body);
   if (!parsed) {
     return NextResponse.json({ status: "ignored" });
   }
@@ -34,75 +39,69 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ status: "received" });
 }
 
-async function processMessage(parsed: {
-  from: string;
-  name: string | null;
-  body: string;
-  timestamp: string;
-  messageId: string;
-}) {
+async function processMessage(parsed: ParsedInboundMessage) {
   const supabase = createAdminClient();
 
-  // Deduplicate: check if we already processed this message
+  // Deduplicate: check if we already processed this message.
   const { data: existingMsg } = await supabase
     .from("messages")
     .select("id")
-    .eq("whatsapp_msg_id", parsed.messageId)
+    .eq("external_msg_id", parsed.externalMessageId)
     .single();
 
   if (existingMsg) {
-    console.log("[Webhook] Duplicate message ignored:", parsed.messageId);
+    console.log("[Webhook] Duplicate message ignored:", parsed.externalMessageId);
     return;
   }
 
-  // Find or create conversation
-  let { data: conversation } = await supabase
+  // Find or create conversation by channel/page/external user.
+  const conversationMatch = supabase
     .from("conversations")
     .select("*")
-    .eq("phone", parsed.from)
-    .single();
+    .eq("channel", parsed.channel)
+    .eq("external_user_id", parsed.externalUserId);
+
+  if (parsed.pageId) {
+    conversationMatch.eq("page_id", parsed.pageId);
+  } else {
+    conversationMatch.is("page_id", null);
+  }
+
+  let incomingName = parsed.name;
+  if (!incomingName && parsed.channel === "messenger") {
+    incomingName = await fetchMessengerProfileName({
+      externalUserId: parsed.externalUserId,
+      pageId: parsed.pageId,
+    });
+  }
+
+  const { data: existingConversation } = await conversationMatch.single();
+  let conversation = existingConversation;
 
   if (!conversation) {
-    // Try to find matching lead by phone
-    let { data: lead } = await supabase
-      .from("leads")
-      .select("id")
-      .eq("phone", parsed.from)
-      .single();
-
-    // If no lead exists, create one from the WhatsApp contact
-    if (!lead) {
-      const { data: newLead } = await supabase
+    // No auto-lead creation; just link if a matching lead already exists by phone.
+    const inferredPhone =
+      parsed.channel === "whatsapp" ? parsed.externalUserId : null;
+    let leadId: string | null = null;
+    if (inferredPhone) {
+      const { data: lead } = await supabase
         .from("leads")
-        .insert({
-          full_name: parsed.name || `WhatsApp ${parsed.from}`,
-          phone: parsed.from,
-          source: "direct_calls_whatsapp",
-          status: "inquiry_received",
-          lead_score: 0,
-        })
         .select("id")
+        .eq("phone", inferredPhone)
         .single();
-
-      lead = newLead;
-
-      // Log activity for the new lead
-      if (lead) {
-        await supabase.from("lead_activities").insert({
-          lead_id: lead.id,
-          type: "system",
-          title: "Lead created from WhatsApp",
-          description: `Auto-created when ${parsed.name || parsed.from} sent a WhatsApp message.`,
-        });
-      }
+      leadId = lead?.id ?? null;
     }
 
     const { data: newConv, error } = await supabase
       .from("conversations")
       .insert({
-        phone: parsed.from,
-        name: parsed.name,
-        lead_id: lead?.id || null,
+        channel: parsed.channel,
+        page_id: parsed.pageId,
+        external_user_id: parsed.externalUserId,
+        phone: inferredPhone,
+        name: incomingName,
+        lead_id: leadId,
+        status: "open",
       })
       .select()
       .single();
@@ -112,10 +111,12 @@ async function processMessage(parsed: {
       return;
     }
     conversation = newConv;
-  } else if (parsed.name && !conversation.name) {
+
+    await autoAssignConversation(conversation.id);
+  } else if (incomingName && !conversation.name) {
     await supabase
       .from("conversations")
-      .update({ name: parsed.name })
+      .update({ name: incomingName })
       .eq("id", conversation.id);
   }
 
@@ -123,8 +124,11 @@ async function processMessage(parsed: {
   await supabase.from("messages").insert({
     conversation_id: conversation.id,
     role: "user",
-    content: parsed.body,
-    whatsapp_msg_id: parsed.messageId,
+    content: parsed.text,
+    external_msg_id: parsed.externalMessageId,
+    ...(parsed.channel === "whatsapp"
+      ? { whatsapp_msg_id: parsed.externalMessageId }
+      : {}),
   });
 
   // Update conversation timestamp
@@ -135,7 +139,10 @@ async function processMessage(parsed: {
 
   // If mode is 'human', stop here — don't auto-reply
   if (conversation.mode === "human") {
-    console.log("[Webhook] Human mode — skipping AI reply for", parsed.from);
+    console.log(
+      "[Webhook] Human mode — skipping AI reply for",
+      parsed.externalUserId,
+    );
     return;
   }
 
@@ -152,13 +159,69 @@ async function processMessage(parsed: {
     content: m.content,
   }));
 
-  // Get AI response
-  const aiResponse = await getAIResponse(chatHistory);
+  let leadContext: string | null = null;
+  let linkedConversationSummary: string | null = null;
+  if (conversation.lead_id) {
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("full_name, phone, email, interested_course, status")
+      .eq("id", conversation.lead_id)
+      .single();
+    if (lead) {
+      leadContext = [
+        `Name: ${lead.full_name}`,
+        `Phone: ${lead.phone || "-"}`,
+        `Email: ${lead.email || "-"}`,
+        `Interested course: ${lead.interested_course || "-"}`,
+        `Lead status: ${lead.status || "-"}`,
+      ].join("\n");
+    }
 
-  // Send response via WhatsApp
-  await sendWhatsAppMessage(parsed.from, aiResponse);
+    const { data: relatedConversations } = await supabase
+      .from("conversations")
+      .select("id, channel")
+      .eq("lead_id", conversation.lead_id)
+      .neq("id", conversation.id)
+      .limit(3);
 
-  // Store AI response in DB
+    if (relatedConversations?.length) {
+      const ids = relatedConversations.map((c) => c.id);
+      const { data: relatedMessages } = await supabase
+        .from("messages")
+        .select("conversation_id, role, content")
+        .in("conversation_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(12);
+
+      if (relatedMessages?.length) {
+        linkedConversationSummary = relatedMessages
+          .map(
+            (m) =>
+              `${m.conversation_id.slice(0, 8)} ${m.role === "user" ? "User" : "Assistant"}: ${m.content}`,
+          )
+          .join("\n");
+      }
+    }
+  }
+
+  // Get AI response.
+  const aiResponse = await getAIResponse({
+    conversationHistory: chatHistory,
+    channel: parsed.channel,
+    leadContext,
+    linkedConversationSummary,
+  });
+
+  await sendMessage(
+    {
+      channel: conversation.channel,
+      external_user_id: conversation.external_user_id,
+      page_id: conversation.page_id,
+    },
+    aiResponse,
+  );
+
+  // Store AI response in DB.
   await supabase.from("messages").insert({
     conversation_id: conversation.id,
     role: "assistant",
@@ -170,4 +233,32 @@ async function processMessage(parsed: {
     .from("conversations")
     .update({ updated_at: new Date().toISOString() })
     .eq("id", conversation.id);
+}
+
+async function autoAssignConversation(conversationId: string) {
+  if (process.env.AUTO_ASSIGN_CHATS !== "true") return;
+
+  const supabase = createAdminClient();
+  const { data: counsellors } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("is_active", true)
+    .in("role", ["counsellor", "admission_manager", "management", "super_admin"])
+    .order("created_at", { ascending: true });
+
+  if (!counsellors?.length) return;
+
+  const { count } = await supabase
+    .from("conversations")
+    .select("id", { count: "exact", head: true })
+    .not("assigned_user_id", "is", null);
+
+  const index = (count || 0) % counsellors.length;
+  const assigneeId = counsellors[index]?.id;
+  if (!assigneeId) return;
+
+  await supabase
+    .from("conversations")
+    .update({ assigned_user_id: assigneeId })
+    .eq("id", conversationId);
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { sendMessage } from "@/lib/messaging/send";
 
 export async function POST(
   request: NextRequest,
@@ -16,10 +16,14 @@ export async function POST(
 
   const supabase = await createClient();
 
-  // Get conversation to find the phone number
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Get conversation channel target.
   const { data: conversation, error: convError } = await supabase
     .from("conversations")
-    .select("phone")
+    .select("channel, external_user_id, page_id")
     .eq("id", id)
     .single();
 
@@ -27,13 +31,13 @@ export async function POST(
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
 
-  // Send via WhatsApp
+  // Send via channel router.
   try {
-    await sendWhatsAppMessage(conversation.phone, message.trim());
+    await sendMessage(conversation, message.trim());
   } catch (err) {
-    console.error("[API] Failed to send WhatsApp message:", err);
+    console.error("[API] Failed to send message:", err);
     return NextResponse.json(
-      { error: "Failed to send WhatsApp message" },
+      { error: "Failed to send message" },
       { status: 502 }
     );
   }
@@ -43,6 +47,7 @@ export async function POST(
     conversation_id: id,
     role: "assistant",
     content: message.trim(),
+    sent_by_user_id: user?.id ?? null,
   });
 
   if (insertError) {

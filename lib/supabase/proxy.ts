@@ -2,6 +2,20 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasEnvVars } from "../utils";
 
+/** Preserve refreshed auth cookies when returning a redirect response. */
+function redirectWithCookies(url: URL, supabaseResponse: NextResponse) {
+  const redirectResponse = NextResponse.redirect(url);
+  supabaseResponse.cookies.getAll().forEach((cookie) => {
+    redirectResponse.cookies.set(cookie);
+  });
+  supabaseResponse.headers.forEach((value, key) => {
+    if (key.toLowerCase() !== "location") {
+      redirectResponse.headers.set(key, value);
+    }
+  });
+  return redirectResponse;
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -23,7 +37,7 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, headers) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
@@ -32,6 +46,9 @@ export async function updateSession(request: NextRequest) {
           });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options),
+          );
+          Object.entries(headers).forEach(([key, value]) =>
+            supabaseResponse.headers.set(key, value),
           );
         },
       },
@@ -58,19 +75,19 @@ export async function updateSession(request: NextRequest) {
   if (pathname === "/") {
     const url = request.nextUrl.clone();
     url.pathname = user ? "/dashboard" : "/auth/login";
-    return NextResponse.redirect(url);
+    return redirectWithCookies(url, supabaseResponse);
   }
 
   if (!user && !isAuthRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
-    return NextResponse.redirect(url);
+    return redirectWithCookies(url, supabaseResponse);
   }
 
   if (user && isAuthRoute && !pathname.startsWith("/auth/confirm") && !pathname.startsWith("/auth/sign-up-success")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    return redirectWithCookies(url, supabaseResponse);
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.

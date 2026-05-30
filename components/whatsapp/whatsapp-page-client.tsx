@@ -35,7 +35,7 @@ export function WhatsAppPageClient() {
     return conversations.filter(
       (c) =>
         c.name?.toLowerCase().includes(q) ||
-        c.phone.includes(q) ||
+        c.phone?.includes(q) ||
         c.last_message?.content.toLowerCase().includes(q)
     );
   }, [conversations, searchQuery]);
@@ -117,7 +117,8 @@ function ConversationItem({
   isActive: boolean;
   onClick: () => void;
 }) {
-  const displayName = conversation.name || conversation.phone;
+  const displayName =
+    conversation.name || conversation.phone || conversation.external_user_id;
   const lastMsg = conversation.last_message;
   const timeAgo = conversation.updated_at
     ? formatDistanceToNow(new Date(conversation.updated_at), { addSuffix: true })

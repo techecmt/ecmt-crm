@@ -4,8 +4,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 export interface Conversation {
   id: string;
-  phone: string;
+  channel: "whatsapp" | "messenger";
+  page_id: string | null;
+  external_user_id: string;
+  phone: string | null;
   name: string | null;
+  status: "open" | "pending" | "resolved" | "spam";
+  assigned_user_id: string | null;
   mode: "agent" | "human";
   lead_id: string | null;
   updated_at: string;
@@ -22,14 +27,45 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   whatsapp_msg_id: string | null;
+  external_msg_id: string | null;
+  sent_by_user_id: string | null;
   created_at: string;
 }
 
-export function useConversations() {
+export type ConversationFilters = {
+  channel?: "all" | "whatsapp" | "messenger";
+  page_id?: string | "all";
+  status?: "all" | "open" | "pending" | "resolved" | "spam";
+  assigned_user_id?: string | "all" | "unassigned";
+  mode?: "all" | "agent" | "human";
+};
+
+function toQueryString(filters: ConversationFilters) {
+  const params = new URLSearchParams();
+  if (filters.channel && filters.channel !== "all") {
+    params.set("channel", filters.channel);
+  }
+  if (filters.page_id && filters.page_id !== "all") {
+    params.set("page_id", filters.page_id);
+  }
+  if (filters.status && filters.status !== "all") {
+    params.set("status", filters.status);
+  }
+  if (filters.mode && filters.mode !== "all") {
+    params.set("mode", filters.mode);
+  }
+  if (filters.assigned_user_id && filters.assigned_user_id !== "all") {
+    params.set("assigned_user_id", filters.assigned_user_id);
+  }
+  return params.toString();
+}
+
+export function useConversations(filters: ConversationFilters = {}) {
   return useQuery<Conversation[]>({
-    queryKey: ["conversations"],
+    queryKey: ["conversations", filters],
     queryFn: async () => {
-      const res = await fetch("/api/conversations");
+      const qs = toQueryString(filters);
+      const res = await fetch(`/api/conversations${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new Error("Failed to fetch conversations");
       return res.json();
     },
@@ -128,6 +164,57 @@ export function useLinkLead() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+}
+
+export function useUpdateConversationMeta() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      conversationId,
+      payload,
+    }: {
+      conversationId: string;
+      payload: Partial<{
+        status: Conversation["status"];
+        assigned_user_id: string | null;
+        phone: string | null;
+      }>;
+    }) => {
+      const res = await fetch(`/api/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error || "Failed to update conversation");
+      }
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", vars.conversationId] });
+    },
+  });
+}
+
+export function useConvertConversationToLead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const res = await fetch(`/api/conversations/${conversationId}/convert-lead`, {
+        method: "POST",
+      });
+      const payload = (await res.json()) as { error?: string; lead_id?: string };
+      if (!res.ok) throw new Error(payload.error || "Failed to convert lead");
+      return payload;
+    },
+    onSuccess: (_data, conversationId) => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", conversationId] });
     },
   });
 }

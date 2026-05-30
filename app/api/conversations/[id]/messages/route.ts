@@ -10,7 +10,7 @@ export async function GET(
 
   const { data: messages, error } = await supabase
     .from("messages")
-    .select("id, role, content, whatsapp_msg_id, created_at")
+    .select("id, role, content, whatsapp_msg_id, external_msg_id, sent_by_user_id, created_at")
     .eq("conversation_id", id)
     .order("created_at", { ascending: true });
 
