@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchMessengerProfileName } from "@/lib/messaging/messenger";
 import { parseInboundWebhook } from "@/lib/messaging/router";
 import { sendMessage } from "@/lib/messaging/send";
-import { getAIResponse, type ChatMessage } from "@/lib/ai";
+import { getAIResponse, type ChatMessage, type AIResult } from "@/lib/ai";
 import type { ParsedInboundMessage } from "@/lib/messaging/types";
 
 export async function GET(request: NextRequest) {
@@ -205,7 +205,7 @@ async function processMessage(parsed: ParsedInboundMessage) {
   }
 
   // Get AI response.
-  const aiResponse = await getAIResponse({
+  const aiResult: AIResult = await getAIResponse({
     conversationHistory: chatHistory,
     channel: parsed.channel,
     leadContext,
@@ -218,21 +218,28 @@ async function processMessage(parsed: ParsedInboundMessage) {
       external_user_id: conversation.external_user_id,
       page_id: conversation.page_id,
     },
-    aiResponse,
+    aiResult.reply,
   );
 
   // Store AI response in DB.
   await supabase.from("messages").insert({
     conversation_id: conversation.id,
     role: "assistant",
-    content: aiResponse,
+    content: aiResult.reply,
   });
 
-  // Update conversation timestamp again
-  await supabase
-    .from("conversations")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", conversation.id);
+  // If AI flagged escalation, switch conversation to human mode.
+  if (aiResult.shouldEscalate) {
+    await supabase
+      .from("conversations")
+      .update({ mode: "human", updated_at: new Date().toISOString() })
+      .eq("id", conversation.id);
+  } else {
+    await supabase
+      .from("conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", conversation.id);
+  }
 }
 
 async function autoAssignConversation(conversationId: string) {

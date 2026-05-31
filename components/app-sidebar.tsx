@@ -37,6 +37,7 @@ type NavChild = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
 };
 
 type NavItem = {
@@ -58,7 +59,20 @@ const NAV_ITEMS: NavItem[] = [
       { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks },
     ],
   },
-  { href: "/dashboard/message-centre", label: "Message Centre", icon: MessageCircle },
+  {
+    href: "/dashboard/message-centre",
+    label: "Message Centre",
+    icon: MessageCircle,
+    children: [
+      { href: "/dashboard/message-centre", label: "Inbox", icon: MessageCircle },
+      {
+        href: "/dashboard/message-centre/settings",
+        label: "Settings",
+        icon: Settings2,
+        adminOnly: true,
+      },
+    ],
+  },
   { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined },
   { href: "/dashboard/colleges", label: "Colleges", icon: Building2 },
   { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone },
@@ -131,7 +145,9 @@ function NavList({
             </Link>
             {hasChildren && isActive ? (
               <div className="ml-7 mt-1 grid gap-1 border-l pl-2">
-                {item.children!.map((child) => {
+                {item.children!
+                  .filter((child) => !child.adminOnly || isAdminRole(role))
+                  .map((child) => {
                   const ChildIcon = child.icon;
                   const childActive =
                     child.href === "/dashboard"

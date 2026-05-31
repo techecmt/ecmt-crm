@@ -23,6 +23,7 @@ export async function PATCH(
     content?: string;
     is_active?: boolean;
     sort_order?: number;
+    category?: string;
   };
 
   const updates: Record<string, unknown> = {};
@@ -30,6 +31,7 @@ export async function PATCH(
   if (typeof body.content === "string") updates.content = body.content.trim();
   if (typeof body.is_active === "boolean") updates.is_active = body.is_active;
   if (typeof body.sort_order === "number") updates.sort_order = body.sort_order;
+  if (typeof body.category === "string") updates.category = body.category;
 
   if (!Object.keys(updates).length) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });

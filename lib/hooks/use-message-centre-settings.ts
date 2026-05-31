@@ -8,6 +8,25 @@ export type AISettings = {
   model: string;
   temperature: number;
   max_tokens: number;
+  agent_name: string;
+  persona: string;
+  tone: "professional_friendly" | "formal" | "casual" | "empathetic";
+  greeting_message: string;
+  fallback_message: string;
+  escalation_enabled: boolean;
+  escalation_keywords: string[];
+  escalation_message: string;
+  auto_collect_lead: boolean;
+  lead_collect_fields: string[];
+  business_hours_enabled: boolean;
+  business_hours: {
+    timezone: string;
+    days: Record<string, { start: string; end: string }>;
+  };
+  offline_message: string;
+  response_delay_ms: number;
+  max_history_messages: number;
+  is_active: boolean;
   updated_at: string;
 };
 
@@ -17,6 +36,7 @@ export type AIKnowledge = {
   content: string;
   is_active: boolean;
   sort_order: number;
+  category: string;
   created_at: string;
 };
 
@@ -24,8 +44,11 @@ export type MessagingPage = {
   id: string;
   name: string;
   page_id: string;
-  channel: "messenger";
+  phone_number_id: string | null;
+  channel: "messenger" | "whatsapp";
   is_active: boolean;
+  description: string;
+  last_verified_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -125,7 +148,9 @@ export function useCreateMessagingPage() {
       name: string;
       page_id: string;
       access_token: string;
-      channel?: "messenger";
+      channel?: "messenger" | "whatsapp";
+      phone_number_id?: string;
+      description?: string;
       is_active?: boolean;
     }) => {
       const res = await fetch("/api/messaging/pages", {
@@ -135,6 +160,48 @@ export function useCreateMessagingPage() {
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error || "Failed to add page");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["messaging-pages"] }),
+  });
+}
+
+export function useUpdateMessagingPage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      name?: string;
+      page_id?: string;
+      access_token?: string;
+      phone_number_id?: string;
+      description?: string;
+      is_active?: boolean;
+    }) => {
+      const res = await fetch("/api/messaging/pages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to update page");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["messaging-pages"] }),
+  });
+}
+
+export function useDeleteMessagingPage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch("/api/messaging/pages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to delete page");
       return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["messaging-pages"] }),

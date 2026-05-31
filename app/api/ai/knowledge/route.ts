@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
     content?: string;
     is_active?: boolean;
     sort_order?: number;
+    category?: string;
   };
 
   if (!body.title?.trim() || !body.content?.trim()) {
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
       content: body.content.trim(),
       is_active: body.is_active ?? true,
       sort_order: body.sort_order ?? 0,
+      category: body.category ?? "general",
     })
     .select("*")
     .single();

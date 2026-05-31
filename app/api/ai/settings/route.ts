@@ -20,6 +20,29 @@ export async function GET() {
   return NextResponse.json(data);
 }
 
+const ALLOWED_FIELDS = [
+  "system_prompt",
+  "model",
+  "temperature",
+  "max_tokens",
+  "agent_name",
+  "persona",
+  "tone",
+  "greeting_message",
+  "fallback_message",
+  "escalation_enabled",
+  "escalation_keywords",
+  "escalation_message",
+  "auto_collect_lead",
+  "lead_collect_fields",
+  "business_hours_enabled",
+  "business_hours",
+  "offline_message",
+  "response_delay_ms",
+  "max_history_messages",
+  "is_active",
+] as const;
+
 export async function PATCH(request: NextRequest) {
   const profile = await getCurrentProfile();
   if (!profile) {
@@ -29,20 +52,17 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await request.json()) as {
-    system_prompt?: string;
-    model?: string;
-    temperature?: number;
-    max_tokens?: number;
-  };
+  const body = (await request.json()) as Record<string, unknown>;
 
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
-  if (typeof body.system_prompt === "string") updates.system_prompt = body.system_prompt;
-  if (typeof body.model === "string") updates.model = body.model;
-  if (typeof body.temperature === "number") updates.temperature = body.temperature;
-  if (typeof body.max_tokens === "number") updates.max_tokens = body.max_tokens;
+
+  for (const field of ALLOWED_FIELDS) {
+    if (body[field] !== undefined) {
+      updates[field] = body[field];
+    }
+  }
 
   const supabase = await createClient();
   const { error } = await supabase
