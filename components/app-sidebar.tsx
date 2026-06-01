@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart3,
   Building2,
   ChartNoAxesCombined,
   ClipboardList,
@@ -74,6 +75,7 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined },
+  { href: "/dashboard/reports", label: "Reports", icon: BarChart3, adminOnly: true },
   { href: "/dashboard/colleges", label: "Colleges", icon: Building2 },
   { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone },
   { href: "/dashboard/forms", label: "Forms", icon: ClipboardList },

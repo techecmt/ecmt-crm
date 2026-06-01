@@ -201,6 +201,15 @@ export function useUpsertLead() {
           type: "system",
           title: "Lead created",
         });
+        await supabase.from("user_audit_events").insert({
+          user_id: user.id,
+          event_type: "lead_created",
+          lead_id: data.id,
+          metadata: {
+            college_id: data.college_id,
+            interested_course: data.interested_course,
+          },
+        });
       }
       return data as Lead;
     },
@@ -219,8 +228,8 @@ export type UpdateLeadStatusInput = {
   status: LeadStatus;
   /** Optional counsellor override when (re)seeding follow-ups. */
   assigned_user_id?: string | null;
-  /** Optional starting moment for the 72-hour follow-up sequence. */
-  counselling_first_at?: string;
+  /** Required when marking lead as inactive courses. */
+  notes?: string;
 };
 
 export function useUpdateLeadStatus() {
@@ -230,12 +239,22 @@ export function useUpdateLeadStatus() {
       id,
       status,
       assigned_user_id,
-      counselling_first_at,
+      notes,
     }: UpdateLeadStatusInput) => {
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      const trimmedNotes = notes?.trim() ?? "";
+      if (status === "course_not_started" && !trimmedNotes) {
+        throw new Error("Notes are required when marking a lead Inactive Courses.");
+      }
+      const { data: currentLead, error: currentLeadError } = await supabase
+        .from("leads")
+        .select("status")
+        .eq("id", id)
+        .single();
+      if (currentLeadError) throw new Error(currentLeadError.message);
       const updates: Record<string, unknown> = { status };
       if (status === "counselling_in_progress" && assigned_user_id) {
         updates.assigned_counsellor = assigned_user_id;
@@ -248,13 +267,16 @@ export function useUpdateLeadStatus() {
         .single();
       if (error) throw new Error(error.message);
 
-      if (status === "counselling_in_progress") {
+      if (
+        status === "counselling_in_progress" &&
+        currentLead?.status === "inquiry_received"
+      ) {
         const { error: seedError } = await supabase.rpc(
           "start_counselling_follow_ups",
           {
             p_lead_id: id,
-            p_assigned_user_id: assigned_user_id ?? null,
-            p_first_at: counselling_first_at ?? null,
+            p_assigned_user_id: assigned_user_id ?? data.assigned_counsellor ?? null,
+            p_first_at: new Date().toISOString(),
           },
         );
         if (seedError) throw new Error(seedError.message);
@@ -272,7 +294,26 @@ export function useUpdateLeadStatus() {
           user_id: user.id,
           type: "status_change",
           title: `Status changed to ${status}`,
+          description: trimmedNotes || null,
         });
+        if (
+          status === "counselling_in_progress" &&
+          currentLead?.status === "inquiry_received"
+        ) {
+          await supabase.from("user_audit_events").insert({
+            user_id: user.id,
+            event_type: "counselling_started",
+            lead_id: id,
+          });
+        }
+        if (status === "registration_unpaid" || status === "registered_paid_reg_fee") {
+          await supabase.from("user_audit_events").insert({
+            user_id: user.id,
+            event_type: "registration",
+            lead_id: id,
+            metadata: { registration_status: status },
+          });
+        }
       }
       return data as Lead;
     },
@@ -337,11 +378,16 @@ export function useCompleteCounselling() {
         .single();
       if (error) throw new Error(error.message);
 
-      const { error: clearError } = await supabase.rpc(
-        "clear_pending_follow_ups",
-        { p_lead_id: input.id },
+      const assigneeId = data.assigned_counsellor ?? user?.id ?? null;
+      const { error: seedError } = await supabase.rpc(
+        "start_counselling_follow_ups",
+        {
+          p_lead_id: input.id,
+          p_assigned_user_id: assigneeId,
+          p_first_at: new Date().toISOString(),
+        },
       );
-      if (clearError) throw new Error(clearError.message);
+      if (seedError) throw new Error(seedError.message);
 
       if (user) {
         await supabase.from("lead_activities").insert({
@@ -351,6 +397,11 @@ export function useCompleteCounselling() {
           title: "Counselling completed",
           description: "Counsellor confirmed all mandatory counselling checks.",
           metadata: { counselling_checks: input.counselling_checks },
+        });
+        await supabase.from("user_audit_events").insert({
+          user_id: user.id,
+          event_type: "counselling_completed",
+          lead_id: input.id,
         });
       }
       return data as Lead;
@@ -469,9 +520,23 @@ export function useBulkUpdateLeads() {
       }
 
       if (Object.keys(updates).length === 0) return;
+      if (status === "course_not_started") {
+        throw new Error(
+          "Bulk update to Inactive Courses is disabled because notes are mandatory. Update leads individually.",
+        );
+      }
 
       const { error } = await supabase.from("leads").update(updates).in("id", ids);
       if (error) throw new Error(error.message);
+
+      if (status && shouldClearPendingFollowUps(status)) {
+        const { error: clearError } = await supabase
+          .from("follow_ups")
+          .delete()
+          .in("lead_id", ids)
+          .eq("status", "pending");
+        if (clearError) throw new Error(clearError.message);
+      }
 
       if (user && status) {
         await supabase.from("lead_activities").insert(
@@ -500,10 +565,12 @@ export function useAddLeadNote() {
       leadId,
       title,
       description,
+      status,
     }: {
       leadId: string;
       title: string;
       description?: string | null;
+      status?: LeadStatus;
     }) => {
       const supabase = createClient();
       const {
@@ -515,6 +582,7 @@ export function useAddLeadNote() {
         type: "note",
         title,
         description: description ?? null,
+        metadata: status ? { status_at_note: status } : null,
       });
       if (error) throw new Error(error.message);
     },

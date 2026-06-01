@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { AppSidebar, SidebarProvider } from "@/components/app-sidebar";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { CrmEntryTracker } from "@/components/reports/crm-entry-tracker";
 import { getCurrentProfile } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-muted/20">
+        <CrmEntryTracker />
         <AppSidebar role={profile.role} />
         <div className="flex min-h-screen flex-1 flex-col">
           <DashboardHeader profile={profile} />

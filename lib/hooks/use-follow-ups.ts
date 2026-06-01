@@ -245,6 +245,11 @@ export function useCompleteFollowUpTask() {
           title: "Follow-up completed",
           description: input.remarks,
         });
+        await supabase.from("user_audit_events").insert({
+          user_id: user.id,
+          event_type: "follow_up_completed",
+          lead_id: data.lead_id,
+        });
       }
 
       return data as FollowUp;

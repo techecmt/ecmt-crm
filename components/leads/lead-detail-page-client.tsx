@@ -60,6 +60,7 @@ import {
   FOLLOW_UP_PRIORITY_LABELS,
   HIGHEST_QUALIFICATION_LABELS,
   LEAD_SOURCE_LABELS,
+  LEAD_STATUS_LABELS,
   NOT_INTERESTED_REASON_LABELS,
   type Lead,
 } from "@/lib/types";
@@ -67,6 +68,7 @@ import { LeadStatusSelect } from "@/components/leads/status-select";
 import { LeadFormSheet } from "@/components/leads/lead-form-sheet";
 import { useFollowUps, nextUpcomingPerLead } from "@/lib/hooks/use-follow-ups";
 import { FollowUpFormDialog } from "@/components/follow-ups/follow-up-form-dialog";
+import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
 import {
   useAdmissionGoals,
   useRecordAdmissionGoalEvent,
@@ -83,6 +85,10 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const [followUpOpen, setFollowUpOpen] = React.useState(false);
   const [noteTitle, setNoteTitle] = React.useState("");
   const [noteBody, setNoteBody] = React.useState("");
+  const noteActivities = React.useMemo(
+    () => (activities ?? []).filter((activity) => activity.type === "note"),
+    [activities],
+  );
   const pendingFollowUps = React.useMemo(
     () => (followUps ?? []).filter((f) => f.status === "pending"),
     [followUps],
@@ -112,6 +118,11 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const completedCounsellingCount = counsellingFollowUps.filter(
     (f) => f.status === "completed",
   ).length;
+  const totalCounsellingFollowUps = 4;
+  const completedCounsellingDisplayCount = Math.min(
+    completedCounsellingCount,
+    totalCounsellingFollowUps,
+  );
   const lastCompletedFollowUp = completedFollowUps[0];
   const daysSinceLastFollowUp = lastCompletedFollowUp?.completed_at
     ? differenceInCalendarDays(new Date(), new Date(lastCompletedFollowUp.completed_at))
@@ -126,11 +137,13 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
 
   const onAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!lead) return;
     if (!noteTitle.trim()) return;
     await addNote.mutateAsync({
       leadId,
       title: noteTitle.trim(),
       description: noteBody.trim() || null,
+      status: lead.status,
     });
     setNoteTitle("");
     setNoteBody("");
@@ -207,7 +220,11 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
             <LeadStatusSelect lead={lead} />
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <Field icon={<Phone className="h-4 w-4" />} label="Phone" value={lead.phone} />
+            <Field
+              icon={<Phone className="h-4 w-4" />}
+              label="Phone"
+              value={<WhatsAppPhoneLink phone={lead.phone} className="text-sm text-foreground" />}
+            />
             <Field
               icon={<Mail className="h-4 w-4" />}
               label="Email"
@@ -376,7 +393,8 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
           <CardHeader>
             <CardTitle>Counselling pipeline</CardTitle>
             <CardDescription>
-              Mandatory 3 follow-ups at 72-hour intervals during counselling.
+              2 follow-ups are scheduled when counselling starts, then 2 more
+              are added on counselling completion (72-hour intervals).
               {lead.status === "counselling_completed" && lead.counselling_completed_at ? (
                 <>
                   {" "}Completed {format(new Date(lead.counselling_completed_at), "PP")}.
@@ -387,7 +405,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
           <CardContent className="space-y-3">
             <div className="flex items-center gap-2 text-sm">
               <Badge variant="secondary">
-                {completedCounsellingCount}/3 follow-ups completed
+                {completedCounsellingDisplayCount}/{totalCounsellingFollowUps} follow-ups completed
               </Badge>
               {nextPending && nextPending.sequence ? (
                 <Badge variant="outline">
@@ -397,7 +415,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               ) : null}
             </div>
             <div className="grid gap-2 sm:grid-cols-3">
-              {[1, 2, 3].map((seq) => {
+              {[1, 2, 3, 4].map((seq) => {
                 const item = counsellingFollowUps.find((f) => f.sequence === seq);
                 const isDone = item?.status === "completed";
                 const isUpcoming = item?.status === "pending";
@@ -463,6 +481,14 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
       <Tabs defaultValue="timeline">
         <TabsList>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="notes">
+            Notes
+            {noteActivities.length > 0 ? (
+              <Badge variant="secondary" className="ml-2">
+                {noteActivities.length}
+              </Badge>
+            ) : null}
+          </TabsTrigger>
           <TabsTrigger value="follow-ups">
             Follow-ups
             {followUps && followUps.length > 0 ? (
@@ -489,6 +515,17 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                         <Badge variant="outline" className="text-[10px]">
                           {a.type.replace("_", " ")}
                         </Badge>
+                        {a.type === "note" &&
+                        typeof a.metadata?.status_at_note === "string" ? (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Status:{" "}
+                            {
+                              LEAD_STATUS_LABELS[
+                                a.metadata.status_at_note as keyof typeof LEAD_STATUS_LABELS
+                              ]
+                            }
+                          </Badge>
+                        ) : null}
                       </div>
                       {a.description ? (
                         <p className="mt-1 text-sm text-muted-foreground">
@@ -512,6 +549,45 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                     </li>
                   ))}
                 </ol>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="notes">
+          <Card>
+            <CardContent className="pt-6">
+              {noteActivities.length === 0 ? (
+                <EmptyState text="No notes added yet for this lead." />
+              ) : (
+                <ul className="space-y-3">
+                  {noteActivities.map((note) => (
+                    <li key={note.id} className="rounded-md border p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium">{note.title}</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {format(new Date(note.created_at), "PPp")}
+                        </Badge>
+                        {typeof note.metadata?.status_at_note === "string" ? (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {
+                              LEAD_STATUS_LABELS[
+                                note.metadata.status_at_note as keyof typeof LEAD_STATUS_LABELS
+                              ]
+                            }
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {note.description ? (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {note.description}
+                        </p>
+                      ) : null}
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Added by {note.user?.full_name || note.user?.email || "System"}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
             </CardContent>
           </Card>
@@ -642,7 +718,7 @@ function Field({
 }: {
   icon?: React.ReactNode;
   label: string;
-  value: string;
+  value: React.ReactNode;
 }) {
   return (
     <div className="flex items-start gap-3">

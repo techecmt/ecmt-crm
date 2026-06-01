@@ -2,7 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { format, isPast } from "date-fns";
+import {
+  addWeeks,
+  endOfWeek,
+  format,
+  isPast,
+  startOfWeek,
+  subWeeks,
+} from "date-fns";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -11,7 +18,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
-  Phone,
   ShieldCheck,
 } from "lucide-react";
 
@@ -70,8 +76,14 @@ import {
   isAdminRole,
   type UserRole,
 } from "@/lib/types";
+import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
 
 type Filter = "mine" | "all";
+type DatePreset = "all" | "today" | "this_week" | "last_week" | "next_week";
+
+function toDateInput(value: Date) {
+  return format(value, "yyyy-MM-dd");
+}
 
 export function FollowUpsPageClient({
   currentUserId,
@@ -83,6 +95,10 @@ export function FollowUpsPageClient({
   const isAdmin = isAdminRole(role);
   const [filter, setFilter] = React.useState<Filter>(isAdmin ? "all" : "mine");
   const [assigneeFilter, setAssigneeFilter] = React.useState<string>("");
+  const [datePreset, setDatePreset] = React.useState<DatePreset>("all");
+  const [exactDate, setExactDate] = React.useState("");
+  const [startDate, setStartDate] = React.useState("");
+  const [endDate, setEndDate] = React.useState("");
 
   const assignedTo = React.useMemo(() => {
     if (!isAdmin) return "me" as const;
@@ -91,7 +107,43 @@ export function FollowUpsPageClient({
     return undefined;
   }, [assigneeFilter, filter, isAdmin]);
 
-  const { data: followUps, isLoading } = useFollowUps({ assignedTo });
+  const dateRange = React.useMemo(() => {
+    if (exactDate) return { fromDate: exactDate, toDate: exactDate };
+    if (startDate || endDate) return { fromDate: startDate || undefined, toDate: endDate || undefined };
+
+    const now = new Date();
+    if (datePreset === "today") {
+      const today = toDateInput(now);
+      return { fromDate: today, toDate: today };
+    }
+    if (datePreset === "this_week") {
+      return {
+        fromDate: toDateInput(startOfWeek(now, { weekStartsOn: 1 })),
+        toDate: toDateInput(endOfWeek(now, { weekStartsOn: 1 })),
+      };
+    }
+    if (datePreset === "last_week") {
+      const base = subWeeks(now, 1);
+      return {
+        fromDate: toDateInput(startOfWeek(base, { weekStartsOn: 1 })),
+        toDate: toDateInput(endOfWeek(base, { weekStartsOn: 1 })),
+      };
+    }
+    if (datePreset === "next_week") {
+      const base = addWeeks(now, 1);
+      return {
+        fromDate: toDateInput(startOfWeek(base, { weekStartsOn: 1 })),
+        toDate: toDateInput(endOfWeek(base, { weekStartsOn: 1 })),
+      };
+    }
+    return { fromDate: undefined, toDate: undefined };
+  }, [datePreset, endDate, exactDate, startDate]);
+
+  const { data: followUps, isLoading } = useFollowUps({
+    assignedTo,
+    fromDate: dateRange.fromDate,
+    toDate: dateRange.toDate,
+  });
   const { data: profiles } = useProfiles();
   const complete = useCompleteFollowUpTask();
   const [completingTask, setCompletingTask] =
@@ -157,6 +209,68 @@ export function FollowUpsPageClient({
           </div>
         ) : null}
       </div>
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-2 py-4">
+          <div className="grid gap-1">
+            <label className="text-xs text-muted-foreground">Preset</label>
+            <Select
+              value={datePreset}
+              onValueChange={(value) => setDatePreset(value as DatePreset)}
+            >
+              <SelectTrigger className="h-9 w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All dates</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="last_week">Last week</SelectItem>
+                <SelectItem value="this_week">This week</SelectItem>
+                <SelectItem value="next_week">Next week</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1">
+            <label className="text-xs text-muted-foreground">Date</label>
+            <input
+              type="date"
+              value={exactDate}
+              onChange={(e) => setExactDate(e.target.value)}
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+            />
+          </div>
+          <div className="grid gap-1">
+            <label className="text-xs text-muted-foreground">Start date</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+            />
+          </div>
+          <div className="grid gap-1">
+            <label className="text-xs text-muted-foreground">End date</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9"
+            onClick={() => {
+              setDatePreset("all");
+              setExactDate("");
+              setStartDate("");
+              setEndDate("");
+            }}
+          >
+            Clear date filters
+          </Button>
+        </CardContent>
+      </Card>
 
       {!isAdmin ? (
         <Alert>
@@ -365,8 +479,8 @@ function FollowUpList({
                   <div className="text-xs text-muted-foreground">
                     {format(new Date(f.scheduled_at), "PPp")}
                     {f.lead ? (
-                      <span className="ml-2 inline-flex items-center gap-1">
-                        <Phone className="h-3 w-3" /> {f.lead.phone}
+                      <span className="ml-2">
+                        <WhatsAppPhoneLink phone={f.lead.phone} />
                       </span>
                     ) : null}
                   </div>

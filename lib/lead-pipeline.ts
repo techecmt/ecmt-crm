@@ -13,8 +13,7 @@ import {
  * - "Inquiry Received" is the only entry point.
  * - "Invalid Contact" can ONLY be set directly after "Inquiry Received".
  * - "Not Interested" requires that the lead has entered the counselling stages
- *   at some point (Counselling In-Progress or Counselling Completed) AND that
- *   the mandatory three 72-hour follow-ups have been completed.
+ *   at some point (Counselling In-Progress or Counselling Completed).
  * - Registration statuses require counselling to be completed first.
  */
 
@@ -26,7 +25,7 @@ export interface LeadTransitionContext {
   hasEnteredCounselling: boolean;
   /** True if the lead has fully completed all counselling checks/fields. */
   hasCompletedCounselling: boolean;
-  /** How many counselling follow-ups have been completed so far (0-3). */
+  /** How many counselling follow-ups have been completed so far. */
   completedCounsellingFollowUps: number;
 }
 
@@ -75,16 +74,6 @@ export function evaluateLeadTransition(
         return {
           allowed: false,
           reason: "A lead can only be marked Not Interested after entering counselling.",
-        };
-      }
-      if (
-        ctx.currentStatus === "counselling_in_progress" &&
-        ctx.completedCounsellingFollowUps < 3
-      ) {
-        return {
-          allowed: false,
-          reason:
-            "Complete all 3 counselling follow-ups before marking the lead Not Interested.",
         };
       }
       return { allowed: true };

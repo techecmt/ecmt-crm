@@ -20,13 +20,13 @@ import {
   ClipboardList,
   Flame,
   GraduationCap,
-  Phone,
   TrendingUp,
   UsersRound,
 } from "lucide-react";
 import { differenceInCalendarDays, format } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
+import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -444,8 +444,7 @@ export function DashboardOverview({ leads, colleges, usersCount, profile, follow
                     </div>
                     {f.lead ? (
                       <Badge variant="outline" className="font-mono text-[10px]">
-                        <Phone className="mr-1 h-3 w-3" />
-                        {f.lead.phone}
+                        <WhatsAppPhoneLink phone={f.lead.phone} className="font-mono text-[10px]" />
                       </Badge>
                     ) : null}
                   </li>
@@ -579,7 +578,9 @@ function InactiveLeadCard({
               <li key={lead.id} className="flex items-center justify-between gap-3 py-3">
                 <div>
                   <div className="text-sm font-medium">{lead.full_name}</div>
-                  <div className="text-xs text-muted-foreground">{lead.phone}</div>
+                  <div className="text-xs text-muted-foreground">
+                    <WhatsAppPhoneLink phone={lead.phone} />
+                  </div>
                 </div>
                 <Badge variant="outline">{days}d</Badge>
               </li>

@@ -146,6 +146,9 @@ function InnerWorkflow({
   if (nextStatus === "not_interested") {
     return <NotInterestedForm lead={lead} onDone={onDone} />;
   }
+  if (nextStatus === "course_not_started") {
+    return <InactiveCoursesForm lead={lead} onDone={onDone} />;
+  }
 
   return <SimpleStatusConfirm lead={lead} nextStatus={nextStatus} onDone={onDone} />;
 }
@@ -244,11 +247,10 @@ function SimpleStatusConfirm({
         <>
           <Alert>
             <CheckCircle2 className="h-4 w-4" />
-            <AlertTitle>3 counselling follow-ups will be created</AlertTitle>
+            <AlertTitle>Counsellor will be assigned</AlertTitle>
             <AlertDescription>
-              Three follow-ups will be scheduled at 72-hour intervals starting now.
-              The lead cannot be moved to <strong>Not Interested</strong> until all
-              three counselling follow-ups are completed.
+              The system will schedule 2 follow-ups now (72-hour interval).
+              When counselling is completed, it will add another 2 follow-ups.
             </AlertDescription>
           </Alert>
           <div className="grid gap-2">
@@ -744,6 +746,78 @@ function NotInterestedForm({
             </Button>
             <Button type="submit" disabled={markNotInterested.isPending}>
               {markNotInterested.isPending ? "Saving…" : "Mark Not Interested"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Form>
+    </>
+  );
+}
+
+const inactiveCoursesSchema = z.object({
+  notes: z.string().trim().min(3, "Notes are required for Inactive Courses"),
+});
+
+type InactiveCoursesFormValues = z.infer<typeof inactiveCoursesSchema>;
+
+function InactiveCoursesForm({
+  lead,
+  onDone,
+}: {
+  lead: Lead | LeadWithRelations;
+  onDone: () => void;
+}) {
+  const updateStatus = useUpdateLeadStatus();
+  const form = useForm<InactiveCoursesFormValues>({
+    resolver: zodResolver(inactiveCoursesSchema),
+    defaultValues: {
+      notes: "",
+    },
+  });
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Mark Inactive Courses</DialogTitle>
+        <DialogDescription>
+          Notes are mandatory. Any pending follow-ups will be cleared.
+        </DialogDescription>
+      </DialogHeader>
+      <Form {...form}>
+        <form
+          onSubmit={form.handleSubmit(async (values) => {
+            await updateStatus.mutateAsync({
+              id: lead.id,
+              status: "course_not_started",
+              notes: values.notes,
+            });
+            onDone();
+          })}
+          className="grid gap-4"
+        >
+          <FormField
+            control={form.control}
+            name="notes"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Notes</FormLabel>
+                <FormControl>
+                  <Textarea
+                    rows={4}
+                    placeholder="Why is the lead inactive course? Add full context."
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onDone}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={updateStatus.isPending}>
+              {updateStatus.isPending ? "Saving…" : "Mark Inactive Courses"}
             </Button>
           </DialogFooter>
         </form>

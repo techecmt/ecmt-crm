@@ -82,6 +82,7 @@ import {
 } from "@/lib/types";
 import { LeadFormSheet } from "@/components/leads/lead-form-sheet";
 import { LeadStatusSelect } from "@/components/leads/status-select";
+import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
 import { cn } from "@/lib/utils";
 
 const statuses = PIPELINE_LEAD_STATUSES;
@@ -677,7 +678,7 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
                   <TableCell onClick={() => router.push(`/dashboard/leads/${lead.id}`)}>
                     <div className="font-medium">{lead.full_name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {lead.phone}
+                      <WhatsAppPhoneLink phone={lead.phone} />
                       {lead.email ? ` · ${lead.email}` : ""}
                     </div>
                   </TableCell>

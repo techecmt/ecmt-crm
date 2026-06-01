@@ -1,0 +1,15 @@
+import { redirect } from "next/navigation";
+
+import { UserAuditReportsClient } from "@/components/reports/user-audit-reports-client";
+import { getCurrentProfile } from "@/lib/auth";
+import { isAdminRole } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
+
+export default async function ReportsPage() {
+  const profile = await getCurrentProfile();
+  if (!profile) redirect("/auth/login");
+  if (!isAdminRole(profile.role)) redirect("/dashboard");
+
+  return <UserAuditReportsClient />;
+}
