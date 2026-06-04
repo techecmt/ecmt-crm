@@ -19,7 +19,7 @@ export default async function DashboardLayout({
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-muted/20">
         <CrmEntryTracker />
-        <AppSidebar role={profile.role} />
+        <AppSidebar profile={profile} />
         <div className="flex min-h-screen flex-1 flex-col">
           <DashboardHeader profile={profile} />
           <main className="flex-1 p-4 md:p-6">{children}</main>

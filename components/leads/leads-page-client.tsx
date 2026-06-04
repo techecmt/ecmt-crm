@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { format } from "date-fns";
+import { differenceInCalendarDays, format } from "date-fns";
 import {
   ArrowUpDown,
   Building2,
@@ -89,6 +89,22 @@ const statuses = PIPELINE_LEAD_STATUSES;
 const sources = Object.keys(LEAD_SOURCE_LABELS) as LeadSource[];
 const NO_BULK_CHANGE = "__no_change";
 
+function getLeadToRegistrationDays(lead: Lead) {
+  const registrationDate =
+    lead.registration_completed_at ||
+    (lead.status === "registration_unpaid" || lead.status === "registered_paid_reg_fee"
+      ? lead.updated_at
+      : null);
+
+  if (!registrationDate) return null;
+
+  const days = differenceInCalendarDays(
+    new Date(registrationDate),
+    new Date(lead.created_at),
+  );
+  return Math.max(days, 0);
+}
+
 type SortKey = "created_at" | "full_name" | "lead_score" | "status" | "source";
 type SortDir = "asc" | "desc";
 
@@ -141,6 +157,11 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
     isFetching,
     refetch,
   } = useLeads({ ...filters, search: debouncedSearch });
+  const { data: leadsForStatusCounts } = useLeads({
+    ...filters,
+    status: "all",
+    search: debouncedSearch,
+  });
   const { data: colleges } = useColleges();
   const { data: profiles } = useProfiles();
   const bulkUpdateLeads = useBulkUpdateLeads();
@@ -271,13 +292,13 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
       LeadStatus,
       number
     >;
-    (leads ?? []).forEach((lead) => {
+    (leadsForStatusCounts ?? []).forEach((lead) => {
       if (lead.status in counts) {
         counts[lead.status] += 1;
       }
     });
     return counts;
-  }, [leads]);
+  }, [leadsForStatusCounts]);
   const totalLeadCount = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
 
   const onToggleAllVisible = (checked: boolean | "indeterminate") => {
@@ -639,6 +660,7 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
               <TableHead>Source</TableHead>
               <TableHead>Counsellor</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead className="text-right">Lead → Reg Days</TableHead>
               <TableHead className="text-right">Score</TableHead>
               <TableHead className="text-right">Created</TableHead>
               <TableHead className="w-12" />
@@ -648,19 +670,21 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
             {isLoading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={9}>
+                  <TableCell colSpan={10}>
                     <Skeleton className="h-6 w-full" />
                   </TableCell>
                 </TableRow>
               ))
             ) : !sortedLeads || sortedLeads.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-12 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={10} className="py-12 text-center text-sm text-muted-foreground">
                   No leads match these filters.
                 </TableCell>
               </TableRow>
             ) : (
-              sortedLeads.map((lead) => (
+              sortedLeads.map((lead) => {
+                const registrationDays = getLeadToRegistrationDays(lead);
+                return (
                 <TableRow
                   key={lead.id}
                   className={cn(
@@ -698,6 +722,13 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
                   </TableCell>
                   <TableCell>
                     <LeadStatusSelect lead={lead} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {registrationDays !== null ? (
+                      <Badge variant="outline">{registrationDays}d</Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <Badge variant={lead.lead_score >= 80 ? "default" : "secondary"}>
@@ -741,7 +772,8 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>

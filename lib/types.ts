@@ -98,6 +98,45 @@ export type ActivityType =
   | "document"
   | "system";
 
+export type AppModule =
+  | "dashboard"
+  | "leads"
+  | "follow_ups"
+  | "message_centre"
+  | "admission_goals"
+  | "reports"
+  | "colleges"
+  | "marketing"
+  | "forms"
+  | "users"
+  | "settings"
+  | "whatsapp";
+
+export const APP_MODULE_LABELS: Record<AppModule, string> = {
+  dashboard: "Dashboard",
+  leads: "Leads",
+  follow_ups: "Follow-ups",
+  message_centre: "Message Centre",
+  admission_goals: "Admission Goals",
+  reports: "Reports",
+  colleges: "Colleges",
+  marketing: "Marketing",
+  forms: "Forms",
+  users: "Users",
+  settings: "Settings",
+  whatsapp: "WhatsApp",
+};
+
+export const ALL_MODULES: AppModule[] = Object.keys(APP_MODULE_LABELS) as AppModule[];
+
+export const DEFAULT_MODULES: AppModule[] = [
+  "dashboard",
+  "leads",
+  "follow_ups",
+  "colleges",
+  "settings",
+];
+
 export interface Profile {
   id: string;
   email: string;
@@ -106,8 +145,14 @@ export interface Profile {
   phone: string | null;
   role: UserRole;
   is_active: boolean;
+  module_permissions: AppModule[] | null;
   created_at: string;
   updated_at: string;
+}
+
+export function getUserModules(profile: Profile): AppModule[] {
+  if (isAdminRole(profile.role)) return ALL_MODULES;
+  return profile.module_permissions ?? DEFAULT_MODULES;
 }
 
 export interface College {
@@ -158,6 +203,7 @@ export interface Lead {
   is_duplicate: boolean;
   counselling_checks: CounsellingChecks;
   counselling_completed_at: string | null;
+  registration_completed_at: string | null;
   not_interested_reason: NotInterestedReason | null;
   not_interested_notes: string | null;
   created_by: string | null;

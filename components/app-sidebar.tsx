@@ -31,14 +31,15 @@ import {
 } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { UserRole } from "@/lib/types";
-import { isAdminRole } from "@/lib/types";
+import type { AppModule } from "@/lib/types";
+import { isAdminRole, getUserModules, type Profile } from "@/lib/types";
 
 type NavChild = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  module?: AppModule;
 };
 
 type NavItem = {
@@ -46,41 +47,45 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  module?: AppModule;
   children?: NavChild[];
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, module: "dashboard" },
   {
     href: "/dashboard/leads",
     label: "Leads",
     icon: UsersRound,
+    module: "leads",
     children: [
-      { href: "/dashboard/leads", label: "All leads", icon: UsersRound },
-      { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks },
+      { href: "/dashboard/leads", label: "All leads", icon: UsersRound, module: "leads" },
+      { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks, module: "follow_ups" },
     ],
   },
   {
     href: "/dashboard/message-centre",
     label: "Message Centre",
     icon: MessageCircle,
+    module: "message_centre",
     children: [
-      { href: "/dashboard/message-centre", label: "Inbox", icon: MessageCircle },
+      { href: "/dashboard/message-centre", label: "Inbox", icon: MessageCircle, module: "message_centre" },
       {
         href: "/dashboard/message-centre/settings",
         label: "Settings",
         icon: Settings2,
         adminOnly: true,
+        module: "message_centre",
       },
     ],
   },
-  { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined },
-  { href: "/dashboard/reports", label: "Reports", icon: BarChart3, adminOnly: true },
-  { href: "/dashboard/colleges", label: "Colleges", icon: Building2 },
-  { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone },
-  { href: "/dashboard/forms", label: "Forms", icon: ClipboardList },
-  { href: "/dashboard/users", label: "Users", icon: Users, adminOnly: true },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings2 },
+  { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined, module: "admission_goals" },
+  { href: "/dashboard/reports", label: "Reports", icon: BarChart3, adminOnly: true, module: "reports" },
+  { href: "/dashboard/colleges", label: "Colleges", icon: Building2, module: "colleges" },
+  { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone, module: "marketing" },
+  { href: "/dashboard/forms", label: "Forms", icon: ClipboardList, module: "forms" },
+  { href: "/dashboard/users", label: "Users", icon: Users, adminOnly: true, module: "users" },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings2, module: "settings" },
 ];
 
 interface SidebarContext {
@@ -106,14 +111,20 @@ export function useSidebar() {
 }
 
 function NavList({
-  role,
+  profile,
   onNavigate,
 }: {
-  role: UserRole;
+  profile: Profile;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const items = NAV_ITEMS.filter((i) => !i.adminOnly || isAdminRole(role));
+  const role = profile.role;
+  const allowedModules = getUserModules(profile);
+  const items = NAV_ITEMS.filter(
+    (i) =>
+      (!i.adminOnly || isAdminRole(role)) &&
+      (!i.module || allowedModules.includes(i.module)),
+  );
   return (
     <nav className="grid gap-1 p-2 text-sm">
       {items.map((item) => {
@@ -148,7 +159,11 @@ function NavList({
             {hasChildren && isActive ? (
               <div className="ml-7 mt-1 grid gap-1 border-l pl-2">
                 {item.children!
-                  .filter((child) => !child.adminOnly || isAdminRole(role))
+                  .filter(
+                    (child) =>
+                      (!child.adminOnly || isAdminRole(role)) &&
+                      (!child.module || allowedModules.includes(child.module)),
+                  )
                   .map((child) => {
                   const ChildIcon = child.icon;
                   const childActive =
@@ -180,7 +195,7 @@ function NavList({
   );
 }
 
-export function AppSidebar({ role }: { role: UserRole }) {
+export function AppSidebar({ profile }: { profile: Profile }) {
   const { open, setOpen } = useSidebar();
   const isMobile = useIsMobile();
 
@@ -208,7 +223,7 @@ export function AppSidebar({ role }: { role: UserRole }) {
             </SheetDescription>
           </SheetHeader>
           <ScrollArea className="h-[calc(100vh-4rem)]">
-            <NavList role={role} onNavigate={() => setOpen(false)} />
+            <NavList profile={profile} onNavigate={() => setOpen(false)} />
           </ScrollArea>
         </SheetContent>
       </Sheet>
@@ -222,7 +237,7 @@ export function AppSidebar({ role }: { role: UserRole }) {
         <span>Edusphere Group CRM</span>
       </div>
       <ScrollArea className="flex-1">
-        <NavList role={role} />
+        <NavList profile={profile} />
       </ScrollArea>
       <Separator />
       <div className="p-3 text-xs text-sidebar-muted-foreground">

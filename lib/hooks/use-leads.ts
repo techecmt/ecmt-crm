@@ -230,6 +230,8 @@ export type UpdateLeadStatusInput = {
   assigned_user_id?: string | null;
   /** Required when marking lead as inactive courses. */
   notes?: string;
+  /** Required when moving to registration_unpaid or registered_paid_reg_fee. */
+  registration_completed_at?: string | null;
 };
 
 export function useUpdateLeadStatus() {
@@ -240,6 +242,7 @@ export function useUpdateLeadStatus() {
       status,
       assigned_user_id,
       notes,
+      registration_completed_at,
     }: UpdateLeadStatusInput) => {
       const supabase = createClient();
       const {
@@ -248,6 +251,11 @@ export function useUpdateLeadStatus() {
       const trimmedNotes = notes?.trim() ?? "";
       if (status === "course_not_started" && !trimmedNotes) {
         throw new Error("Notes are required when marking a lead Inactive Courses.");
+      }
+      const isRegistration =
+        status === "registration_unpaid" || status === "registered_paid_reg_fee";
+      if (isRegistration && !registration_completed_at) {
+        throw new Error("Registration completed date is required.");
       }
       const { data: currentLead, error: currentLeadError } = await supabase
         .from("leads")
@@ -258,6 +266,9 @@ export function useUpdateLeadStatus() {
       const updates: Record<string, unknown> = { status };
       if (status === "counselling_in_progress" && assigned_user_id) {
         updates.assigned_counsellor = assigned_user_id;
+      }
+      if (isRegistration && registration_completed_at) {
+        updates.registration_completed_at = registration_completed_at;
       }
       const { data, error } = await supabase
         .from("leads")
@@ -523,6 +534,11 @@ export function useBulkUpdateLeads() {
       if (status === "course_not_started") {
         throw new Error(
           "Bulk update to Inactive Courses is disabled because notes are mandatory. Update leads individually.",
+        );
+      }
+      if (status === "registration_unpaid" || status === "registered_paid_reg_fee") {
+        throw new Error(
+          "Bulk update to registration statuses is disabled because a registration date is mandatory. Update leads individually.",
         );
       }
 

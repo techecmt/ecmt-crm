@@ -150,6 +150,10 @@ function InnerWorkflow({
     return <InactiveCoursesForm lead={lead} onDone={onDone} />;
   }
 
+  if (nextStatus === "registration_unpaid" || nextStatus === "registered_paid_reg_fee") {
+    return <RegistrationForm lead={lead} nextStatus={nextStatus} onDone={onDone} />;
+  }
+
   return <SimpleStatusConfirm lead={lead} nextStatus={nextStatus} onDone={onDone} />;
 }
 
@@ -746,6 +750,84 @@ function NotInterestedForm({
             </Button>
             <Button type="submit" disabled={markNotInterested.isPending}>
               {markNotInterested.isPending ? "Saving…" : "Mark Not Interested"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Form>
+    </>
+  );
+}
+
+const registrationSchema = z.object({
+  registration_completed_at: z
+    .string()
+    .min(1, "Registration completed date is required"),
+});
+
+type RegistrationFormValues = z.infer<typeof registrationSchema>;
+
+function RegistrationForm({
+  lead,
+  nextStatus,
+  onDone,
+}: {
+  lead: Lead | LeadWithRelations;
+  nextStatus: LeadStatus;
+  onDone: () => void;
+}) {
+  const updateStatus = useUpdateLeadStatus();
+  const form = useForm<RegistrationFormValues>({
+    resolver: zodResolver(registrationSchema),
+    defaultValues: {
+      registration_completed_at: lead.registration_completed_at
+        ? lead.registration_completed_at.split("T")[0]
+        : new Date().toISOString().split("T")[0],
+    },
+  });
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>
+          Move to {LEAD_STATUS_LABELS[nextStatus]}
+        </DialogTitle>
+        <DialogDescription>
+          A registration completed date is required before moving to this status.
+        </DialogDescription>
+      </DialogHeader>
+      <Form {...form}>
+        <form
+          onSubmit={form.handleSubmit(async (values) => {
+            await updateStatus.mutateAsync({
+              id: lead.id,
+              status: nextStatus,
+              registration_completed_at: new Date(
+                values.registration_completed_at,
+              ).toISOString(),
+            });
+            onDone();
+          })}
+          className="grid gap-4"
+        >
+          <FormField
+            control={form.control}
+            name="registration_completed_at"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Registration Completed Date</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onDone}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={updateStatus.isPending}>
+              {updateStatus.isPending ? "Updating…" : "Confirm"}
             </Button>
           </DialogFooter>
         </form>

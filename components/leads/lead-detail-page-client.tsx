@@ -134,6 +134,15 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
       ),
     [admissionGoals, leadId],
   );
+  const leadToRegistrationDays = lead?.registration_completed_at
+    ? Math.max(
+        differenceInCalendarDays(
+          new Date(lead.registration_completed_at),
+          new Date(lead.created_at),
+        ),
+        0,
+      )
+    : null;
 
   const onAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -286,6 +295,21 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                   Notes
                 </div>
                 <p className="text-sm">{lead.notes}</p>
+              </div>
+            ) : null}
+            {lead.registration_completed_at ? (
+              <div className="sm:col-span-2 rounded-md border bg-muted/30 p-3">
+                <div className="text-xs font-medium text-muted-foreground">
+                  Registration Completed
+                </div>
+                <p className="mt-1 text-sm">
+                  {format(new Date(lead.registration_completed_at), "PPP")}
+                </p>
+                {leadToRegistrationDays !== null ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Took {leadToRegistrationDays} day{leadToRegistrationDays === 1 ? "" : "s"} from lead creation
+                  </p>
+                ) : null}
               </div>
             ) : null}
             {lead.status === "not_interested" && lead.not_interested_reason ? (

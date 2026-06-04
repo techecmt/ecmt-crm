@@ -8,7 +8,7 @@ import {
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
-import type { Profile, UserRole } from "@/lib/types";
+import type { AppModule, Profile, UserRole } from "@/lib/types";
 
 const PROFILES_KEY = ["profiles"] as const;
 
@@ -135,6 +135,59 @@ export function useDeleteUser() {
     },
     onSuccess: () => {
       toast.success("User deleted");
+      qc.invalidateQueries({ queryKey: PROFILES_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useInviteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      email: string;
+      full_name?: string;
+      role?: UserRole;
+      module_permissions?: AppModule[] | null;
+    }) => {
+      const res = await fetch("/api/admin/users/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as { error?: string; user_id?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to invite user");
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("Invitation sent");
+      qc.invalidateQueries({ queryKey: PROFILES_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useUpdateModulePermissions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      module_permissions,
+    }: {
+      id: string;
+      module_permissions: AppModule[] | null;
+    }) => {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ module_permissions }),
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok)
+        throw new Error(payload.error || "Failed to update permissions");
+    },
+    onSuccess: () => {
+      toast.success("Module permissions updated");
       qc.invalidateQueries({ queryKey: PROFILES_KEY });
     },
     onError: (err: Error) => toast.error(err.message),

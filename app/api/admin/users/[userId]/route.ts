@@ -21,7 +21,11 @@ export async function PATCH(
 
   const { userId } = await params;
 
-  let body: { full_name?: string; auth_enabled?: boolean } = {};
+  let body: {
+    full_name?: string;
+    auth_enabled?: boolean;
+    module_permissions?: string[] | null;
+  } = {};
   try {
     const text = await request.text();
     if (text.trim()) {
@@ -62,6 +66,17 @@ export async function PATCH(
       .eq("id", userId);
     if (profileError) {
       return NextResponse.json({ error: profileError.message }, { status: 400 });
+    }
+  }
+
+  if ("module_permissions" in body) {
+    const modules = body.module_permissions;
+    const { error } = await admin
+      .from("profiles")
+      .update({ module_permissions: modules })
+      .eq("id", userId);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
   }
 
