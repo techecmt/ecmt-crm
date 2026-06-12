@@ -31,46 +31,16 @@ export function useUpdateProfileRole() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, role }: { id: string; role: UserRole }) => {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("profiles")
-        .update({ role })
-        .eq("id", id)
-        .select("*")
-        .single();
-      if (error) throw new Error(error.message);
-      return data as Profile;
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Failed to update role");
     },
     onSuccess: () => {
       toast.success("Role updated");
-      qc.invalidateQueries({ queryKey: PROFILES_KEY });
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
-}
-
-export function useToggleProfileActive() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      id,
-      is_active,
-    }: {
-      id: string;
-      is_active: boolean;
-    }) => {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("profiles")
-        .update({ is_active })
-        .eq("id", id)
-        .select("*")
-        .single();
-      if (error) throw new Error(error.message);
-      return data as Profile;
-    },
-    onSuccess: () => {
-      toast.success("User updated");
       qc.invalidateQueries({ queryKey: PROFILES_KEY });
     },
     onError: (err: Error) => toast.error(err.message),

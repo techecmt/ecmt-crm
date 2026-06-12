@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, hasModuleAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { isAdminRole } from "@/lib/types";
 
@@ -7,6 +7,9 @@ export async function GET() {
   const profile = await getCurrentProfile();
   if (!profile) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!hasModuleAccess(profile, "message_centre")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const supabase = await createClient();
@@ -47,6 +50,9 @@ export async function PATCH(request: NextRequest) {
   const profile = await getCurrentProfile();
   if (!profile) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!hasModuleAccess(profile, "message_centre")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!isAdminRole(profile.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

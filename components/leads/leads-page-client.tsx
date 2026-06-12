@@ -700,7 +700,14 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
                     />
                   </TableCell>
                   <TableCell onClick={() => router.push(`/dashboard/leads/${lead.id}`)}>
-                    <div className="font-medium">{lead.full_name}</div>
+                    <div className="flex items-center gap-2 font-medium">
+                      {lead.full_name}
+                      {lead.is_duplicate ? (
+                        <Badge variant="destructive" className="text-[10px]">
+                          Duplicate
+                        </Badge>
+                      ) : null}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       <WhatsAppPhoneLink phone={lead.phone} />
                       {lead.email ? ` · ${lead.email}` : ""}

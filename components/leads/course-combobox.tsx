@@ -17,33 +17,34 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { NATIONALITY_OPTIONS } from "@/lib/nationalities";
 import { cn } from "@/lib/utils";
 
-type NationalityComboboxProps = {
+type CourseComboboxProps = {
   value: string;
   onChange: (value: string) => void;
+  courses: string[];
   placeholder?: string;
   disabled?: boolean;
   /** When true, selecting the active value clears it (for optional fields). */
   allowClear?: boolean;
 };
 
-export function NationalityCombobox({
+export function CourseCombobox({
   value,
   onChange,
-  placeholder = "Select nationality",
+  courses,
+  placeholder = "Select course",
   disabled,
   allowClear = false,
-}: NationalityComboboxProps) {
+}: CourseComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const options = React.useMemo(() => {
     const trimmed = value.trim();
-    if (trimmed && !NATIONALITY_OPTIONS.includes(trimmed as (typeof NATIONALITY_OPTIONS)[number])) {
-      return [trimmed, ...NATIONALITY_OPTIONS];
+    if (trimmed && !courses.includes(trimmed)) {
+      return [trimmed, ...courses];
     }
-    return [...NATIONALITY_OPTIONS];
-  }, [value]);
+    return courses;
+  }, [courses, value]);
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal>
@@ -59,25 +60,25 @@ export function NationalityCombobox({
             !value && "text-muted-foreground",
           )}
         >
-          {value || placeholder}
+          <span className="truncate">{value || placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search nationality…" />
+          <CommandInput placeholder="Search course…" />
           <CommandList>
-            <CommandEmpty>No nationality found.</CommandEmpty>
+            <CommandEmpty>No course found.</CommandEmpty>
             <CommandGroup>
-              {options.map((nationality) => (
+              {options.map((course) => (
                 <CommandItem
-                  key={nationality}
-                  value={nationality}
+                  key={course}
+                  value={course}
                   onSelect={() => {
-                    if (allowClear && nationality === value) {
+                    if (allowClear && course === value) {
                       onChange("");
                     } else {
-                      onChange(nationality);
+                      onChange(course);
                     }
                     setOpen(false);
                   }}
@@ -85,10 +86,10 @@ export function NationalityCombobox({
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === nationality ? "opacity-100" : "opacity-0",
+                      value === course ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  {nationality}
+                  {course}
                 </CommandItem>
               ))}
             </CommandGroup>

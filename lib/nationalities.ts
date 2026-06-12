@@ -6,6 +6,7 @@ export const NATIONALITY_OPTIONS = [
   "Philippines",
   "Thailand",
   "Vietnam",
+  "Myanmar",
   "South Korea",
   "China",
   "Japan",

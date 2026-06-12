@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
-
 import {
   Card,
   CardContent,
@@ -8,14 +6,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getCurrentProfile } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { USER_ROLE_LABELS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const profile = await getCurrentProfile();
-  if (!profile) redirect("/auth/login");
+  const profile = await requireModule("settings");
 
   return (
     <div className="space-y-6">

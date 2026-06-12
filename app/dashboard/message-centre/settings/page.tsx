@@ -1,14 +1,12 @@
 import { redirect } from "next/navigation";
-
-import { getCurrentProfile } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { isAdminRole } from "@/lib/types";
 import { MessageCentreSettingsClient } from "@/components/message-centre/message-centre-settings-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function MessageCentreSettingsPage() {
-  const profile = await getCurrentProfile();
-  if (!profile) redirect("/auth/login");
+  const profile = await requireModule("message_centre");
   if (!isAdminRole(profile.role)) redirect("/dashboard/message-centre");
 
   return (

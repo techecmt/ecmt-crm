@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, hasModuleAccess } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  APP_MODULE_LABELS,
+  USER_ROLE_LABELS,
+  type AppModule,
+  type UserRole,
+} from "@/lib/types";
 
 function unauthorized() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -11,12 +17,36 @@ function forbidden() {
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
 
+function isUserRole(value: unknown): value is UserRole {
+  return typeof value === "string" && value in USER_ROLE_LABELS;
+}
+
+function isAppModule(value: unknown): value is AppModule {
+  return typeof value === "string" && value in APP_MODULE_LABELS;
+}
+
+function parseModulePermissions(
+  value: unknown,
+): { ok: true; value: AppModule[] | null } | { ok: false } {
+  if (value === null) {
+    return { ok: true, value: null };
+  }
+  if (!Array.isArray(value)) {
+    return { ok: false };
+  }
+  if (!value.every(isAppModule)) {
+    return { ok: false };
+  }
+  return { ok: true, value: Array.from(new Set(value)) };
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const profile = await getCurrentProfile();
   if (!profile) return unauthorized();
+  if (!hasModuleAccess(profile, "users")) return forbidden();
   if (profile.role !== "super_admin") return forbidden();
 
   const { userId } = await params;
@@ -24,7 +54,8 @@ export async function PATCH(
   let body: {
     full_name?: string;
     auth_enabled?: boolean;
-    module_permissions?: string[] | null;
+    role?: unknown;
+    module_permissions?: unknown;
   } = {};
   try {
     const text = await request.text();
@@ -65,15 +96,38 @@ export async function PATCH(
       .update({ is_active: body.auth_enabled })
       .eq("id", userId);
     if (profileError) {
+      // Best-effort rollback to avoid auth/profile divergence.
+      await admin.auth.admin.updateUserById(userId, {
+        ban_duration: body.auth_enabled ? "876000h" : "none",
+      });
       return NextResponse.json({ error: profileError.message }, { status: 400 });
     }
   }
 
-  if ("module_permissions" in body) {
-    const modules = body.module_permissions;
+  if ("role" in body) {
+    if (!isUserRole(body.role)) {
+      return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    }
     const { error } = await admin
       .from("profiles")
-      .update({ module_permissions: modules })
+      .update({ role: body.role })
+      .eq("id", userId);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  if ("module_permissions" in body) {
+    const parsed = parseModulePermissions(body.module_permissions);
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { error: "module_permissions must be null or an array of valid modules" },
+        { status: 400 },
+      );
+    }
+    const { error } = await admin
+      .from("profiles")
+      .update({ module_permissions: parsed.value })
       .eq("id", userId);
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -89,6 +143,7 @@ export async function DELETE(
 ) {
   const profile = await getCurrentProfile();
   if (!profile) return unauthorized();
+  if (!hasModuleAccess(profile, "users")) return forbidden();
   if (profile.role !== "super_admin") return forbidden();
 
   const { userId } = await params;

@@ -663,7 +663,7 @@ function ModulePermissionsDialog({
           </Button>
           <Button
             onClick={async () => {
-              await onSave(selected.length === ALL_MODULES.length ? null : selected);
+              await onSave(selected);
             }}
             disabled={isPending}
           >

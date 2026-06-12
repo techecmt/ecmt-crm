@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { CourseCombobox } from "@/components/leads/course-combobox";
 import { NationalityCombobox } from "@/components/leads/nationality-combobox";
 import {
   useCompleteCounselling,
@@ -583,30 +584,19 @@ function CounsellingCompletedForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Counselled course</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    disabled={!selectedCollege || courses.length === 0}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            !selectedCollege
-                              ? "Select college first"
-                              : "Select course"
-                          }
-                        />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {courses.map((course) => (
-                        <SelectItem key={course} value={course}>
-                          {course}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <CourseCombobox
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      courses={courses}
+                      placeholder={
+                        !selectedCollege
+                          ? "Select college first"
+                          : "Select course"
+                      }
+                      disabled={!selectedCollege || courses.length === 0}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

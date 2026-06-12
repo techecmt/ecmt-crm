@@ -137,6 +137,7 @@ export type LeadUpsertInput = {
   utm_source?: string | null;
   utm_medium?: string | null;
   utm_campaign?: string | null;
+  is_duplicate?: boolean;
   initial_follow_up_priority?: FollowUpPriority;
   initial_follow_up_remarks?: string | null;
 };

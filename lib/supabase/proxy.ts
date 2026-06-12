@@ -63,6 +63,19 @@ export async function updateSession(request: NextRequest) {
   // with the Supabase client, your users may be randomly logged out.
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
+  const userId = typeof user?.sub === "string" ? user.sub : null;
+  let isActiveUser = !!user;
+
+  if (userId) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_active")
+      .eq("id", userId)
+      .maybeSingle();
+    if (profile && !profile.is_active) {
+      isActiveUser = false;
+    }
+  }
 
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith("/auth");
@@ -74,17 +87,22 @@ export async function updateSession(request: NextRequest) {
 
   if (pathname === "/") {
     const url = request.nextUrl.clone();
-    url.pathname = user ? "/dashboard" : "/auth/login";
+    url.pathname = isActiveUser ? "/dashboard" : "/auth/login";
     return redirectWithCookies(url, supabaseResponse);
   }
 
-  if (!user && !isAuthRoute) {
+  if (!isActiveUser && !isAuthRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
     return redirectWithCookies(url, supabaseResponse);
   }
 
-  if (user && isAuthRoute && !pathname.startsWith("/auth/confirm") && !pathname.startsWith("/auth/sign-up-success")) {
+  if (
+    isActiveUser &&
+    isAuthRoute &&
+    !pathname.startsWith("/auth/confirm") &&
+    !pathname.startsWith("/auth/sign-up-success")
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return redirectWithCookies(url, supabaseResponse);

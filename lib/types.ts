@@ -98,13 +98,14 @@ export type ActivityType =
   | "document"
   | "system";
 
+// Note: "reports" is intentionally NOT a module. Admin Reports are gated purely
+// by role (super_admin only) and are not controllable via module permissions.
 export type AppModule =
   | "dashboard"
   | "leads"
   | "follow_ups"
   | "message_centre"
   | "admission_goals"
-  | "reports"
   | "colleges"
   | "marketing"
   | "forms"
@@ -118,7 +119,6 @@ export const APP_MODULE_LABELS: Record<AppModule, string> = {
   follow_ups: "Follow-ups",
   message_centre: "Message Centre",
   admission_goals: "Admission Goals",
-  reports: "Reports",
   colleges: "Colleges",
   marketing: "Marketing",
   forms: "Forms",

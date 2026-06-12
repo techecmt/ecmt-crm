@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, hasModuleAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import type { LeadSource } from "@/lib/types";
+import { isTerminalLeadStatus, type LeadSource, type LeadStatus } from "@/lib/types";
 
 function isLikelyPhone(value: string) {
   return /^\+?[0-9]{7,15}$/.test(value.replace(/\s+/g, ""));
@@ -14,6 +14,9 @@ export async function POST(
   const profile = await getCurrentProfile();
   if (!profile) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!hasModuleAccess(profile, "message_centre")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -41,11 +44,17 @@ export async function POST(
     );
   }
 
-  const { data: existingLead } = await supabase
+  // The same phone can legitimately have several leads (one per course), so
+  // link to the most recent active one, falling back to the newest overall.
+  const { data: existingLeads } = await supabase
     .from("leads")
-    .select("id")
+    .select("id, status")
     .eq("phone", conversation.phone)
-    .single();
+    .order("created_at", { ascending: false });
+
+  const existingLead =
+    (existingLeads ?? []).find((l) => !isTerminalLeadStatus(l.status as LeadStatus)) ??
+    (existingLeads ?? [])[0];
 
   let leadId = existingLead?.id ?? null;
   if (!leadId) {

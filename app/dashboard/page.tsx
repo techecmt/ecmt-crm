@@ -1,13 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { DashboardOverview } from "@/components/dashboard/dashboard-overview";
-import { requireProfile } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import type { FollowUpPriority, FollowUpType, Lead } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 async function loadData() {
   const supabase = await createClient();
-  const profile = await requireProfile();
+  const profile = await requireModule("dashboard");
   const leadsQuery = supabase.from("leads").select("*");
   const followUpsQuery = supabase
     .from("follow_ups")

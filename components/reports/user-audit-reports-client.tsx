@@ -249,9 +249,9 @@ export function UserAuditReportsClient() {
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
+        <h2 className="text-lg font-semibold tracking-tight">Admin Reports</h2>
         <p className="text-sm text-muted-foreground">
-          User Audit with enterprise metrics, filters, and monthly CRM-entry heatmap.
+          CRM entry heatmap, user audit breakdown, and recent CRM entries.
         </p>
       </div>
 

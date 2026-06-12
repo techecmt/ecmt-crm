@@ -1,10 +1,14 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { format } from "date-fns";
+import { AlertTriangle, History } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -31,15 +35,18 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { CourseCombobox } from "@/components/leads/course-combobox";
 import { NationalityCombobox } from "@/components/leads/nationality-combobox";
 import { useColleges } from "@/lib/hooks/use-colleges";
-import { useUpsertLead } from "@/lib/hooks/use-leads";
+import { useLeads, useUpsertLead } from "@/lib/hooks/use-leads";
 import { useProfiles } from "@/lib/hooks/use-profiles";
+import { findDuplicateLeads, type DuplicateCheckLead } from "@/lib/lead-duplicates";
 import { nationalityFormDefaults } from "@/lib/nationalities";
 import {
   DEFAULT_LEAD_SOURCE,
   HIGHEST_QUALIFICATION_LABELS,
   LEAD_SOURCE_LABELS,
+  LEAD_STATUS_LABELS,
   type HighestQualification,
   type Lead,
   type LeadSource,
@@ -104,6 +111,7 @@ export function LeadFormSheet({
 }) {
   const { data: colleges } = useColleges({ activeOnly: true });
   const { data: profiles } = useProfiles();
+  const { data: allLeads } = useLeads();
   const upsert = useUpsertLead();
 
   const counsellors = (profiles ?? []).filter(
@@ -149,6 +157,18 @@ export function LeadFormSheet({
   const selectedCollegeId = form.watch("college_id");
   const selectedQualification = form.watch("highest_qualification");
   const selectedNationality = form.watch("nationality");
+  const watchedPhone = form.watch("phone");
+  const watchedCourse = form.watch("interested_course");
+  const duplicateCheck = React.useMemo(
+    () =>
+      findDuplicateLeads(allLeads ?? [], {
+        phone: watchedPhone,
+        collegeId: selectedCollegeId || null,
+        course: watchedCourse || null,
+        excludeLeadId: lead?.id ?? null,
+      }),
+    [allLeads, watchedPhone, selectedCollegeId, watchedCourse, lead?.id],
+  );
   const selectedCollege = React.useMemo(
     () => (colleges ?? []).find((college) => college.id === selectedCollegeId),
     [colleges, selectedCollegeId],
@@ -207,6 +227,7 @@ export function LeadFormSheet({
       campaign: values.campaign || null,
       notes: values.notes || null,
       lead_score: values.lead_score,
+      is_duplicate: duplicateCheck.activeMatches.length > 0,
     });
     onOpenChange(false);
   };
@@ -375,37 +396,20 @@ export function LeadFormSheet({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Interested course</FormLabel>
-                    <Select
-                      value={field.value || "none"}
-                      onValueChange={(v) =>
-                        field.onChange(v === "none" ? "" : v)
-                      }
-                      disabled={!selectedCollege || availableCourses.length === 0}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue
-                            placeholder={
-                              !selectedCollege
-                                ? "Select college first"
-                                : "Select course"
-                            }
-                          />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="none">— None —</SelectItem>
-                        {availableCourses.map((course) => (
-                          <SelectItem key={course} value={course}>
-                            {course}
-                          </SelectItem>
-                        ))}
-                        {field.value &&
-                        !availableCourses.includes(field.value) ? (
-                          <SelectItem value={field.value}>{field.value}</SelectItem>
-                        ) : null}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <CourseCombobox
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        courses={availableCourses}
+                        placeholder={
+                          !selectedCollege
+                            ? "Select college first"
+                            : "Select course"
+                        }
+                        disabled={!selectedCollege || availableCourses.length === 0}
+                        allowClear
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -521,6 +525,29 @@ export function LeadFormSheet({
                 )}
               />
             </div>
+            {duplicateCheck.activeMatches.length > 0 ? (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Possible duplicate lead</AlertTitle>
+                <AlertDescription>
+                  An active lead already exists with this phone number
+                  {selectedCollegeId || watchedCourse ? ", college and course" : ""}.
+                  Saving will flag this lead as a duplicate.
+                  <DuplicateMatchList matches={duplicateCheck.activeMatches} />
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {duplicateCheck.terminalMatches.length > 0 ? (
+              <Alert>
+                <History className="h-4 w-4" />
+                <AlertTitle>Previous lead history</AlertTitle>
+                <AlertDescription>
+                  This person had earlier closed leads. This will be saved as a
+                  normal new lead.
+                  <DuplicateMatchList matches={duplicateCheck.terminalMatches} />
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {!lead ? (
               <p className="text-xs text-muted-foreground">
                 New leads start at <strong>Inquiry Received</strong>. Assign a
@@ -557,5 +584,31 @@ export function LeadFormSheet({
         </Form>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function DuplicateMatchList({ matches }: { matches: DuplicateCheckLead[] }) {
+  return (
+    <ul className="mt-2 space-y-1">
+      {matches.slice(0, 3).map((match) => (
+        <li key={match.id} className="flex flex-wrap items-center gap-x-1.5 text-xs">
+          <span className="font-medium">{match.full_name}</span>
+          <span>· {LEAD_STATUS_LABELS[match.status]}</span>
+          <span>· {format(new Date(match.created_at), "PP")}</span>
+          <Link
+            href={`/dashboard/leads/${match.id}`}
+            target="_blank"
+            className="underline underline-offset-2"
+          >
+            View lead
+          </Link>
+        </li>
+      ))}
+      {matches.length > 3 ? (
+        <li className="text-xs text-muted-foreground">
+          +{matches.length - 3} more with the same details
+        </li>
+      ) : null}
+    </ul>
   );
 }

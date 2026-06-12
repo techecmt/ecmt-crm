@@ -39,6 +39,7 @@ type NavChild = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  superAdminOnly?: boolean;
   module?: AppModule;
 };
 
@@ -47,6 +48,7 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  superAdminOnly?: boolean;
   module?: AppModule;
   children?: NavChild[];
 };
@@ -80,7 +82,7 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined, module: "admission_goals" },
-  { href: "/dashboard/reports", label: "Reports", icon: BarChart3, adminOnly: true, module: "reports" },
+  { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
   { href: "/dashboard/colleges", label: "Colleges", icon: Building2, module: "colleges" },
   { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone, module: "marketing" },
   { href: "/dashboard/forms", label: "Forms", icon: ClipboardList, module: "forms" },
@@ -123,6 +125,7 @@ function NavList({
   const items = NAV_ITEMS.filter(
     (i) =>
       (!i.adminOnly || isAdminRole(role)) &&
+      (!i.superAdminOnly || role === "super_admin") &&
       (!i.module || allowedModules.includes(i.module)),
   );
   return (
@@ -162,6 +165,7 @@ function NavList({
                   .filter(
                     (child) =>
                       (!child.adminOnly || isAdminRole(role)) &&
+                      (!child.superAdminOnly || role === "super_admin") &&
                       (!child.module || allowedModules.includes(child.module)),
                   )
                   .map((child) => {
