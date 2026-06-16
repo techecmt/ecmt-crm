@@ -40,6 +40,7 @@ import { NationalityCombobox } from "@/components/leads/nationality-combobox";
 import { useColleges } from "@/lib/hooks/use-colleges";
 import { useLeads, useUpsertLead } from "@/lib/hooks/use-leads";
 import { useProfiles } from "@/lib/hooks/use-profiles";
+import { useCurrentProfile } from "@/lib/hooks/use-current-profile";
 import { findDuplicateLeads, type DuplicateCheckLead } from "@/lib/lead-duplicates";
 import { nationalityFormDefaults } from "@/lib/nationalities";
 import {
@@ -75,7 +76,7 @@ const schema = z
     source: z.enum(sources as [LeadSource, ...LeadSource[]]),
     assigned_counsellor: z.string().optional().or(z.literal("")),
     campaign: z.string().optional().or(z.literal("")),
-    notes: z.string().optional().or(z.literal("")),
+    description: z.string().optional().or(z.literal("")),
     lead_score: z.coerce.number().int().min(0).max(100).default(0),
   })
   .superRefine((values, ctx) => {
@@ -112,6 +113,7 @@ export function LeadFormSheet({
   const { data: colleges } = useColleges({ activeOnly: true });
   const { data: profiles } = useProfiles();
   const { data: allLeads } = useLeads();
+  const { data: currentProfile } = useCurrentProfile();
   const upsert = useUpsertLead();
 
   const counsellors = (profiles ?? []).filter(
@@ -142,12 +144,14 @@ export function LeadFormSheet({
       interested_course: lead?.interested_course ?? "",
       college_id: lead?.college_id ?? "",
       source: (lead?.source as LeadSource) ?? DEFAULT_LEAD_SOURCE,
-      assigned_counsellor: lead?.assigned_counsellor ?? "",
+      // New leads default to the logged-in user; editing keeps the saved value.
+      assigned_counsellor:
+        lead?.assigned_counsellor ?? (lead ? "" : currentProfile?.id ?? ""),
       campaign: lead?.campaign ?? "",
-      notes: lead?.notes ?? "",
+      description: lead?.description ?? "",
       lead_score: lead?.lead_score ?? 0,
     };
-  }, [lead]);
+  }, [lead, currentProfile?.id]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -225,7 +229,7 @@ export function LeadFormSheet({
       source: values.source,
       assigned_counsellor: values.assigned_counsellor || null,
       campaign: values.campaign || null,
-      notes: values.notes || null,
+      description: values.description || null,
       lead_score: values.lead_score,
       is_duplicate: duplicateCheck.activeMatches.length > 0,
     });
@@ -557,10 +561,10 @@ export function LeadFormSheet({
             ) : null}
             <FormField
               control={form.control}
-              name="notes"
+              name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes</FormLabel>
+                  <FormLabel>Description</FormLabel>
                   <FormControl>
                     <Textarea rows={3} {...field} />
                   </FormControl>

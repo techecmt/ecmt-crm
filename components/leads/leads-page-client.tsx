@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   SlidersHorizontal,
+  StickyNote,
   Trash2,
   UserCircle2,
   Users,
@@ -22,6 +23,12 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Card,
   CardContent,
@@ -132,14 +139,21 @@ const defaultExpertSearch: ExpertSearchState = {
   duplicatesOnly: false,
 };
 
-export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
+export function LeadsPageClient({
+  canDelete,
+  currentUserId,
+}: {
+  canDelete: boolean;
+  currentUserId: string;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const [filters, setFilters] = React.useState<LeadFilters>({
     status: "all",
     source: "all",
     collegeId: "all",
-    counsellorId: "all",
+    // Default to the logged-in user's own leads; switchable to "All counsellors".
+    counsellorId: currentUserId,
   });
   const [search, setSearch] = React.useState("");
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
@@ -222,7 +236,7 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
         lead.utm_source ?? "",
         lead.utm_medium ?? "",
         lead.utm_campaign ?? "",
-        lead.notes ?? "",
+        lead.description ?? "",
       ]
         .join(" ")
         .toLowerCase();
@@ -706,6 +720,21 @@ export function LeadsPageClient({ canDelete }: { canDelete: boolean }) {
                         <Badge variant="destructive" className="text-[10px]">
                           Duplicate
                         </Badge>
+                      ) : null}
+                      {lead.description ? (
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <StickyNote className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="right"
+                              className="max-w-[280px] whitespace-pre-wrap text-left"
+                            >
+                              {lead.description}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       ) : null}
                     </div>
                     <div className="text-xs text-muted-foreground">

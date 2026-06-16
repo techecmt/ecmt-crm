@@ -181,18 +181,26 @@ function EmptyChart({ label }: { label: string }) {
   );
 }
 
-export function LeadFunnelReportsClient({ isAdmin = false }: { isAdmin?: boolean }) {
+export function LeadFunnelReportsClient({
+  isAdmin = false,
+  currentUserId,
+}: {
+  isAdmin?: boolean;
+  currentUserId: string;
+}) {
   const now = React.useMemo(() => new Date(), []);
   const [fromDate, setFromDate] = React.useState(format(subDays(now, 29), "yyyy-MM-dd"));
   const [toDate, setToDate] = React.useState(format(now, "yyyy-MM-dd"));
   const [collegeId, setCollegeId] = React.useState("all");
   const [source, setSource] = React.useState<LeadSource | "all">("all");
-  const [counsellorId, setCounsellorId] = React.useState("all");
+  // Default to the logged-in user's own pipeline. Admins can switch via the
+  // Counsellor filter; non-admins stay scoped to themselves.
+  const [counsellorId, setCounsellorId] = React.useState(currentUserId);
 
   const leadsQuery = useLeads({
     collegeId,
     source,
-    counsellorId: isAdmin ? counsellorId : "all",
+    counsellorId: isAdmin ? counsellorId : currentUserId,
   });
   const collegesQuery = useColleges();
   const profilesQuery = useProfiles();
@@ -371,7 +379,7 @@ export function LeadFunnelReportsClient({ isAdmin = false }: { isAdmin?: boolean
               setToDate(format(now, "yyyy-MM-dd"));
               setCollegeId("all");
               setSource("all");
-              setCounsellorId("all");
+              setCounsellorId(currentUserId);
             }}
           >
             Reset filters

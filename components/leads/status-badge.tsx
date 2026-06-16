@@ -6,9 +6,9 @@ const STATUS_STYLES: Record<LeadStatus, string> = {
   inquiry_received:
     "bg-blue-100 text-blue-700 hover:bg-blue-100 dark:bg-blue-500/20 dark:text-blue-300",
   counselling_in_progress:
-    "bg-violet-100 text-violet-700 hover:bg-violet-100 dark:bg-violet-500/20 dark:text-violet-300",
+    "bg-rose-100 text-rose-700 hover:bg-rose-100 dark:bg-rose-500/20 dark:text-rose-300",
   counselling_completed:
-    "bg-teal-100 text-teal-700 hover:bg-teal-100 dark:bg-teal-500/20 dark:text-teal-300",
+    "bg-indigo-100 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-500/20 dark:text-indigo-300",
   no_response:
     "bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-500/20 dark:text-orange-300",
   not_interested:

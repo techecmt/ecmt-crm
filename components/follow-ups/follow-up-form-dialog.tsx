@@ -44,6 +44,7 @@ import {
   type FollowUpWithRelations,
 } from "@/lib/hooks/use-follow-ups";
 import { useProfiles } from "@/lib/hooks/use-profiles";
+import { useCurrentProfile } from "@/lib/hooks/use-current-profile";
 import {
   FOLLOW_UP_PRIORITY_LABELS,
   FOLLOW_UP_TYPE_LABELS,
@@ -80,6 +81,7 @@ export function FollowUpFormDialog({
 }) {
   const upsert = useUpsertFollowUp();
   const { data: profiles } = useProfiles();
+  const { data: currentProfile } = useCurrentProfile();
 
   const defaults = React.useMemo<FormValues>(() => {
     const initial = followUp ? new Date(followUp.scheduled_at) : new Date();
@@ -88,10 +90,14 @@ export function FollowUpFormDialog({
       time: format(initial, "HH:mm"),
       type: (followUp?.followup_type as FollowUpType) ?? (followUp?.type as FollowUpType) ?? "call",
       priority: (followUp?.priority as FollowUpPriority) ?? "normal",
-      assigned_to: followUp?.assigned_user_id ?? followUp?.assigned_to ?? "",
+      // New follow-ups default to the logged-in user; editing keeps the saved value.
+      assigned_to:
+        followUp?.assigned_user_id ??
+        followUp?.assigned_to ??
+        (followUp ? "" : currentProfile?.id ?? ""),
       remarks: followUp?.remarks ?? followUp?.notes ?? "",
     };
-  }, [followUp]);
+  }, [followUp, currentProfile?.id]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),

@@ -4,7 +4,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LeadFunnelReportsClient } from "@/components/reports/lead-funnel-reports-client";
 import { UserAuditReportsClient } from "@/components/reports/user-audit-reports-client";
 
-export function ReportsPageClient({ isAdmin }: { isAdmin: boolean }) {
+export function ReportsPageClient({
+  isAdmin,
+  currentUserId,
+}: {
+  isAdmin: boolean;
+  currentUserId: string;
+}) {
   return (
     <div className="space-y-6">
       <div className="space-y-1">
@@ -23,14 +29,14 @@ export function ReportsPageClient({ isAdmin }: { isAdmin: boolean }) {
             <TabsTrigger value="admin">Admin Reports</TabsTrigger>
           </TabsList>
           <TabsContent value="user" className="mt-4">
-            <LeadFunnelReportsClient isAdmin />
+            <LeadFunnelReportsClient isAdmin currentUserId={currentUserId} />
           </TabsContent>
           <TabsContent value="admin" className="mt-4">
             <UserAuditReportsClient />
           </TabsContent>
         </Tabs>
       ) : (
-        <LeadFunnelReportsClient />
+        <LeadFunnelReportsClient currentUserId={currentUserId} />
       )}
     </div>
   );

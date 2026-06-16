@@ -289,12 +289,12 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               label="Lead aging"
               value={`${daysSinceLastFollowUp} day${daysSinceLastFollowUp === 1 ? "" : "s"} since last follow-up`}
             />
-            {lead.notes ? (
+            {lead.description ? (
               <div className="sm:col-span-2">
                 <div className="text-xs font-medium text-muted-foreground">
-                  Notes
+                  Description
                 </div>
-                <p className="text-sm">{lead.notes}</p>
+                <p className="text-sm">{lead.description}</p>
               </div>
             ) : null}
             {lead.registration_completed_at ? (

@@ -193,7 +193,7 @@ export interface Lead {
   status: LeadStatus;
   admission_stage: AdmissionStage | null;
   assigned_counsellor: string | null;
-  notes: string | null;
+  description: string | null;
   follow_up_date: string | null;
   lead_score: number;
   campaign: string | null;

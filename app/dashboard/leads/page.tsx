@@ -6,5 +6,10 @@ export const dynamic = "force-dynamic";
 
 export default async function LeadsPage() {
   const profile = await requireModule("leads");
-  return <LeadsPageClient canDelete={isAdminRole(profile.role)} />;
+  return (
+    <LeadsPageClient
+      canDelete={isAdminRole(profile.role)}
+      currentUserId={profile.id}
+    />
+  );
 }

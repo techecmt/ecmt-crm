@@ -130,7 +130,7 @@ export type LeadUpsertInput = {
   status?: LeadStatus;
   admission_stage?: AdmissionStage | null;
   assigned_counsellor?: string | null;
-  notes?: string | null;
+  description?: string | null;
   follow_up_date?: string | null;
   lead_score?: number;
   campaign?: string | null;
@@ -391,12 +391,27 @@ export function useCompleteCounselling() {
       if (error) throw new Error(error.message);
 
       const assigneeId = data.assigned_counsellor ?? user?.id ?? null;
+
+      // Anchor post-counselling follow-ups after the latest pending follow-up
+      // so they never land before already-scheduled in-progress ones.
+      const { data: pendingFollowUps } = await supabase
+        .from("follow_ups")
+        .select("scheduled_at")
+        .eq("lead_id", input.id)
+        .eq("status", "pending")
+        .order("scheduled_at", { ascending: false })
+        .limit(1);
+      const latestPending = pendingFollowUps?.[0]?.scheduled_at;
+      const anchor = latestPending
+        ? new Date(latestPending).toISOString()
+        : new Date().toISOString();
+
       const { error: seedError } = await supabase.rpc(
         "start_counselling_follow_ups",
         {
           p_lead_id: input.id,
           p_assigned_user_id: assigneeId,
-          p_first_at: new Date().toISOString(),
+          p_first_at: anchor,
         },
       );
       if (seedError) throw new Error(seedError.message);

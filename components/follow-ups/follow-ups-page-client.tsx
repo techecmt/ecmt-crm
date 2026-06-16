@@ -77,6 +77,7 @@ import {
   type UserRole,
 } from "@/lib/types";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
+import { cn } from "@/lib/utils";
 
 type Filter = "mine" | "all";
 type DatePreset = "all" | "today" | "this_week" | "last_week" | "next_week";
@@ -209,6 +210,8 @@ export function FollowUpsPageClient({
           </div>
         ) : null}
       </div>
+      <FollowUpLegend />
+
       <Card>
         <CardContent className="flex flex-wrap items-end gap-2 py-4">
           <div className="grid gap-1">
@@ -391,6 +394,81 @@ export function FollowUpsPageClient({
   );
 }
 
+/**
+ * Per-sequence colours so each follow-up in the cadence is instantly
+ * recognisable: #1 blue, #2 rose, #3 amber, #4 emerald, and a distinct
+ * violet for manual ("Custom") follow-ups that have no sequence.
+ */
+type FollowUpStyle = { label: string; dot: string; badge: string; accent: string };
+
+const FOLLOWUP_SEQUENCE_STYLES: Record<number, FollowUpStyle> = {
+  1: {
+    label: "Counselling #1",
+    dot: "bg-blue-500",
+    badge: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
+    accent: "border-l-blue-400 dark:border-l-blue-500",
+  },
+  2: {
+    label: "Counselling #2",
+    dot: "bg-rose-500",
+    badge: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
+    accent: "border-l-rose-400 dark:border-l-rose-500",
+  },
+  3: {
+    label: "Counselling #3",
+    dot: "bg-amber-500",
+    badge: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+    accent: "border-l-amber-400 dark:border-l-amber-500",
+  },
+  4: {
+    label: "Counselling #4",
+    dot: "bg-emerald-500",
+    badge:
+      "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+    accent: "border-l-emerald-400 dark:border-l-emerald-500",
+  },
+};
+
+const FOLLOWUP_CUSTOM_STYLE: FollowUpStyle = {
+  label: "Custom",
+  dot: "bg-violet-500",
+  badge:
+    "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
+  accent: "border-l-violet-400 dark:border-l-violet-500",
+};
+
+/** Legend entries in cadence order, ending with the manual "Custom" style. */
+const FOLLOWUP_LEGEND: FollowUpStyle[] = [
+  ...Object.keys(FOLLOWUP_SEQUENCE_STYLES)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((seq) => FOLLOWUP_SEQUENCE_STYLES[seq]),
+  FOLLOWUP_CUSTOM_STYLE,
+];
+
+function followUpStyle(sequence: number | null): FollowUpStyle {
+  if (sequence && FOLLOWUP_SEQUENCE_STYLES[sequence]) {
+    return FOLLOWUP_SEQUENCE_STYLES[sequence];
+  }
+  return FOLLOWUP_CUSTOM_STYLE;
+}
+
+function FollowUpLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <span className="text-xs font-medium text-muted-foreground">
+        Follow-up colours:
+      </span>
+      {FOLLOWUP_LEGEND.map((style) => (
+        <span key={style.label} className="flex items-center gap-1.5 text-xs">
+          <span className={cn("h-2.5 w-2.5 rounded-full", style.dot)} />
+          {style.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function FollowUpList({
   items,
   empty,
@@ -435,12 +513,15 @@ function FollowUpList({
           const isOwn =
             f.assigned_user_id === currentUserId ||
             f.assigned_to === currentUserId;
+          const style = followUpStyle(f.sequence);
           return (
             <div
               key={f.id}
-              className={`flex flex-wrap items-center justify-between gap-3 p-4 ${
-                overdue ? "bg-destructive/5" : ""
-              }`}
+              className={cn(
+                "flex flex-wrap items-center justify-between gap-3 border-l-4 p-4",
+                style.accent,
+                overdue ? "bg-destructive/5" : "",
+              )}
             >
               <div className="flex items-start gap-3">
                 <CalendarClock className="mt-0.5 h-4 w-4 text-muted-foreground" />
@@ -450,11 +531,12 @@ function FollowUpList({
                     <Badge variant="outline" className="text-[10px]">
                       {FOLLOW_UP_TYPE_LABELS[f.followup_type ?? f.type]}
                     </Badge>
-                    {f.sequence ? (
-                      <Badge variant="secondary" className="text-[10px]">
-                        Counselling #{f.sequence}
-                      </Badge>
-                    ) : null}
+                    <Badge
+                      variant="secondary"
+                      className={cn("border-0 text-[10px]", style.badge)}
+                    >
+                      {f.sequence ? `Counselling #${f.sequence}` : "Custom"}
+                    </Badge>
                     <Badge
                       variant={
                         f.priority === "high" || f.priority === "urgent"
