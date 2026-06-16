@@ -342,7 +342,7 @@ export function useUpdateLeadStatus() {
 export type CompleteCounsellingInput = {
   id: string;
   first_name: string;
-  last_name: string;
+  last_name?: string | null;
   phone: string;
   nationality: string;
   nationality_other?: string | null;
@@ -361,13 +361,16 @@ export function useCompleteCounselling() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      const full_name = `${input.first_name.trim()} ${input.last_name.trim()}`.trim();
+      const trimmedLast = input.last_name?.trim() ?? "";
+      const full_name = trimmedLast
+        ? `${input.first_name.trim()} ${trimmedLast}`
+        : input.first_name.trim();
       const { data, error } = await supabase
         .from("leads")
         .update({
           status: "counselling_completed",
           first_name: input.first_name.trim(),
-          last_name: input.last_name.trim(),
+          last_name: trimmedLast || null,
           full_name,
           phone: input.phone.trim(),
           nationality: input.nationality.trim(),

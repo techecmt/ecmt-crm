@@ -382,7 +382,7 @@ export const NOT_INTERESTED_REASON_LABELS: Record<NotInterestedReason, string> =
 
 export const COUNSELLING_CHECK_LABELS: Record<CounsellingCheckKey, string> = {
   website_details: "Website Details",
-  mer: "MER (Merit / Eligibility Requirements)",
+  mer: "MER (Minimum Eligibility Requirements)",
   policies: "Policies",
   fee_structure: "Fee Structure",
   attendance: "Attendance Requirements",

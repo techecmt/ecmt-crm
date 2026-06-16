@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -301,7 +302,7 @@ function SimpleStatusConfirm({
 const counsellingSchema = z
   .object({
     first_name: z.string().trim().min(1, "First name is required"),
-    last_name: z.string().trim().min(1, "Last name is required"),
+    last_name: z.string().trim().optional().or(z.literal("")),
     phone: z.string().trim().min(5, "Phone is required"),
     nationality: z.enum(
       NATIONALITY_OPTIONS as unknown as [string, ...string[]],
@@ -462,7 +463,7 @@ function CounsellingCompletedForm({
               name="last_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Last name</FormLabel>
+                  <FormLabel>Last name <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -630,20 +631,36 @@ function CounsellingCheckRow({
     <FormField
       control={form.control}
       name={`counselling_checks.${name}` as const}
-      render={({ field }) => (
-        <FormItem className="flex flex-row items-center justify-between rounded-md border bg-background px-3 py-2">
-          <Label htmlFor={`check-${name}`} className="text-sm font-normal">
-            {COUNSELLING_CHECK_LABELS[name]}
-          </Label>
-          <FormControl>
-            <Checkbox
-              id={`check-${name}`}
-              checked={field.value}
-              onCheckedChange={field.onChange}
-            />
-          </FormControl>
-        </FormItem>
-      )}
+      render={({ field }) => {
+        const isError = form.formState.isSubmitted && !field.value;
+        return (
+          <FormItem
+            className={cn(
+              "flex flex-row items-center justify-between rounded-md border px-3 py-2 transition-colors",
+              isError
+                ? "border-destructive bg-destructive/5"
+                : "border-border bg-background",
+            )}
+          >
+            <Label
+              htmlFor={`check-${name}`}
+              className={cn(
+                "text-sm font-normal",
+                isError && "text-destructive",
+              )}
+            >
+              {COUNSELLING_CHECK_LABELS[name]}
+            </Label>
+            <FormControl>
+              <Checkbox
+                id={`check-${name}`}
+                checked={field.value}
+                onCheckedChange={field.onChange}
+              />
+            </FormControl>
+          </FormItem>
+        );
+      }}
     />
   );
 }
