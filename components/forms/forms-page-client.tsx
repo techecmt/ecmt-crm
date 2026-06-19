@@ -418,7 +418,7 @@ export function FormsPageClient() {
             value={selectedFormId ?? ""}
             onValueChange={setSelectedFormId}
           >
-            <SelectTrigger className="w-72">
+            <SelectTrigger className="w-full sm:w-72">
               <SelectValue placeholder="Select a form" />
             </SelectTrigger>
             <SelectContent>
@@ -666,19 +666,19 @@ export function FormsPageClient() {
           {/* ── All Responses table ─────────────────────────────────────── */}
           <TabsContent value="responses" className="pt-4">
             <Card className="overflow-hidden">
-              <CardHeader className="flex-row items-center justify-between">
+              <CardHeader className="flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle className="text-sm">All Submissions</CardTitle>
                   <CardDescription>
                     {submissions.length} response{submissions.length !== 1 ? "s" : ""}
                   </CardDescription>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                   <Select
                     value={sortKey}
                     onValueChange={(v) => setSortKey(v as SortKey)}
                   >
-                    <SelectTrigger className="h-8 w-[220px]">
+                    <SelectTrigger className="h-8 w-full sm:w-[220px]">
                       <SelectValue placeholder="Sort by" />
                     </SelectTrigger>
                     <SelectContent>
@@ -719,16 +719,16 @@ export function FormsPageClient() {
                       <Table className="w-full">
                   <TableHeader>
                     <TableRow className="[&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-background">
-                      <TableHead className="sticky left-0 z-30 w-12 bg-background">
+                      <TableHead className="z-30 w-12 bg-background md:sticky md:left-0">
                         #
                       </TableHead>
-                      <TableHead className="sticky left-12 z-30 min-w-[140px] bg-background">
+                      <TableHead className="z-30 min-w-[140px] bg-background md:sticky md:left-12">
                         Submitted
                       </TableHead>
-                      <TableHead className="sticky left-[196px] z-30 min-w-[160px] bg-background">
+                      <TableHead className="z-30 min-w-[160px] bg-background md:sticky md:left-[196px]">
                         Name
                       </TableHead>
-                      <TableHead className="sticky left-[356px] z-30 min-w-[200px] bg-background">
+                      <TableHead className="z-30 min-w-[200px] bg-background md:sticky md:left-[356px]">
                         Email
                       </TableHead>
                       {infoFields.map((f) => (
@@ -751,16 +751,16 @@ export function FormsPageClient() {
                       const personalAvg = getSubmissionAvg(s, ratingFields);
                       return (
                         <TableRow key={s.id}>
-                          <TableCell className="sticky left-0 z-10 bg-background text-xs text-muted-foreground">
+                          <TableCell className="z-10 bg-background text-xs text-muted-foreground md:sticky md:left-0">
                             {idx + 1}
                           </TableCell>
-                          <TableCell className="sticky left-12 z-10 bg-background text-xs">
+                          <TableCell className="z-10 bg-background text-xs md:sticky md:left-12">
                             {format(new Date(s.submitted_at), "d MMM yy, HH:mm")}
                           </TableCell>
-                          <TableCell className="sticky left-[196px] z-10 bg-background font-medium">
+                          <TableCell className="z-10 bg-background font-medium md:sticky md:left-[196px]">
                             {s.submitter_name ?? "—"}
                           </TableCell>
-                          <TableCell className="sticky left-[356px] z-10 bg-background text-xs text-muted-foreground">
+                          <TableCell className="z-10 bg-background text-xs text-muted-foreground md:sticky md:left-[356px]">
                             {s.submitter_email ?? "—"}
                           </TableCell>
                           {infoFields.map((f) => (

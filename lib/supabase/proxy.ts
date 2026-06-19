@@ -101,7 +101,8 @@ export async function updateSession(request: NextRequest) {
     isActiveUser &&
     isAuthRoute &&
     !pathname.startsWith("/auth/confirm") &&
-    !pathname.startsWith("/auth/sign-up-success")
+    !pathname.startsWith("/auth/sign-up-success") &&
+    !pathname.startsWith("/auth/update-password")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";

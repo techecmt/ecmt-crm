@@ -238,7 +238,7 @@ export function FollowUpsPageClient({
               type="date"
               value={exactDate}
               onChange={(e) => setExactDate(e.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-sm"
+              className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
             />
           </div>
           <div className="grid gap-1">
@@ -247,7 +247,7 @@ export function FollowUpsPageClient({
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-sm"
+              className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
             />
           </div>
           <div className="grid gap-1">
@@ -256,7 +256,7 @@ export function FollowUpsPageClient({
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-sm"
+              className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
             />
           </div>
           <Button

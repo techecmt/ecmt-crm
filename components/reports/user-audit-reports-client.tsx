@@ -261,22 +261,22 @@ export function UserAuditReportsClient() {
           <CardDescription>Filter reports by date, college, course, and counsellor.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-3">
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Start date</label>
             <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           </div>
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">End date</label>
             <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </div>
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Heatmap month</label>
             <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
           </div>
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">College</label>
             <Select value={collegeId} onValueChange={setCollegeId}>
-              <SelectTrigger className="w-[220px]">
+              <SelectTrigger className="w-full sm:w-[220px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -289,10 +289,10 @@ export function UserAuditReportsClient() {
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Course</label>
             <Select value={course} onValueChange={setCourse}>
-              <SelectTrigger className="w-[220px]">
+              <SelectTrigger className="w-full sm:w-[220px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -305,10 +305,10 @@ export function UserAuditReportsClient() {
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Counsellor</label>
             <Select value={counsellorId} onValueChange={setCounsellorId}>
-              <SelectTrigger className="w-[220px]">
+              <SelectTrigger className="w-full sm:w-[220px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

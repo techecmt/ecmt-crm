@@ -313,18 +313,18 @@ export function LeadFunnelReportsClient({
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-3">
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Start date</label>
             <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           </div>
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">End date</label>
             <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </div>
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">College</label>
             <Select value={collegeId} onValueChange={setCollegeId}>
-              <SelectTrigger className="w-[220px]">
+              <SelectTrigger className="w-full sm:w-[220px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -337,10 +337,10 @@ export function LeadFunnelReportsClient({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1">
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Source</label>
             <Select value={source} onValueChange={(v) => setSource(v as LeadSource | "all")}>
-              <SelectTrigger className="w-[220px]">
+              <SelectTrigger className="w-full sm:w-[220px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -354,10 +354,10 @@ export function LeadFunnelReportsClient({
             </Select>
           </div>
           {isAdmin ? (
-            <div className="grid gap-1">
+            <div className="grid w-full gap-1 sm:w-auto">
               <label className="text-xs text-muted-foreground">Counsellor</label>
               <Select value={counsellorId} onValueChange={setCounsellorId}>
-                <SelectTrigger className="w-[220px]">
+                <SelectTrigger className="w-full sm:w-[220px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

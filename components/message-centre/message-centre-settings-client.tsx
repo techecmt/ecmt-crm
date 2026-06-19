@@ -83,17 +83,26 @@ export function MessageCentreSettingsClient() {
   return (
     <Tabs defaultValue="agent" className="space-y-6">
       <TabsList className="grid w-full grid-cols-3">
-        <TabsTrigger value="agent" className="gap-2">
-          <Bot className="h-4 w-4" />
-          AI Agent
+        <TabsTrigger value="agent" className="gap-1.5 px-1 sm:gap-2 sm:px-3">
+          <Bot className="h-4 w-4 shrink-0" />
+          <span className="truncate">
+            <span className="sm:hidden">Agent</span>
+            <span className="hidden sm:inline">AI Agent</span>
+          </span>
         </TabsTrigger>
-        <TabsTrigger value="knowledge" className="gap-2">
-          <Brain className="h-4 w-4" />
-          Knowledge Base
+        <TabsTrigger value="knowledge" className="gap-1.5 px-1 sm:gap-2 sm:px-3">
+          <Brain className="h-4 w-4 shrink-0" />
+          <span className="truncate">
+            <span className="sm:hidden">Knowledge</span>
+            <span className="hidden sm:inline">Knowledge Base</span>
+          </span>
         </TabsTrigger>
-        <TabsTrigger value="connections" className="gap-2">
-          <Globe className="h-4 w-4" />
-          Connections
+        <TabsTrigger value="connections" className="gap-1.5 px-1 sm:gap-2 sm:px-3">
+          <Globe className="h-4 w-4 shrink-0" />
+          <span className="truncate">
+            <span className="sm:hidden">Connect</span>
+            <span className="hidden sm:inline">Connections</span>
+          </span>
         </TabsTrigger>
       </TabsList>
 

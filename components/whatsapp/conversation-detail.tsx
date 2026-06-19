@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { format } from "date-fns";
-import { Bot, Send, User, UserCheck, Phone, Loader2 } from "lucide-react";
+import { Bot, ChevronLeft, Send, User, UserCheck, Phone, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -21,9 +21,10 @@ import {
 
 interface ConversationDetailProps {
   conversation: Conversation;
+  onBack?: () => void;
 }
 
-export function ConversationDetail({ conversation }: ConversationDetailProps) {
+export function ConversationDetail({ conversation, onBack }: ConversationDetailProps) {
   const [inputValue, setInputValue] = React.useState("");
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -91,9 +92,19 @@ export function ConversationDetail({ conversation }: ConversationDetailProps) {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back to conversations"
+              className="-ml-1 shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground md:hidden"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+          ) : null}
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
             <User className="h-4 w-4" />
           </div>
           <div>
@@ -207,7 +218,7 @@ function MessageBubble({ message }: { message: Message }) {
     >
       <div
         className={cn(
-          "max-w-[70%] rounded-2xl px-4 py-2.5",
+          "max-w-[85%] rounded-2xl px-4 py-2.5 sm:max-w-[70%]",
           isUser
             ? "rounded-tl-sm bg-muted text-foreground"
             : "rounded-tr-sm bg-green-600 text-white dark:bg-green-700"

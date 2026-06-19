@@ -5,6 +5,7 @@ import Link from "next/link";
 import { format } from "date-fns";
 import {
   Bot,
+  ChevronLeft,
   Link2,
   Loader2,
   Phone,
@@ -38,7 +39,13 @@ import {
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import { useMessagingPages } from "@/lib/hooks/use-message-centre-settings";
 
-export function ConversationDetail({ conversation }: { conversation: Conversation }) {
+export function ConversationDetail({
+  conversation,
+  onBack,
+}: {
+  conversation: Conversation;
+  onBack?: () => void;
+}) {
   const [inputValue, setInputValue] = React.useState("");
   const [phoneValue, setPhoneValue] = React.useState(conversation.phone || "");
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -84,6 +91,16 @@ export function ConversationDetail({ conversation }: { conversation: Conversatio
   return (
     <>
       <div className="border-b px-4 py-3">
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:hidden"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back to inbox
+          </button>
+        ) : null}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
             <h3 className="text-sm font-semibold">
@@ -309,7 +326,7 @@ function MessageBubble({ message }: { message: Message }) {
     <div className={cn("flex", isUser ? "justify-start" : "justify-end")}>
       <div
         className={cn(
-          "max-w-[70%] rounded-2xl px-4 py-2.5",
+          "max-w-[85%] rounded-2xl px-4 py-2.5 sm:max-w-[70%]",
           isUser
             ? "rounded-tl-sm bg-muted text-foreground"
             : isHumanAgent

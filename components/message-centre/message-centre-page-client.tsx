@@ -60,8 +60,13 @@ export function MessageCentrePageClient() {
     conversations.find((conversation) => conversation.id === selectedId) || null;
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] overflow-hidden rounded-lg border bg-background">
-      <div className="flex w-[390px] shrink-0 flex-col border-r">
+    <div className="flex h-[calc(100vh-7rem)] min-h-[28rem] overflow-hidden rounded-lg border bg-background">
+      <div
+        className={cn(
+          "w-full shrink-0 flex-col border-r md:flex md:w-[390px]",
+          selectedConversation ? "hidden md:flex" : "flex",
+        )}
+      >
         <div className="flex items-center gap-2 border-b p-3">
           <MessageCircle className="h-5 w-5 text-blue-600" />
           <h2 className="font-semibold">Message Centre</h2>
@@ -216,9 +221,17 @@ export function MessageCentrePageClient() {
         </ScrollArea>
       </div>
 
-      <div className="flex flex-1 flex-col">
+      <div
+        className={cn(
+          "flex-1 flex-col",
+          selectedConversation ? "flex" : "hidden md:flex",
+        )}
+      >
         {selectedConversation ? (
-          <ConversationDetail conversation={selectedConversation} />
+          <ConversationDetail
+            conversation={selectedConversation}
+            onBack={() => setSelectedId(null)}
+          />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center text-muted-foreground">
             <MessageCircle className="mb-4 h-12 w-12 opacity-30" />
