@@ -1,4 +1,5 @@
 import { isTerminalLeadStatus, type LeadStatus } from "@/lib/types";
+import { canonicalizePhoneKey } from "@/lib/phone";
 
 /**
  * Duplicate rule: a lead is a duplicate when normalized phone + college +
@@ -35,7 +36,7 @@ export type DuplicateCheckResult<T extends DuplicateCheckLead> = {
 };
 
 export function normalizePhoneKey(phone: string | null | undefined): string {
-  return (phone ?? "").replace(/\D/g, "");
+  return canonicalizePhoneKey(phone);
 }
 
 export function normalizeCourseKey(course: string | null | undefined): string {

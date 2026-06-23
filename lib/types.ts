@@ -182,6 +182,7 @@ export interface Lead {
   first_name: string | null;
   last_name: string | null;
   phone: string;
+  phone_key: string | null;
   email: string | null;
   city: string | null;
   nationality: string | null;

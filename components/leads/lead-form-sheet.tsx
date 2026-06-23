@@ -38,11 +38,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { CourseCombobox } from "@/components/leads/course-combobox";
 import { NationalityCombobox } from "@/components/leads/nationality-combobox";
 import { useColleges } from "@/lib/hooks/use-colleges";
-import { useLeads, useUpsertLead } from "@/lib/hooks/use-leads";
+import { useLeadDuplicateCandidates, useUpsertLead } from "@/lib/hooks/use-leads";
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import { useCurrentProfile } from "@/lib/hooks/use-current-profile";
 import { findDuplicateLeads, type DuplicateCheckLead } from "@/lib/lead-duplicates";
 import { nationalityFormDefaults } from "@/lib/nationalities";
+import { canonicalizePhoneKey } from "@/lib/phone";
 import {
   DEFAULT_LEAD_SOURCE,
   HIGHEST_QUALIFICATION_LABELS,
@@ -112,7 +113,6 @@ export function LeadFormSheet({
 }) {
   const { data: colleges } = useColleges({ activeOnly: true });
   const { data: profiles } = useProfiles();
-  const { data: allLeads } = useLeads();
   const { data: currentProfile } = useCurrentProfile();
   const upsert = useUpsertLead();
 
@@ -163,15 +163,23 @@ export function LeadFormSheet({
   const selectedNationality = form.watch("nationality");
   const watchedPhone = form.watch("phone");
   const watchedCourse = form.watch("interested_course");
+  const watchedPhoneKey = React.useMemo(
+    () => canonicalizePhoneKey(watchedPhone),
+    [watchedPhone],
+  );
+  const duplicateCandidates = useLeadDuplicateCandidates({
+    phoneKey: watchedPhoneKey || undefined,
+    excludeLeadId: lead?.id ?? null,
+  });
   const duplicateCheck = React.useMemo(
     () =>
-      findDuplicateLeads(allLeads ?? [], {
+      findDuplicateLeads(duplicateCandidates.data ?? [], {
         phone: watchedPhone,
         collegeId: selectedCollegeId || null,
         course: watchedCourse || null,
         excludeLeadId: lead?.id ?? null,
       }),
-    [allLeads, watchedPhone, selectedCollegeId, watchedCourse, lead?.id],
+    [duplicateCandidates.data, watchedPhone, selectedCollegeId, watchedCourse, lead?.id],
   );
   const selectedCollege = React.useMemo(
     () => (colleges ?? []).find((college) => college.id === selectedCollegeId),

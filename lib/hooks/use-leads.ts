@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { ADMISSION_GOALS_KEY } from "@/lib/hooks/use-admission-goals";
 import { shouldClearPendingFollowUps } from "@/lib/lead-pipeline";
+import type { DuplicateCheckLead } from "@/lib/lead-duplicates";
 import type {
   AdmissionStage,
   CounsellingChecks,
@@ -89,6 +90,35 @@ export function useLead(id: string | undefined) {
         .single();
       if (error) throw new Error(error.message);
       return data as LeadWithRelations;
+    },
+  });
+}
+
+export function useLeadDuplicateCandidates({
+  phoneKey,
+  excludeLeadId,
+}: {
+  phoneKey?: string;
+  excludeLeadId?: string | null;
+}) {
+  return useQuery({
+    enabled: !!phoneKey,
+    queryKey: [...LEADS_KEY, "duplicate-candidates", phoneKey ?? "", excludeLeadId ?? null],
+    queryFn: async () => {
+      if (!phoneKey) return [] as DuplicateCheckLead[];
+      const supabase = createClient();
+      let q = supabase
+        .from("leads")
+        .select("id,full_name,phone,college_id,interested_course,status,created_at")
+        .eq("phone_key", phoneKey)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (excludeLeadId) {
+        q = q.neq("id", excludeLeadId);
+      }
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      return (data ?? []) as DuplicateCheckLead[];
     },
   });
 }

@@ -31,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  type AdminReportLeadRow,
   type CrmEntryRow,
   type UserAuditEventRow,
   useUserAuditReport,
@@ -51,6 +52,14 @@ type UserSummary = {
   counsellingStarted: number;
 };
 
+type CounsellorLeadSummary = {
+  counsellorId: string;
+  counsellorName: string;
+  leadsCreated: number;
+  registeredUnpaid: number;
+  regFeePaid: number;
+};
+
 function initSummary(userId: string, name: string): UserSummary {
   return {
     userId,
@@ -64,9 +73,73 @@ function initSummary(userId: string, name: string): UserSummary {
   };
 }
 
+function initCounsellorSummary(counsellorId: string, counsellorName: string): CounsellorLeadSummary {
+  return {
+    counsellorId,
+    counsellorName,
+    leadsCreated: 0,
+    registeredUnpaid: 0,
+    regFeePaid: 0,
+  };
+}
+
 function toUserName(user: { full_name: string | null; email: string } | null | undefined) {
   if (!user) return "Unknown user";
   return user.full_name || user.email;
+}
+
+function summarizeLeadsByCounsellor(leads: AdminReportLeadRow[], fromDate: string, toDate: string) {
+  const from = new Date(`${fromDate}T00:00:00`);
+  const to = new Date(`${toDate}T23:59:59.999`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+    return [] as CounsellorLeadSummary[];
+  }
+
+  const inRange = (value: string | null) => {
+    if (!value) return false;
+    const at = new Date(value);
+    if (Number.isNaN(at.getTime())) return false;
+    return at >= from && at <= to;
+  };
+
+  const map = new Map<string, CounsellorLeadSummary>();
+  const ensure = (lead: AdminReportLeadRow) => {
+    const counsellorId = lead.assigned_counsellor ?? "unassigned";
+    const counsellorName = lead.counsellor
+      ? toUserName(lead.counsellor)
+      : "Unassigned";
+    if (!map.has(counsellorId)) {
+      map.set(counsellorId, initCounsellorSummary(counsellorId, counsellorName));
+    }
+    return map.get(counsellorId)!;
+  };
+
+  for (const lead of leads) {
+    const summary = ensure(lead);
+
+    if (inRange(lead.created_at)) {
+      summary.leadsCreated += 1;
+    }
+
+    if (inRange(lead.registration_completed_at)) {
+      if (lead.status === "registration_unpaid") {
+        summary.registeredUnpaid += 1;
+      } else if (
+        lead.status === "registered_paid_reg_fee" ||
+        lead.status === "registered_closed"
+      ) {
+        summary.regFeePaid += 1;
+      }
+    }
+  }
+
+  return Array.from(map.values())
+    .filter((row) => row.leadsCreated + row.registeredUnpaid + row.regFeePaid > 0)
+    .sort((a, b) => {
+      const aTotal = a.leadsCreated + a.registeredUnpaid + a.regFeePaid;
+      const bTotal = b.leadsCreated + b.registeredUnpaid + b.regFeePaid;
+      return bTotal - aTotal;
+    });
 }
 
 function summarizeByUser(events: UserAuditEventRow[], crmEntriesRange: CrmEntryRow[]) {
@@ -211,6 +284,23 @@ export function UserAuditReportsClient() {
   const userSummaries = React.useMemo(
     () => summarizeByUser(report.data?.events ?? [], report.data?.crmEntriesRange ?? []),
     [report.data?.crmEntriesRange, report.data?.events],
+  );
+  const counsellorLeadSummaries = React.useMemo(
+    () => summarizeLeadsByCounsellor(report.data?.leads ?? [], fromDate, toDate),
+    [fromDate, toDate, report.data?.leads],
+  );
+  const counsellorLeadTotals = React.useMemo(
+    () =>
+      counsellorLeadSummaries.reduce(
+        (acc, row) => {
+          acc.leadsCreated += row.leadsCreated;
+          acc.registeredUnpaid += row.registeredUnpaid;
+          acc.regFeePaid += row.regFeePaid;
+          return acc;
+        },
+        { leadsCreated: 0, registeredUnpaid: 0, regFeePaid: 0 },
+      ),
+    [counsellorLeadSummaries],
   );
 
   const collegeOptions = React.useMemo(
@@ -422,6 +512,49 @@ export function UserAuditReportsClient() {
             <HeatCell count={heatmap.maxCount} maxCount={heatmap.maxCount} title="High" />
             <Badge variant="secondary">{(report.data?.crmEntriesMonth ?? []).length} entries this month</Badge>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Counsellor Lead & Registration Summary</CardTitle>
+          <CardDescription>
+            Leads created use lead creation date. Registration counts use registration done date.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {counsellorLeadSummaries.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              No lead or registration data for selected filters.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Counsellor</TableHead>
+                  <TableHead className="text-right">Leads Created</TableHead>
+                  <TableHead className="text-right">Registered (Unpaid)</TableHead>
+                  <TableHead className="text-right">Reg Fee Paid</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {counsellorLeadSummaries.map((row) => (
+                  <TableRow key={row.counsellorId}>
+                    <TableCell className="font-medium">{row.counsellorName}</TableCell>
+                    <TableCell className="text-right">{row.leadsCreated}</TableCell>
+                    <TableCell className="text-right">{row.registeredUnpaid}</TableCell>
+                    <TableCell className="text-right">{row.regFeePaid}</TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="bg-muted/30 font-semibold">
+                  <TableCell>Grand Total</TableCell>
+                  <TableCell className="text-right">{counsellorLeadTotals.leadsCreated}</TableCell>
+                  <TableCell className="text-right">{counsellorLeadTotals.registeredUnpaid}</TableCell>
+                  <TableCell className="text-right">{counsellorLeadTotals.regFeePaid}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 

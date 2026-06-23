@@ -5,6 +5,8 @@ import { parseInboundWebhook } from "@/lib/messaging/router";
 import { sendMessage } from "@/lib/messaging/send";
 import { getAIResponse, type ChatMessage, type AIResult } from "@/lib/ai";
 import type { ParsedInboundMessage } from "@/lib/messaging/types";
+import { canonicalizePhoneKey } from "@/lib/phone";
+import { isTerminalLeadStatus, type LeadStatus } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -84,12 +86,18 @@ async function processMessage(parsed: ParsedInboundMessage) {
       parsed.channel === "whatsapp" ? parsed.externalUserId : null;
     let leadId: string | null = null;
     if (inferredPhone) {
-      const { data: lead } = await supabase
-        .from("leads")
-        .select("id")
-        .eq("phone", inferredPhone)
-        .single();
-      leadId = lead?.id ?? null;
+      const inferredPhoneKey = canonicalizePhoneKey(inferredPhone);
+      if (inferredPhoneKey) {
+        const { data: leads } = await supabase
+          .from("leads")
+          .select("id,status")
+          .eq("phone_key", inferredPhoneKey)
+          .order("created_at", { ascending: false });
+        const preferredLead =
+          (leads ?? []).find((lead) => !isTerminalLeadStatus(lead.status as LeadStatus)) ??
+          (leads ?? [])[0];
+        leadId = preferredLead?.id ?? null;
+      }
     }
 
     const { data: newConv, error } = await supabase

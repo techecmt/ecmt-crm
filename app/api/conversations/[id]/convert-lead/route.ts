@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentProfile, hasModuleAccess } from "@/lib/auth";
+import { canonicalizePhoneKey } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/server";
 import { isTerminalLeadStatus, type LeadSource, type LeadStatus } from "@/lib/types";
-
-function isLikelyPhone(value: string) {
-  return /^\+?[0-9]{7,15}$/.test(value.replace(/\s+/g, ""));
-}
 
 export async function POST(
   _request: Request,
@@ -37,7 +34,8 @@ export async function POST(
       { status: 400 },
     );
   }
-  if (!conversation.phone || !isLikelyPhone(conversation.phone)) {
+  const phoneKey = canonicalizePhoneKey(conversation.phone);
+  if (!phoneKey) {
     return NextResponse.json(
       { error: "Valid phone number is required to convert to lead" },
       { status: 400 },
@@ -49,7 +47,7 @@ export async function POST(
   const { data: existingLeads } = await supabase
     .from("leads")
     .select("id, status")
-    .eq("phone", conversation.phone)
+    .eq("phone_key", phoneKey)
     .order("created_at", { ascending: false });
 
   const existingLead =
@@ -75,6 +73,7 @@ export async function POST(
       .insert({
         full_name: conversation.name || `Message lead ${conversation.phone}`,
         phone: conversation.phone,
+        phone_key: phoneKey,
         source,
         status: "inquiry_received",
         lead_score: 0,

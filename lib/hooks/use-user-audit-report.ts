@@ -4,7 +4,7 @@ import { endOfMonth, startOfMonth } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 
 import { createClient } from "@/lib/supabase/client";
-import type { College, Profile } from "@/lib/types";
+import type { College, LeadStatus, Profile } from "@/lib/types";
 
 export type UserAuditFilters = {
   fromDate?: string;
@@ -41,6 +41,17 @@ export type CrmEntryRow = {
   user: { id: string; full_name: string | null; email: string } | null;
 };
 
+export type AdminReportLeadRow = {
+  id: string;
+  created_at: string;
+  status: LeadStatus;
+  registration_completed_at: string | null;
+  college_id: string | null;
+  interested_course: string | null;
+  assigned_counsellor: string | null;
+  counsellor: { id: string; full_name: string | null; email: string } | null;
+};
+
 type RelationMaybeArray<T> = T | T[] | null;
 
 type RawUserAuditEventRow = Omit<UserAuditEventRow, "user" | "lead"> & {
@@ -54,6 +65,10 @@ type RawUserAuditEventRow = Omit<UserAuditEventRow, "user" | "lead"> & {
 
 type RawCrmEntryRow = Omit<CrmEntryRow, "user"> & {
   user: RelationMaybeArray<{ id: string; full_name: string | null; email: string }>;
+};
+
+type RawAdminReportLeadRow = Omit<AdminReportLeadRow, "counsellor"> & {
+  counsellor: RelationMaybeArray<{ id: string; full_name: string | null; email: string }>;
 };
 
 function flattenRelation<T>(value: RelationMaybeArray<T>): T | null {
@@ -127,7 +142,18 @@ export function useUserAuditReport(filters: UserAuditFilters) {
         .order("created_at", { ascending: false });
       if (filters.counsellorId) crmMonthQuery = crmMonthQuery.eq("user_id", filters.counsellorId);
 
-      const [{ data: events, error: eventsError }, { data: crmEntriesRange, error: crmRangeError }, { data: crmEntriesMonth, error: crmMonthError }, { data: profiles, error: profilesError }, { data: colleges, error: collegesError }] =
+      let leadsQuery = supabase
+        .from("leads")
+        .select(
+          "id,created_at,status,registration_completed_at,college_id,interested_course,assigned_counsellor,counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email)",
+        )
+        .order("created_at", { ascending: false });
+      if (filters.collegeId) leadsQuery = leadsQuery.eq("college_id", filters.collegeId);
+      if (filters.counsellorId) {
+        leadsQuery = leadsQuery.eq("assigned_counsellor", filters.counsellorId);
+      }
+
+      const [{ data: events, error: eventsError }, { data: crmEntriesRange, error: crmRangeError }, { data: crmEntriesMonth, error: crmMonthError }, { data: profiles, error: profilesError }, { data: colleges, error: collegesError }, { data: leads, error: leadsError }] =
         await Promise.all([
           eventsQuery,
           crmRangeQuery,
@@ -141,6 +167,7 @@ export function useUserAuditReport(filters: UserAuditFilters) {
             .from("colleges")
             .select("*")
             .order("name", { ascending: true }),
+          leadsQuery,
         ]);
 
       if (eventsError) throw new Error(eventsError.message);
@@ -148,6 +175,7 @@ export function useUserAuditReport(filters: UserAuditFilters) {
       if (crmMonthError) throw new Error(crmMonthError.message);
       if (profilesError) throw new Error(profilesError.message);
       if (collegesError) throw new Error(collegesError.message);
+      if (leadsError) throw new Error(leadsError.message);
 
       const normalizedEvents = ((events ?? []) as RawUserAuditEventRow[]).map((event) => ({
         ...event,
@@ -170,11 +198,23 @@ export function useUserAuditReport(filters: UserAuditFilters) {
         ...entry,
         user: flattenRelation(entry.user),
       }));
+      const normalizedLeads = ((leads ?? []) as RawAdminReportLeadRow[]).map((lead) => ({
+        ...lead,
+        counsellor: flattenRelation(lead.counsellor),
+      }));
+      const scopedLeads = normalizedLeads.filter((lead) => {
+        if (coursesNeedle) {
+          const leadCourse = normalizeCourse(lead.interested_course);
+          if (leadCourse !== coursesNeedle) return false;
+        }
+        return true;
+      });
 
       return {
         events: scopedEvents,
         crmEntriesRange: normalizedCrmRange,
         crmEntriesMonth: normalizedCrmMonth,
+        leads: scopedLeads,
         profiles: (profiles ?? []) as Profile[],
         colleges: (colleges ?? []) as College[],
       };
