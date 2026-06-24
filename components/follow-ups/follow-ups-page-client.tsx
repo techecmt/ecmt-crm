@@ -81,6 +81,7 @@ import { cn } from "@/lib/utils";
 
 type Filter = "mine" | "all";
 type DatePreset = "all" | "today" | "this_week" | "last_week" | "next_week";
+type DateSortOrder = "asc" | "desc";
 
 function toDateInput(value: Date) {
   return format(value, "yyyy-MM-dd");
@@ -97,9 +98,12 @@ export function FollowUpsPageClient({
   const [filter, setFilter] = React.useState<Filter>(isAdmin ? "all" : "mine");
   const [assigneeFilter, setAssigneeFilter] = React.useState<string>("");
   const [datePreset, setDatePreset] = React.useState<DatePreset>("all");
+  const [sequenceFilter, setSequenceFilter] =
+    React.useState<FollowUpFilterKey | null>(null);
   const [exactDate, setExactDate] = React.useState("");
   const [startDate, setStartDate] = React.useState("");
   const [endDate, setEndDate] = React.useState("");
+  const [dateSortOrder, setDateSortOrder] = React.useState<DateSortOrder>("asc");
 
   const assignedTo = React.useMemo(() => {
     if (!isAdmin) return "me" as const;
@@ -156,18 +160,26 @@ export function FollowUpsPageClient({
     const list = followUps ?? [];
     const now = new Date();
     const nextUpcoming = nextUpcomingPerLead(list);
+    const matchesSequence = (f: FollowUpWithRelations) =>
+      sequenceFilter == null || followUpFilterKey(f.sequence) === sequenceFilter;
+    const sortedByDate = (items: FollowUpWithRelations[]) =>
+      [...items].sort((a, b) => {
+        const aTs = new Date(a.completed_at ?? a.scheduled_at).getTime();
+        const bTs = new Date(b.completed_at ?? b.scheduled_at).getTime();
+        return dateSortOrder === "asc" ? aTs - bTs : bTs - aTs;
+      });
     return {
-      upcoming: nextUpcoming.filter((f) => new Date(f.scheduled_at) >= now),
-      overdue: nextUpcoming.filter((f) => new Date(f.scheduled_at) < now),
-      completed: list
-        .filter((f) => f.status === "completed")
-        .sort(
-          (a, b) =>
-            new Date(b.completed_at ?? b.scheduled_at).getTime() -
-            new Date(a.completed_at ?? a.scheduled_at).getTime(),
-        ),
+      upcoming: sortedByDate(
+        nextUpcoming.filter((f) => new Date(f.scheduled_at) >= now && matchesSequence(f)),
+      ),
+      overdue: sortedByDate(
+        nextUpcoming.filter((f) => new Date(f.scheduled_at) < now && matchesSequence(f)),
+      ),
+      completed: sortedByDate(
+        list.filter((f) => f.status === "completed" && matchesSequence(f)),
+      ),
     };
-  }, [followUps]);
+  }, [dateSortOrder, followUps, sequenceFilter]);
 
   return (
     <div className="space-y-6">
@@ -210,68 +222,93 @@ export function FollowUpsPageClient({
           </div>
         ) : null}
       </div>
-      <FollowUpLegend />
+      <FollowUpLegend value={sequenceFilter} onChange={setSequenceFilter} />
 
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-2 py-4">
-          <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">Preset</label>
-            <Select
-              value={datePreset}
-              onValueChange={(value) => setDatePreset(value as DatePreset)}
+        <CardContent className="space-y-3 py-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-1.5 rounded-md border p-2.5">
+              <label className="text-xs font-medium text-foreground">Preset</label>
+              <Select
+                value={datePreset}
+                onValueChange={(value) => setDatePreset(value as DatePreset)}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All dates</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="last_week">Last week</SelectItem>
+                  <SelectItem value="this_week">This week</SelectItem>
+                  <SelectItem value="next_week">Next week</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5 rounded-md border p-2.5">
+              <label className="text-xs font-medium text-foreground">Exact date</label>
+              <input
+                type="date"
+                value={exactDate}
+                onChange={(e) => setExactDate(e.target.value)}
+                className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
+              />
+            </div>
+            <div className="grid gap-1.5 rounded-md border p-2.5 md:col-span-2">
+              <label className="text-xs font-medium text-foreground">Custom range</label>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
+                  aria-label="Start date"
+                />
+                <span className="text-center text-xs text-muted-foreground">to</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
+                  aria-label="End date"
+                />
+              </div>
+            </div>
+            <div className="grid gap-1.5 rounded-md border p-2.5">
+              <label className="text-xs font-medium text-foreground">Sort by date</label>
+              <Select
+                value={dateSortOrder}
+                onValueChange={(value) => setDateSortOrder(value as DateSortOrder)}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="asc">Oldest first</SelectItem>
+                  <SelectItem value="desc">Newest first</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9"
+              onClick={() => {
+                setDatePreset("all");
+                setExactDate("");
+                setStartDate("");
+                setEndDate("");
+              }}
             >
-              <SelectTrigger className="h-9 w-[170px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All dates</SelectItem>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="last_week">Last week</SelectItem>
-                <SelectItem value="this_week">This week</SelectItem>
-                <SelectItem value="next_week">Next week</SelectItem>
-              </SelectContent>
-            </Select>
+              Clear date filters
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Use <span className="font-medium text-foreground">Exact date</span> or a{" "}
+              <span className="font-medium text-foreground">Custom range</span>.
+            </p>
           </div>
-          <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">Date</label>
-            <input
-              type="date"
-              value={exactDate}
-              onChange={(e) => setExactDate(e.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
-            />
-          </div>
-          <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">Start date</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
-            />
-          </div>
-          <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">End date</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-base sm:text-sm"
-            />
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-9"
-            onClick={() => {
-              setDatePreset("all");
-              setExactDate("");
-              setStartDate("");
-              setEndDate("");
-            }}
-          >
-            Clear date filters
-          </Button>
         </CardContent>
       </Card>
 
@@ -437,13 +474,16 @@ const FOLLOWUP_CUSTOM_STYLE: FollowUpStyle = {
   accent: "border-l-violet-400 dark:border-l-violet-500",
 };
 
+/** Filter key for a follow-up: its cadence number, or "custom" for manual ones. */
+type FollowUpFilterKey = number | "custom";
+
 /** Legend entries in cadence order, ending with the manual "Custom" style. */
-const FOLLOWUP_LEGEND: FollowUpStyle[] = [
+const FOLLOWUP_LEGEND: { key: FollowUpFilterKey; style: FollowUpStyle }[] = [
   ...Object.keys(FOLLOWUP_SEQUENCE_STYLES)
     .map(Number)
     .sort((a, b) => a - b)
-    .map((seq) => FOLLOWUP_SEQUENCE_STYLES[seq]),
-  FOLLOWUP_CUSTOM_STYLE,
+    .map((seq) => ({ key: seq as FollowUpFilterKey, style: FOLLOWUP_SEQUENCE_STYLES[seq] })),
+  { key: "custom", style: FOLLOWUP_CUSTOM_STYLE },
 ];
 
 function followUpStyle(sequence: number | null): FollowUpStyle {
@@ -453,18 +493,54 @@ function followUpStyle(sequence: number | null): FollowUpStyle {
   return FOLLOWUP_CUSTOM_STYLE;
 }
 
-function FollowUpLegend() {
+/** Which legend bucket a follow-up falls into — mirrors followUpStyle. */
+function followUpFilterKey(sequence: number | null): FollowUpFilterKey {
+  if (sequence && FOLLOWUP_SEQUENCE_STYLES[sequence]) return sequence;
+  return "custom";
+}
+
+function FollowUpLegend({
+  value,
+  onChange,
+}: {
+  value: FollowUpFilterKey | null;
+  onChange: (value: FollowUpFilterKey | null) => void;
+}) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
       <span className="text-xs font-medium text-muted-foreground">
         Follow-up colours:
       </span>
-      {FOLLOWUP_LEGEND.map((style) => (
-        <span key={style.label} className="flex items-center gap-1.5 text-xs">
-          <span className={cn("h-2.5 w-2.5 rounded-full", style.dot)} />
-          {style.label}
-        </span>
-      ))}
+      {FOLLOWUP_LEGEND.map(({ key, style }) => {
+        const isActive = value === key;
+        return (
+          <button
+            key={style.label}
+            type="button"
+            aria-pressed={isActive}
+            title={`Show only ${style.label} follow-ups`}
+            onClick={() => onChange(isActive ? null : key)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors",
+              isActive
+                ? "border-border bg-muted font-medium text-foreground"
+                : "border-transparent text-muted-foreground hover:bg-muted/60",
+            )}
+          >
+            <span className={cn("h-2.5 w-2.5 rounded-full", style.dot)} />
+            {style.label}
+          </button>
+        );
+      })}
+      {value != null ? (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        >
+          Clear
+        </button>
+      ) : null}
     </div>
   );
 }

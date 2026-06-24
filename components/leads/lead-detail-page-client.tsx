@@ -97,6 +97,19 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
     const list = nextUpcomingPerLead(followUps ?? []);
     return list[0];
   }, [followUps]);
+  const pendingCustomFollowUps = React.useMemo(
+    () =>
+      (followUps ?? [])
+        .filter(
+          (f) =>
+            f.status === "pending" && f.sequence == null,
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime(),
+        ),
+    [followUps],
+  );
   const completedFollowUps = React.useMemo(
     () =>
       (followUps ?? [])
@@ -632,6 +645,23 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               <Separator />
               <div>
                 <div className="mb-2 text-sm font-medium">
+                  Pending custom follow-ups
+                </div>
+                {pendingCustomFollowUps.length === 0 ? (
+                  <EmptyState text="No additional custom follow-ups." />
+                ) : (
+                  <ul className="divide-y">
+                    {pendingCustomFollowUps.map((f) => (
+                      <li key={f.id} className="py-3">
+                        <FollowUpRow followUp={f} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <Separator />
+              <div>
+                <div className="mb-2 text-sm font-medium">
                   Completed follow-ups
                 </div>
                 {completedFollowUps.length === 0 ? (
@@ -692,7 +722,11 @@ function FollowUpRow({
             <Badge variant="outline" className="text-[10px]">
               #{followUp.sequence}
             </Badge>
-          ) : null}
+          ) : (
+            <Badge variant="secondary" className="text-[10px]">
+              Custom
+            </Badge>
+          )}
           <Badge
             variant={
               followUp.priority === "high" || followUp.priority === "urgent"
