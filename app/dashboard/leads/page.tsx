@@ -10,6 +10,7 @@ export default async function LeadsPage() {
     <LeadsPageClient
       canDelete={isAdminRole(profile.role)}
       currentUserId={profile.id}
+      isSuperAdmin={profile.role === "super_admin"}
     />
   );
 }

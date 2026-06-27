@@ -97,13 +97,10 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
     const list = nextUpcomingPerLead(followUps ?? []);
     return list[0];
   }, [followUps]);
-  const pendingCustomFollowUps = React.useMemo(
+  const allPendingFollowUps = React.useMemo(
     () =>
       (followUps ?? [])
-        .filter(
-          (f) =>
-            f.status === "pending" && f.sequence == null,
-        )
+        .filter((f) => f.status === "pending")
         .sort(
           (a, b) =>
             new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime(),
@@ -131,11 +128,8 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const completedCounsellingCount = counsellingFollowUps.filter(
     (f) => f.status === "completed",
   ).length;
-  const totalCounsellingFollowUps = 4;
-  const completedCounsellingDisplayCount = Math.min(
-    completedCounsellingCount,
-    totalCounsellingFollowUps,
-  );
+  const totalCounsellingFollowUps = counsellingFollowUps.length;
+  const completedCounsellingDisplayCount = completedCounsellingCount;
   const lastCompletedFollowUp = completedFollowUps[0];
   const daysSinceLastFollowUp = lastCompletedFollowUp?.completed_at
     ? differenceInCalendarDays(new Date(), new Date(lastCompletedFollowUp.completed_at))
@@ -451,34 +445,35 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                 </Badge>
               ) : null}
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {[1, 2, 3, 4].map((seq) => {
-                const item = counsellingFollowUps.find((f) => f.sequence === seq);
-                const isDone = item?.status === "completed";
-                const isUpcoming = item?.status === "pending";
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {counsellingFollowUps.map((item) => {
+                const isDone = item.status === "completed";
+                const isUpcoming = item.status === "pending";
+                const isNext =
+                  nextPending?.id === item.id && item.status === "pending";
                 return (
                   <div
-                    key={seq}
+                    key={item.id}
                     className={`rounded-md border p-3 ${
                       isDone ? "bg-emerald-50 dark:bg-emerald-500/10" : ""
-                    }`}
+                    } ${isNext ? "border-primary/40 bg-primary/[0.03]" : ""}`}
                   >
                     <div className="flex items-center justify-between text-xs font-medium">
-                      <span>Follow-up #{seq}</span>
+                      <span>Follow-up #{item.sequence}</span>
                       {isDone ? (
                         <Badge variant="default" className="text-[10px]">Done</Badge>
+                      ) : isNext ? (
+                        <Badge variant="default" className="text-[10px]">Next up</Badge>
                       ) : isUpcoming ? (
                         <Badge variant="secondary" className="text-[10px]">Scheduled</Badge>
                       ) : (
-                        <Badge variant="outline" className="text-[10px]">—</Badge>
+                        <Badge variant="outline" className="text-[10px]">{item.status}</Badge>
                       )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {item
-                        ? format(new Date(item.scheduled_at), "PP p")
-                        : "Not scheduled"}
+                      {format(new Date(item.scheduled_at), "PP p")}
                     </div>
-                    {item?.completed_at ? (
+                    {item.completed_at ? (
                       <div className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300">
                         Completed {format(new Date(item.completed_at), "PP")}
                       </div>
@@ -528,9 +523,13 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
           </TabsTrigger>
           <TabsTrigger value="follow-ups">
             Follow-ups
-            {followUps && followUps.length > 0 ? (
+            {pendingFollowUps.length > 0 ? (
               <Badge variant="secondary" className="ml-2">
-                {followUps.length}
+                {pendingFollowUps.length}
+              </Badge>
+            ) : completedFollowUps.length > 0 ? (
+              <Badge variant="secondary" className="ml-2">
+                {completedFollowUps.length}
               </Badge>
             ) : null}
           </TabsTrigger>
@@ -634,26 +633,20 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
             <CardContent className="space-y-4 pt-6">
               <div>
                 <div className="mb-2 text-sm font-medium">
-                  Next upcoming follow-up
+                  Pending follow-ups
+                  {allPendingFollowUps.length > 0 ? (
+                    <span className="ml-1 text-muted-foreground">
+                      ({allPendingFollowUps.length})
+                    </span>
+                  ) : null}
                 </div>
-                {nextPending ? (
-                  <FollowUpRow followUp={nextPending} />
-                ) : (
-                  <EmptyState text="No upcoming follow-up." />
-                )}
-              </div>
-              <Separator />
-              <div>
-                <div className="mb-2 text-sm font-medium">
-                  Pending custom follow-ups
-                </div>
-                {pendingCustomFollowUps.length === 0 ? (
-                  <EmptyState text="No additional custom follow-ups." />
+                {allPendingFollowUps.length === 0 ? (
+                  <EmptyState text="No pending follow-ups." />
                 ) : (
                   <ul className="divide-y">
-                    {pendingCustomFollowUps.map((f) => (
+                    {allPendingFollowUps.map((f, index) => (
                       <li key={f.id} className="py-3">
-                        <FollowUpRow followUp={f} />
+                        <FollowUpRow followUp={f} isNextUp={index === 0} />
                       </li>
                     ))}
                   </ul>
@@ -663,6 +656,11 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               <div>
                 <div className="mb-2 text-sm font-medium">
                   Completed follow-ups
+                  {completedFollowUps.length > 0 ? (
+                    <span className="ml-1 text-muted-foreground">
+                      ({completedFollowUps.length})
+                    </span>
+                  ) : null}
                 </div>
                 {completedFollowUps.length === 0 ? (
                   <EmptyState text="No completed follow-ups yet." />
@@ -698,8 +696,10 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
 
 function FollowUpRow({
   followUp,
+  isNextUp = false,
 }: {
   followUp: import("@/lib/hooks/use-follow-ups").FollowUpWithRelations;
+  isNextUp?: boolean;
 }) {
   const overdue =
     followUp.status === "pending" && isPast(new Date(followUp.scheduled_at));
@@ -707,7 +707,7 @@ function FollowUpRow({
     <div
       className={`flex flex-wrap items-center justify-between gap-2 ${
         overdue ? "rounded-md bg-destructive/5 px-2 py-1" : ""
-      }`}
+      } ${isNextUp ? "rounded-md border border-primary/30 bg-primary/[0.03] px-2 py-1" : ""}`}
     >
       <div>
         <div className="flex items-center gap-2 text-sm font-medium">
@@ -718,6 +718,11 @@ function FollowUpRow({
           )}
           {FOLLOW_UP_TYPE_LABELS[followUp.followup_type ?? followUp.type]} —{" "}
           {format(new Date(followUp.scheduled_at), "PPp")}
+          {isNextUp ? (
+            <Badge variant="default" className="text-[10px]">
+              Next up
+            </Badge>
+          ) : null}
           {followUp.sequence ? (
             <Badge variant="outline" className="text-[10px]">
               #{followUp.sequence}

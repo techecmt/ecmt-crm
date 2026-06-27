@@ -15,6 +15,7 @@ import type {
   AdmissionStage,
   CounsellingChecks,
   FollowUpPriority,
+  FollowUpStatus,
   HighestQualification,
   Lead,
   LeadActivity,
@@ -25,28 +26,38 @@ import type {
 
 const LEADS_KEY = ["leads"] as const;
 
+/** Sentinel used inside counsellorIds to match leads with no assigned counsellor. */
+export const UNASSIGNED_COUNSELLOR = "unassigned";
+
 export type LeadFilters = {
   search?: string;
   status?: LeadStatus | "all";
   source?: LeadSource | "all";
   collegeId?: string | "all";
+  /** Exact-match on interested_course. "all" or undefined = no filter. */
+  course?: string | "all";
+  /** Single-value fallback — prefer counsellorIds for multi-select. */
   counsellorId?: string | "all";
+  /** Multi-select: empty array or undefined means all counsellors. */
+  counsellorIds?: string[];
 };
 
 export type LeadWithRelations = Lead & {
   college: { id: string; name: string } | null;
   counsellor: { id: string; full_name: string | null; email: string } | null;
+  follow_ups: { status: FollowUpStatus }[] | null;
 };
 
 export function useLeads(filters: LeadFilters = {}) {
   return useQuery({
     queryKey: [...LEADS_KEY, filters],
+    staleTime: 2 * 60 * 1000, // 2 min — leads don't change mid-session
     queryFn: async () => {
       const supabase = createClient();
       let q = supabase
         .from("leads")
         .select(
-          "*, college:colleges(id,name), counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email)",
+          "*, college:colleges(id,name), counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email), follow_ups(status)",
         )
         .order("created_at", { ascending: false });
 
@@ -59,11 +70,32 @@ export function useLeads(filters: LeadFilters = {}) {
       if (filters.collegeId && filters.collegeId !== "all") {
         q = q.eq("college_id", filters.collegeId);
       }
-      if (filters.counsellorId && filters.counsellorId !== "all") {
+      if (filters.course && filters.course !== "all") {
+        q = q.eq("interested_course", filters.course);
+      }
+      if (filters.counsellorIds && filters.counsellorIds.length > 0) {
+        const includeUnassigned = filters.counsellorIds.includes(UNASSIGNED_COUNSELLOR);
+        const realIds = filters.counsellorIds.filter(
+          (id) => id !== UNASSIGNED_COUNSELLOR,
+        );
+        if (includeUnassigned && realIds.length > 0) {
+          q = q.or(
+            `assigned_counsellor.in.(${realIds.join(",")}),assigned_counsellor.is.null`,
+          );
+        } else if (includeUnassigned) {
+          q = q.is("assigned_counsellor", null);
+        } else {
+          q = q.in("assigned_counsellor", realIds);
+        }
+      } else if (filters.counsellorId && filters.counsellorId !== "all") {
         q = q.eq("assigned_counsellor", filters.counsellorId);
       }
       if (filters.search) {
-        const term = `%${filters.search}%`;
+        // Escape backslashes/double-quotes and wrap each pattern in double
+        // quotes so reserved PostgREST characters (commas, parentheses, spaces)
+        // in the search term can't break or inject into the or() expression.
+        const escaped = filters.search.replace(/[\\"]/g, (match) => `\\${match}`);
+        const term = `"%${escaped}%"`;
         q = q.or(
           `full_name.ilike.${term},phone.ilike.${term},email.ilike.${term},city.ilike.${term},interested_course.ilike.${term}`,
         );
@@ -84,7 +116,7 @@ export function useLead(id: string | undefined) {
       const { data, error } = await supabase
         .from("leads")
         .select(
-          "*, college:colleges(id,name), counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email)",
+          "*, college:colleges(id,name), counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email), follow_ups(status)",
         )
         .eq("id", id!)
         .single();
