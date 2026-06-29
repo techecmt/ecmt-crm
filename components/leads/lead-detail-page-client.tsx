@@ -2,12 +2,15 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { differenceInCalendarDays, format, formatDistanceToNow, isPast } from "date-fns";
 import {
   ArrowLeft,
   Building2,
   CalendarPlus,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Mail,
   MapPin,
@@ -47,11 +50,20 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { useCurrentProfile } from "@/lib/hooks/use-current-profile";
 import {
   useAddLeadNote,
   useLead,
   useLeadActivities,
+  useLeads,
 } from "@/lib/hooks/use-leads";
+import {
+  buildLeadDetailHref,
+  buildSortedLeadList,
+  getAdjacentLeadIds,
+  parseLeadsListStateFromReturnPath,
+  toLeadFilters,
+} from "@/lib/leads-list-navigation";
 import {
   ADMISSION_GOAL_STATUS_LABELS,
   COUNSELLING_CHECK_KEYS,
@@ -75,6 +87,34 @@ import {
 } from "@/lib/hooks/use-admission-goals";
 
 export function LeadDetailPageClient({ leadId }: { leadId: string }) {
+  const params = useSearchParams();
+  const { data: currentProfile } = useCurrentProfile();
+  const backToLeadsHref = React.useMemo(() => {
+    const raw = params.get("from");
+    if (!raw) return "/dashboard/leads";
+    return raw.startsWith("/dashboard/leads") ? raw : "/dashboard/leads";
+  }, [params]);
+  const listNavigationState = React.useMemo(
+    () =>
+      parseLeadsListStateFromReturnPath(
+        backToLeadsHref,
+        currentProfile?.id ?? "",
+      ),
+    [backToLeadsHref, currentProfile?.id],
+  );
+  const { data: listLeads, isLoading: isListLoading } = useLeads({
+    ...toLeadFilters(listNavigationState),
+    enabled: !!currentProfile?.id,
+  });
+  const leadNavigation = React.useMemo(() => {
+    if (!listLeads?.length) {
+      return { prevId: null, nextId: null, index: -1, total: 0 };
+    }
+    const sorted = buildSortedLeadList(listLeads, listNavigationState);
+    return getAdjacentLeadIds(sorted, leadId);
+  }, [leadId, listLeads, listNavigationState]);
+  const showLeadNavigation =
+    leadNavigation.index >= 0 && leadNavigation.total > 1;
   const { data: lead, isLoading } = useLead(leadId);
   const { data: activities } = useLeadActivities(leadId);
   const { data: followUps } = useFollowUps({ leadId });
@@ -187,7 +227,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/dashboard/leads">Leads</Link>
+              <Link href={backToLeadsHref}>Leads</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -199,12 +239,63 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-2">
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/dashboard/leads">
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              Back to leads
-            </Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link href={backToLeadsHref}>
+                <ArrowLeft className="mr-1 h-4 w-4" />
+                Back to leads
+              </Link>
+            </Button>
+            {showLeadNavigation ? (
+              <div className="flex items-center gap-1">
+                {leadNavigation.prevId ? (
+                  <Button asChild variant="outline" size="icon" className="h-8 w-8">
+                    <Link
+                      href={buildLeadDetailHref(leadNavigation.prevId, backToLeadsHref)}
+                      aria-label="Previous lead"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled
+                    aria-label="Previous lead"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                )}
+                {leadNavigation.nextId ? (
+                  <Button asChild variant="outline" size="icon" className="h-8 w-8">
+                    <Link
+                      href={buildLeadDetailHref(leadNavigation.nextId, backToLeadsHref)}
+                      aria-label="Next lead"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled
+                    aria-label="Next lead"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                )}
+                <span className="ml-1 text-xs text-muted-foreground">
+                  {leadNavigation.index + 1} of {leadNavigation.total}
+                </span>
+              </div>
+            ) : isListLoading ? (
+              <span className="text-xs text-muted-foreground">Loading list…</span>
+            ) : null}
+          </div>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
               {lead.full_name}

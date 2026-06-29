@@ -41,9 +41,11 @@ import { useColleges } from "@/lib/hooks/use-colleges";
 import { useLeadDuplicateCandidates, useUpsertLead } from "@/lib/hooks/use-leads";
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import { useCurrentProfile } from "@/lib/hooks/use-current-profile";
-import { findDuplicateLeads, type DuplicateCheckLead } from "@/lib/lead-duplicates";
+import {
+  classifyDuplicateMatches,
+  type DuplicateCheckLead,
+} from "@/lib/lead-duplicates";
 import { nationalityFormDefaults } from "@/lib/nationalities";
-import { canonicalizePhoneKey } from "@/lib/phone";
 import {
   DEFAULT_LEAD_SOURCE,
   HIGHEST_QUALIFICATION_LABELS,
@@ -163,23 +165,15 @@ export function LeadFormSheet({
   const selectedNationality = form.watch("nationality");
   const watchedPhone = form.watch("phone");
   const watchedCourse = form.watch("interested_course");
-  const watchedPhoneKey = React.useMemo(
-    () => canonicalizePhoneKey(watchedPhone),
-    [watchedPhone],
-  );
   const duplicateCandidates = useLeadDuplicateCandidates({
-    phoneKey: watchedPhoneKey || undefined,
+    phone: watchedPhone,
+    collegeId: selectedCollegeId || null,
+    course: watchedCourse || null,
     excludeLeadId: lead?.id ?? null,
   });
   const duplicateCheck = React.useMemo(
-    () =>
-      findDuplicateLeads(duplicateCandidates.data ?? [], {
-        phone: watchedPhone,
-        collegeId: selectedCollegeId || null,
-        course: watchedCourse || null,
-        excludeLeadId: lead?.id ?? null,
-      }),
-    [duplicateCandidates.data, watchedPhone, selectedCollegeId, watchedCourse, lead?.id],
+    () => classifyDuplicateMatches(duplicateCandidates.data ?? []),
+    [duplicateCandidates.data],
   );
   const selectedCollege = React.useMemo(
     () => (colleges ?? []).find((college) => college.id === selectedCollegeId),
@@ -239,7 +233,6 @@ export function LeadFormSheet({
       campaign: values.campaign || null,
       description: values.description || null,
       lead_score: values.lead_score,
-      is_duplicate: duplicateCheck.activeMatches.length > 0,
     });
     onOpenChange(false);
   };
@@ -538,13 +531,28 @@ export function LeadFormSheet({
               />
             </div>
             {duplicateCheck.activeMatches.length > 0 ? (
-              <Alert variant="destructive">
+              <Alert
+                variant={
+                  duplicateCheck.exactActiveMatches.length > 0
+                    ? "destructive"
+                    : "default"
+                }
+              >
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Possible duplicate lead</AlertTitle>
+                <AlertTitle>
+                  {duplicateCheck.exactActiveMatches.length > 0
+                    ? "Possible duplicate lead"
+                    : "Possible related lead"}
+                </AlertTitle>
                 <AlertDescription>
-                  An active lead already exists with this phone number
-                  {selectedCollegeId || watchedCourse ? ", college and course" : ""}.
-                  Saving will flag this lead as a duplicate.
+                  {duplicateCheck.exactActiveMatches.length > 0
+                    ? "An active lead already exists with this phone number, college, and course."
+                    : "An active lead already exists with this phone number, but under a different college/course."}
+                  {" "}Duplicate flagging is now handled server-side.
+                  {duplicateCheck.relatedActiveMatches.length > 0 &&
+                  duplicateCheck.exactActiveMatches.length > 0
+                    ? " Related phone-only matches are also listed below."
+                    : ""}
                   <DuplicateMatchList matches={duplicateCheck.activeMatches} />
                 </AlertDescription>
               </Alert>

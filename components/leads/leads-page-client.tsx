@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import {
   ArrowUpDown,
@@ -45,8 +45,10 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -126,6 +128,24 @@ import { toast } from "sonner";
 const statuses = PIPELINE_LEAD_STATUSES;
 const sources = Object.keys(LEAD_SOURCE_LABELS) as LeadSource[];
 const NO_BULK_CHANGE = "__no_change";
+const DEFAULT_PAGE_SIZE = 25;
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+const LEADS_STATE_STORAGE_KEY = "leads.tableState.v1";
+const LEADS_CUSTOM_VIEWS_STORAGE_KEY = "leads.customViews.v1";
+const LEADS_SELECTED_VIEW_STORAGE_KEY = "leads.selectedViewId.v1";
+type PersistedFilterState = {
+  status: LeadStatus | "all";
+  source: LeadSource | "all";
+  collegeId: string | "all";
+  course: string | "all";
+};
+
+const DEFAULT_FILTERS: PersistedFilterState = {
+  status: "all",
+  source: "all",
+  collegeId: "all",
+  course: "all",
+};
 
 function getFollowUpCounts(lead: LeadWithRelations) {
   const list = lead.follow_ups ?? [];
@@ -136,6 +156,44 @@ function getFollowUpCounts(lead: LeadWithRelations) {
 
 type SortKey = "created_at" | "full_name" | "lead_score" | "status" | "source";
 type SortDir = "asc" | "desc";
+type TableColumnKey =
+  | "lead"
+  | "course_college"
+  | "source"
+  | "counsellor"
+  | "status"
+  | "followups"
+  | "created";
+
+const TABLE_COLUMN_ORDER: TableColumnKey[] = [
+  "lead",
+  "course_college",
+  "source",
+  "counsellor",
+  "status",
+  "followups",
+  "created",
+];
+
+const TABLE_COLUMN_LABELS: Record<TableColumnKey, string> = {
+  lead: "Lead",
+  course_college: "Course / College",
+  source: "Source",
+  counsellor: "Counsellor",
+  status: "Status",
+  followups: "Followups",
+  created: "Created",
+};
+
+const DEFAULT_COLUMN_VISIBILITY: Record<TableColumnKey, boolean> = {
+  lead: true,
+  course_college: true,
+  source: true,
+  counsellor: true,
+  status: true,
+  followups: true,
+  created: true,
+};
 
 type ExpertSearchState = {
   mustInclude: string;
@@ -160,6 +218,260 @@ const defaultExpertSearch: ExpertSearchState = {
   hasEmailOnly: false,
   duplicatesOnly: false,
 };
+
+type PersistedLeadsState = {
+  filters: PersistedFilterState;
+  counsellorIds: string[];
+  search: string;
+  expertSearch: ExpertSearchState;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  page: number;
+  pageSize: number;
+  columnVisibility: Record<TableColumnKey, boolean>;
+};
+
+type SavedLeadsView = {
+  id: string;
+  name: string;
+  state: PersistedLeadsState;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const LEADS_STATE_QUERY_KEYS = [
+  "status",
+  "source",
+  "college",
+  "course",
+  "counsellors",
+  "q",
+  "sort",
+  "dir",
+  "page",
+  "pageSize",
+  "hidden",
+  "ex_must",
+  "ex_exclude",
+  "ex_city",
+  "ex_course",
+  "ex_campaign",
+  "ex_min",
+  "ex_max",
+  "ex_email",
+  "ex_dup",
+  "view",
+] as const;
+
+const SORT_KEYS: SortKey[] = ["created_at", "full_name", "lead_score", "status", "source"];
+const SORT_DIRS: SortDir[] = ["asc", "desc"];
+
+function getDefaultPersistedState(currentUserId: string): PersistedLeadsState {
+  return {
+    filters: { ...DEFAULT_FILTERS },
+    counsellorIds: [currentUserId],
+    search: "",
+    expertSearch: { ...defaultExpertSearch },
+    sortKey: "created_at",
+    sortDir: "desc",
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    columnVisibility: { ...DEFAULT_COLUMN_VISIBILITY },
+  };
+}
+
+function isKnownSortKey(value: string): value is SortKey {
+  return SORT_KEYS.includes(value as SortKey);
+}
+
+function isKnownSortDir(value: string): value is SortDir {
+  return SORT_DIRS.includes(value as SortDir);
+}
+
+function sanitizeColumnVisibility(
+  raw: Partial<Record<TableColumnKey, boolean>> | undefined,
+): Record<TableColumnKey, boolean> {
+  const next = { ...DEFAULT_COLUMN_VISIBILITY };
+  if (!raw) return next;
+  for (const key of TABLE_COLUMN_ORDER) {
+    if (typeof raw[key] === "boolean") {
+      next[key] = raw[key];
+    }
+  }
+  return next;
+}
+
+function sanitizePersistedState(
+  raw: Partial<PersistedLeadsState> | null | undefined,
+  currentUserId: string,
+): PersistedLeadsState {
+  const fallback = getDefaultPersistedState(currentUserId);
+  if (!raw) return fallback;
+  const page = Number(raw.page);
+  const pageSize = Number(raw.pageSize);
+  return {
+    filters: {
+      status: raw.filters?.status ?? fallback.filters.status,
+      source: raw.filters?.source ?? fallback.filters.source,
+      collegeId:
+        typeof raw.filters?.collegeId === "string" && raw.filters.collegeId.length > 0
+          ? raw.filters.collegeId
+          : fallback.filters.collegeId,
+      course:
+        typeof raw.filters?.course === "string" && raw.filters.course.length > 0
+          ? raw.filters.course
+          : fallback.filters.course,
+    },
+    counsellorIds:
+      Array.isArray(raw.counsellorIds) && raw.counsellorIds.every((id) => typeof id === "string")
+        ? raw.counsellorIds
+        : fallback.counsellorIds,
+    search: typeof raw.search === "string" ? raw.search : fallback.search,
+    expertSearch: {
+      mustInclude: raw.expertSearch?.mustInclude ?? fallback.expertSearch.mustInclude,
+      exclude: raw.expertSearch?.exclude ?? fallback.expertSearch.exclude,
+      city: raw.expertSearch?.city ?? fallback.expertSearch.city,
+      interestedCourse:
+        raw.expertSearch?.interestedCourse ?? fallback.expertSearch.interestedCourse,
+      campaign: raw.expertSearch?.campaign ?? fallback.expertSearch.campaign,
+      minScore: raw.expertSearch?.minScore ?? fallback.expertSearch.minScore,
+      maxScore: raw.expertSearch?.maxScore ?? fallback.expertSearch.maxScore,
+      hasEmailOnly: !!raw.expertSearch?.hasEmailOnly,
+      duplicatesOnly: !!raw.expertSearch?.duplicatesOnly,
+    },
+    sortKey:
+      typeof raw.sortKey === "string" && isKnownSortKey(raw.sortKey)
+        ? raw.sortKey
+        : fallback.sortKey,
+    sortDir:
+      typeof raw.sortDir === "string" && isKnownSortDir(raw.sortDir)
+        ? raw.sortDir
+        : fallback.sortDir,
+    page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : fallback.page,
+    pageSize: PAGE_SIZE_OPTIONS.includes(pageSize as (typeof PAGE_SIZE_OPTIONS)[number])
+      ? pageSize
+      : fallback.pageSize,
+    columnVisibility: sanitizeColumnVisibility(raw.columnVisibility),
+  };
+}
+
+function getStateFromQueryString(
+  query: URLSearchParams,
+  currentUserId: string,
+): {
+  hasStateInQuery: boolean;
+  state: PersistedLeadsState;
+  selectedViewId: string | null;
+} {
+  const hasStateInQuery = LEADS_STATE_QUERY_KEYS.some((key) => query.has(key));
+  const fallback = getDefaultPersistedState(currentUserId);
+  if (!hasStateInQuery) {
+    return { hasStateInQuery: false, state: fallback, selectedViewId: null };
+  }
+  const hidden = (query.get("hidden") ?? "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean);
+  const visibility = { ...DEFAULT_COLUMN_VISIBILITY };
+  for (const column of hidden) {
+    if (column in visibility) {
+      visibility[column as TableColumnKey] = false;
+    }
+  }
+  const parsed = sanitizePersistedState(
+    {
+      filters: {
+        status: (query.get("status") as LeadStatus | "all") || fallback.filters.status,
+        source: (query.get("source") as LeadSource | "all") || fallback.filters.source,
+        collegeId: query.get("college") || fallback.filters.collegeId,
+        course: query.get("course") || fallback.filters.course,
+      },
+      counsellorIds: (query.get("counsellors") ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+      search: query.get("q") ?? fallback.search,
+      sortKey: (query.get("sort") as SortKey) ?? fallback.sortKey,
+      sortDir: (query.get("dir") as SortDir) ?? fallback.sortDir,
+      page: Number(query.get("page") ?? fallback.page),
+      pageSize: Number(query.get("pageSize") ?? fallback.pageSize),
+      columnVisibility: visibility,
+      expertSearch: {
+        mustInclude: query.get("ex_must") ?? "",
+        exclude: query.get("ex_exclude") ?? "",
+        city: query.get("ex_city") ?? "",
+        interestedCourse: query.get("ex_course") ?? "",
+        campaign: query.get("ex_campaign") ?? "",
+        minScore: query.get("ex_min") ?? "",
+        maxScore: query.get("ex_max") ?? "",
+        hasEmailOnly: query.get("ex_email") === "1",
+        duplicatesOnly: query.get("ex_dup") === "1",
+      },
+    },
+    currentUserId,
+  );
+  return {
+    hasStateInQuery: true,
+    state: parsed,
+    selectedViewId: query.get("view"),
+  };
+}
+
+function buildQueryFromState(
+  state: PersistedLeadsState,
+  selectedViewId: string | null,
+): URLSearchParams {
+  const query = new URLSearchParams();
+  query.set("status", state.filters.status);
+  query.set("source", state.filters.source);
+  query.set("college", state.filters.collegeId);
+  query.set("course", state.filters.course);
+  query.set("sort", state.sortKey);
+  query.set("dir", state.sortDir);
+  query.set("page", String(state.page));
+  query.set("pageSize", String(state.pageSize));
+  if (state.search.trim()) {
+    query.set("q", state.search.trim());
+  }
+  if (state.counsellorIds.length > 0) {
+    query.set("counsellors", state.counsellorIds.join(","));
+  }
+  const hiddenColumns = TABLE_COLUMN_ORDER.filter((key) => !state.columnVisibility[key]);
+  if (hiddenColumns.length > 0) {
+    query.set("hidden", hiddenColumns.join(","));
+  }
+  if (state.expertSearch.mustInclude.trim()) {
+    query.set("ex_must", state.expertSearch.mustInclude.trim());
+  }
+  if (state.expertSearch.exclude.trim()) {
+    query.set("ex_exclude", state.expertSearch.exclude.trim());
+  }
+  if (state.expertSearch.city.trim()) {
+    query.set("ex_city", state.expertSearch.city.trim());
+  }
+  if (state.expertSearch.interestedCourse.trim()) {
+    query.set("ex_course", state.expertSearch.interestedCourse.trim());
+  }
+  if (state.expertSearch.campaign.trim()) {
+    query.set("ex_campaign", state.expertSearch.campaign.trim());
+  }
+  if (state.expertSearch.minScore.trim()) {
+    query.set("ex_min", state.expertSearch.minScore.trim());
+  }
+  if (state.expertSearch.maxScore.trim()) {
+    query.set("ex_max", state.expertSearch.maxScore.trim());
+  }
+  if (state.expertSearch.hasEmailOnly) {
+    query.set("ex_email", "1");
+  }
+  if (state.expertSearch.duplicatesOnly) {
+    query.set("ex_dup", "1");
+  }
+  if (selectedViewId) {
+    query.set("view", selectedViewId);
+  }
+  return query;
+}
 
 type ExportColumnKey =
   | "id"
@@ -649,18 +961,19 @@ export function LeadsPageClient({
   currentUserId: string;
   isSuperAdmin: boolean;
 }) {
+  const pathname = usePathname();
   const router = useRouter();
   const params = useSearchParams();
-  const [filters, setFilters] = React.useState<LeadFilters>({
-    status: "all",
-    source: "all",
-    collegeId: "all",
-    course: "all",
-  });
+  const [filters, setFilters] = React.useState<LeadFilters>(DEFAULT_FILTERS);
   // Default to the logged-in user's own leads; multi-selectable.
   const [counsellorIds, setCounsellorIds] = React.useState<string[]>([currentUserId]);
   const [counsellorPopoverOpen, setCounsellorPopoverOpen] = React.useState(false);
   const [coursePopoverOpen, setCoursePopoverOpen] = React.useState(false);
+  const [viewDialogOpen, setViewDialogOpen] = React.useState(false);
+  const [newViewName, setNewViewName] = React.useState("");
+  const [savedViews, setSavedViews] = React.useState<SavedLeadsView[]>([]);
+  const [selectedViewId, setSelectedViewId] = React.useState<string | null>(null);
+  const [hasHydratedState, setHasHydratedState] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [expertSearchOpen, setExpertSearchOpen] = React.useState(false);
@@ -668,6 +981,11 @@ export function LeadsPageClient({
     React.useState<ExpertSearchState>(defaultExpertSearch);
   const [sortKey, setSortKey] = React.useState<SortKey>("created_at");
   const [sortDir, setSortDir] = React.useState<SortDir>("desc");
+  const [columnVisibility, setColumnVisibility] = React.useState<
+    Record<TableColumnKey, boolean>
+  >({ ...DEFAULT_COLUMN_VISIBILITY });
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
   const [selectedLeadIds, setSelectedLeadIds] = React.useState<string[]>([]);
   const [bulkStatus, setBulkStatus] = React.useState<LeadStatus | "">("");
   const [bulkCounsellor, setBulkCounsellor] = React.useState(NO_BULK_CHANGE);
@@ -678,6 +996,37 @@ export function LeadsPageClient({
   const [exportRules, setExportRules] = React.useState<ExportFilterRule[]>([]);
   const [exportColumnSearch, setExportColumnSearch] = React.useState("");
   const [exportTab, setExportTab] = React.useState<"columns" | "filters">("columns");
+  const applyPersistedState = React.useCallback((nextState: PersistedLeadsState) => {
+    setFilters(nextState.filters);
+    setCounsellorIds(nextState.counsellorIds);
+    setSearch(nextState.search);
+    setDebouncedSearch(nextState.search);
+    setExpertSearch(nextState.expertSearch);
+    setSortKey(nextState.sortKey);
+    setSortDir(nextState.sortDir);
+    setPage(nextState.page);
+    setPageSize(nextState.pageSize);
+    setColumnVisibility(nextState.columnVisibility);
+  }, []);
+  const currentPersistedState = React.useMemo<PersistedLeadsState>(
+    () => ({
+      filters: {
+        status: filters.status ?? "all",
+        source: filters.source ?? "all",
+        collegeId: filters.collegeId ?? "all",
+        course: filters.course ?? "all",
+      },
+      counsellorIds,
+      search,
+      expertSearch,
+      sortKey,
+      sortDir,
+      page,
+      pageSize,
+      columnVisibility,
+    }),
+    [columnVisibility, counsellorIds, expertSearch, filters, page, pageSize, search, sortDir, sortKey],
+  );
   // Single query — always fetch all statuses, filter client-side.
   // This halves network round-trips: status tab clicks are now instant.
   const {
@@ -701,11 +1050,103 @@ export function LeadsPageClient({
   }, [search]);
 
   React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    let parsedViews: SavedLeadsView[] = [];
+    let persistedSelectedViewId: string | null = null;
+    try {
+      const storedViews = window.localStorage.getItem(LEADS_CUSTOM_VIEWS_STORAGE_KEY);
+      if (storedViews) {
+        const raw = JSON.parse(storedViews) as SavedLeadsView[];
+        if (Array.isArray(raw)) {
+          parsedViews = raw.filter(
+            (view) =>
+              typeof view?.id === "string" &&
+              typeof view?.name === "string" &&
+              !!view.state,
+          );
+          setSavedViews(parsedViews);
+        }
+      }
+      const selected = window.localStorage.getItem(LEADS_SELECTED_VIEW_STORAGE_KEY);
+      if (selected) {
+        persistedSelectedViewId = selected;
+      }
+    } catch {
+      // Ignore malformed localStorage payloads and continue with defaults.
+    }
+    const query = new URLSearchParams(window.location.search);
+    const { hasStateInQuery, state, selectedViewId: querySelectedViewId } =
+      getStateFromQueryString(query, currentUserId);
+    if (hasStateInQuery) {
+      applyPersistedState(state);
+    } else {
+      try {
+        const storedState = window.localStorage.getItem(LEADS_STATE_STORAGE_KEY);
+        if (storedState) {
+          const parsedState = sanitizePersistedState(
+            JSON.parse(storedState) as Partial<PersistedLeadsState>,
+            currentUserId,
+          );
+          applyPersistedState(parsedState);
+        }
+      } catch {
+        // Ignore malformed localStorage payloads and continue with defaults.
+      }
+    }
+    const initialSelectedViewId = querySelectedViewId ?? persistedSelectedViewId;
+    if (initialSelectedViewId && parsedViews.some((view) => view.id === initialSelectedViewId)) {
+      setSelectedViewId(initialSelectedViewId);
+    }
+    setHasHydratedState(true);
+  }, [applyPersistedState, currentUserId]);
+
+  React.useEffect(() => {
+    if (!hasHydratedState || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        LEADS_STATE_STORAGE_KEY,
+        JSON.stringify(currentPersistedState),
+      );
+      if (selectedViewId) {
+        window.localStorage.setItem(LEADS_SELECTED_VIEW_STORAGE_KEY, selectedViewId);
+      } else {
+        window.localStorage.removeItem(LEADS_SELECTED_VIEW_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore browser storage quota issues.
+    }
+    const query = buildQueryFromState(currentPersistedState, selectedViewId);
+    const nextQueryString = query.toString();
+    const currentQuery = new URLSearchParams(window.location.search);
+    currentQuery.delete("new");
+    const currentQueryString = currentQuery.toString();
+    if (nextQueryString !== currentQueryString) {
+      const nextHref = nextQueryString ? `${pathname}?${nextQueryString}` : pathname;
+      router.replace(nextHref, { scroll: false });
+    }
+  }, [currentPersistedState, hasHydratedState, pathname, router, selectedViewId]);
+
+  React.useEffect(() => {
+    if (!hasHydratedState || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        LEADS_CUSTOM_VIEWS_STORAGE_KEY,
+        JSON.stringify(savedViews),
+      );
+    } catch {
+      // Ignore browser storage quota issues.
+    }
+  }, [hasHydratedState, savedViews]);
+
+  React.useEffect(() => {
     if (params.get("new") === "1") {
       setCreating(true);
-      router.replace("/dashboard/leads");
+      const next = new URLSearchParams(params.toString());
+      next.delete("new");
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
     }
-  }, [params, router]);
+  }, [params, pathname, router]);
 
   const counsellors = (profiles ?? []).filter(
     (p) =>
@@ -824,10 +1265,27 @@ export function LeadsPageClient({
     setSelectedLeadIds((prev) => prev.filter((id) => visibleIds.has(id)));
   }, [sortedLeads]);
 
+  const totalPages = React.useMemo(
+    () => Math.max(1, Math.ceil(sortedLeads.length / pageSize)),
+    [pageSize, sortedLeads.length],
+  );
+  const paginatedLeads = React.useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sortedLeads.slice(start, start + pageSize);
+  }, [page, pageSize, sortedLeads]);
+  React.useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
   const allVisibleSelected =
-    sortedLeads.length > 0 && sortedLeads.every((lead) => selectedLeadIds.includes(lead.id));
+    paginatedLeads.length > 0 &&
+    paginatedLeads.every((lead) => selectedLeadIds.includes(lead.id));
   const someVisibleSelected =
-    sortedLeads.some((lead) => selectedLeadIds.includes(lead.id)) && !allVisibleSelected;
+    paginatedLeads.some((lead) => selectedLeadIds.includes(lead.id)) && !allVisibleSelected;
+  const visibleColumnCount = TABLE_COLUMN_ORDER.filter((column) => columnVisibility[column]).length;
+  const tableColSpan = 2 + visibleColumnCount;
 
   const selectedLeadsCount = selectedLeadIds.length;
   const statusCounts = React.useMemo(() => {
@@ -864,11 +1322,12 @@ export function LeadsPageClient({
   const totalExportColumns = EXPORT_COLUMN_DEFINITIONS.length;
 
   const onToggleAllVisible = (checked: boolean | "indeterminate") => {
+    const idsOnPage = paginatedLeads.map((lead) => lead.id);
     if (!checked) {
-      setSelectedLeadIds([]);
+      setSelectedLeadIds((prev) => prev.filter((id) => !idsOnPage.includes(id)));
       return;
     }
-    setSelectedLeadIds(sortedLeads.map((lead) => lead.id));
+    setSelectedLeadIds((prev) => Array.from(new Set([...prev, ...idsOnPage])));
   };
 
   const onToggleLead = (leadId: string, checked: boolean | "indeterminate") => {
@@ -900,6 +1359,12 @@ export function LeadsPageClient({
   // The default counsellor selection is the logged-in user's own leads.
   const isDefaultCounsellorSelection =
     counsellorIds.length === 1 && counsellorIds[0] === currentUserId;
+  const hasExpertSearchActive = Object.values(expertSearch).some((v) =>
+    typeof v === "boolean" ? v : v !== "",
+  );
+  const hasCustomColumnVisibility = TABLE_COLUMN_ORDER.some(
+    (key) => columnVisibility[key] !== DEFAULT_COLUMN_VISIBILITY[key],
+  );
 
   const isFiltersActive =
     !!search ||
@@ -910,17 +1375,81 @@ export function LeadsPageClient({
     !isDefaultCounsellorSelection ||
     sortKey !== "created_at" ||
     sortDir !== "desc" ||
-    Object.values(expertSearch).some((v) => (typeof v === "boolean" ? v : v !== ""));
+    page !== 1 ||
+    pageSize !== DEFAULT_PAGE_SIZE ||
+    hasCustomColumnVisibility ||
+    hasExpertSearchActive ||
+    !!selectedViewId;
 
   const resetAllFilters = () => {
-    setFilters({ status: "all", source: "all", collegeId: "all", course: "all" });
+    setFilters({ ...DEFAULT_FILTERS });
     setCounsellorIds([currentUserId]);
     setSearch("");
     setDebouncedSearch("");
     setSortKey("created_at");
     setSortDir("desc");
-    setExpertSearch(defaultExpertSearch);
+    setExpertSearch({ ...defaultExpertSearch });
     setExpertSearchOpen(false);
+    setPage(1);
+    setPageSize(DEFAULT_PAGE_SIZE);
+    setColumnVisibility({ ...DEFAULT_COLUMN_VISIBILITY });
+    setSelectedViewId(null);
+  };
+
+  const selectedView = React.useMemo(
+    () => savedViews.find((view) => view.id === selectedViewId) ?? null,
+    [savedViews, selectedViewId],
+  );
+  const leadsReturnPath = React.useMemo(() => {
+    const query = buildQueryFromState(currentPersistedState, selectedViewId).toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }, [currentPersistedState, pathname, selectedViewId]);
+  const onSelectSavedView = (value: string) => {
+    if (value === "__none__") {
+      setSelectedViewId(null);
+      return;
+    }
+    const view = savedViews.find((item) => item.id === value);
+    if (!view) return;
+    applyPersistedState(view.state);
+    setSelectedViewId(view.id);
+  };
+  const onCreateSavedView = () => {
+    const trimmed = newViewName.trim();
+    if (!trimmed) {
+      toast.error("Enter a name for the custom view.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const view: SavedLeadsView = {
+      id: crypto.randomUUID(),
+      name: trimmed,
+      state: currentPersistedState,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setSavedViews((prev) => [view, ...prev]);
+    setSelectedViewId(view.id);
+    setViewDialogOpen(false);
+    setNewViewName("");
+    toast.success("Custom view saved.");
+  };
+  const onUpdateSavedView = () => {
+    if (!selectedViewId) return;
+    setSavedViews((prev) =>
+      prev.map((view) =>
+        view.id === selectedViewId
+          ? { ...view, state: currentPersistedState, updatedAt: new Date().toISOString() }
+          : view,
+      ),
+    );
+    toast.success("Custom view updated.");
+  };
+  const onDeleteSavedView = () => {
+    if (!selectedViewId) return;
+    setSavedViews((prev) => prev.filter((view) => view.id !== selectedViewId));
+    setSelectedViewId(null);
+    toast.success("Custom view removed.");
   };
 
   const toggleExportColumn = (columnKey: ExportColumnKey, checked: boolean) => {
@@ -1091,6 +1620,49 @@ export function LeadsPageClient({
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-2">
+            <Select value={selectedViewId ?? "__none__"} onValueChange={onSelectSavedView}>
+              <SelectTrigger className="h-8 w-[220px]">
+                <SelectValue placeholder="Custom view" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Current unsaved view</SelectItem>
+                {savedViews.map((view) => (
+                  <SelectItem key={view.id} value={view.id}>
+                    {view.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setViewDialogOpen(true)}
+            >
+              Save as new view
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onUpdateSavedView}
+              disabled={!selectedView}
+            >
+              Update view
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onDeleteSavedView}
+              disabled={!selectedView}
+            >
+              Delete view
+            </Button>
+            {selectedView ? (
+              <span className="text-xs text-muted-foreground">
+                Active view: {selectedView.name}
+              </span>
+            ) : null}
+          </div>
           <div className="grid gap-3 lg:grid-cols-12">
             <div className="relative md:col-span-2">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1361,6 +1933,32 @@ export function LeadsPageClient({
               <SlidersHorizontal className="mr-2 h-4 w-4" />
               Expert
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="lg:col-span-1">
+                  <Filter className="mr-2 h-4 w-4" />
+                  Columns
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {TABLE_COLUMN_ORDER.map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column}
+                    checked={columnVisibility[column]}
+                    onCheckedChange={(checked) =>
+                      setColumnVisibility((prev) => ({
+                        ...prev,
+                        [column]: !!checked,
+                      }))
+                    }
+                  >
+                    {TABLE_COLUMN_LABELS[column]}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             {isFiltersActive ? (
               <Button
                 variant="ghost"
@@ -1536,13 +2134,17 @@ export function LeadsPageClient({
                   aria-label="Select all leads"
                 />
               </TableHead>
-              <TableHead>Lead</TableHead>
-              <TableHead>Course / College</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Counsellor</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Followups</TableHead>
-              <TableHead className="text-right">Created</TableHead>
+              {columnVisibility.lead ? <TableHead>Lead</TableHead> : null}
+              {columnVisibility.course_college ? <TableHead>Course / College</TableHead> : null}
+              {columnVisibility.source ? <TableHead>Source</TableHead> : null}
+              {columnVisibility.counsellor ? <TableHead>Counsellor</TableHead> : null}
+              {columnVisibility.status ? <TableHead>Status</TableHead> : null}
+              {columnVisibility.followups ? (
+                <TableHead className="text-right">Followups</TableHead>
+              ) : null}
+              {columnVisibility.created ? (
+                <TableHead className="text-right">Created</TableHead>
+              ) : null}
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
@@ -1550,20 +2152,26 @@ export function LeadsPageClient({
             {isLoading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={9}>
+                  <TableCell colSpan={tableColSpan}>
                     <Skeleton className="h-6 w-full" />
                   </TableCell>
                 </TableRow>
               ))
             ) : !sortedLeads || sortedLeads.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-12 text-center text-sm text-muted-foreground">
+                <TableCell
+                  colSpan={tableColSpan}
+                  className="py-12 text-center text-sm text-muted-foreground"
+                >
                   No leads match these filters.
                 </TableCell>
               </TableRow>
             ) : (
-              sortedLeads.map((lead) => {
+              paginatedLeads.map((lead) => {
                 const followUps = getFollowUpCounts(lead);
+                const detailHref = `/dashboard/leads/${lead.id}?from=${encodeURIComponent(
+                  leadsReturnPath,
+                )}`;
                 return (
                 <TableRow
                   key={lead.id}
@@ -1579,68 +2187,82 @@ export function LeadsPageClient({
                       aria-label={`Select ${lead.full_name}`}
                     />
                   </TableCell>
-                  <TableCell onClick={() => router.push(`/dashboard/leads/${lead.id}`)}>
-                    <div className="flex items-center gap-2 font-medium">
-                      {lead.full_name}
-                      {lead.is_duplicate ? (
-                        <Badge variant="destructive" className="text-[10px]">
-                          Duplicate
+                  {columnVisibility.lead ? (
+                    <TableCell onClick={() => router.push(detailHref)}>
+                      <div className="flex items-center gap-2 font-medium">
+                        {lead.full_name}
+                        {lead.is_duplicate ? (
+                          <Badge variant="destructive" className="text-[10px]">
+                            Duplicate
+                          </Badge>
+                        ) : null}
+                        {lead.description ? (
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <StickyNote className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="right"
+                                className="max-w-[280px] whitespace-pre-wrap text-left"
+                              >
+                                {lead.description}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : null}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        <WhatsAppPhoneLink phone={lead.phone} />
+                        {lead.email ? ` · ${lead.email}` : ""}
+                      </div>
+                    </TableCell>
+                  ) : null}
+                  {columnVisibility.course_college ? (
+                    <TableCell onClick={() => router.push(detailHref)}>
+                      <div className="text-sm">{lead.interested_course ?? "—"}</div>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Building2 className="h-3 w-3" />
+                        {lead.college?.name ?? "Unassigned college"}
+                      </div>
+                    </TableCell>
+                  ) : null}
+                  {columnVisibility.source ? (
+                    <TableCell>{LEAD_SOURCE_LABELS[lead.source]}</TableCell>
+                  ) : null}
+                  {columnVisibility.counsellor ? (
+                    <TableCell>
+                      <div className="flex items-center gap-1.5 text-sm">
+                        <UserCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        {lead.counsellor?.full_name || lead.counsellor?.email || "—"}
+                      </div>
+                    </TableCell>
+                  ) : null}
+                  {columnVisibility.status ? (
+                    <TableCell>
+                      <LeadStatusSelect lead={lead} />
+                    </TableCell>
+                  ) : null}
+                  {columnVisibility.followups ? (
+                    <TableCell className="text-right">
+                      {followUps.total > 0 ? (
+                        <Badge
+                          variant={
+                            followUps.completed >= followUps.total ? "default" : "secondary"
+                          }
+                        >
+                          {followUps.completed}/{followUps.total}
                         </Badge>
-                      ) : null}
-                      {lead.description ? (
-                        <TooltipProvider delayDuration={200}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <StickyNote className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent
-                              side="right"
-                              className="max-w-[280px] whitespace-pre-wrap text-left"
-                            >
-                              {lead.description}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      ) : null}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      <WhatsAppPhoneLink phone={lead.phone} />
-                      {lead.email ? ` · ${lead.email}` : ""}
-                    </div>
-                  </TableCell>
-                  <TableCell onClick={() => router.push(`/dashboard/leads/${lead.id}`)}>
-                    <div className="text-sm">{lead.interested_course ?? "—"}</div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Building2 className="h-3 w-3" />
-                      {lead.college?.name ?? "Unassigned college"}
-                    </div>
-                  </TableCell>
-                  <TableCell>{LEAD_SOURCE_LABELS[lead.source]}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5 text-sm">
-                      <UserCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
-                      {lead.counsellor?.full_name || lead.counsellor?.email || "—"}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <LeadStatusSelect lead={lead} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {followUps.total > 0 ? (
-                      <Badge
-                        variant={
-                          followUps.completed >= followUps.total ? "default" : "secondary"
-                        }
-                      >
-                        {followUps.completed}/{followUps.total}
-                      </Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right text-xs text-muted-foreground">
-                    {format(new Date(lead.created_at), "PP")}
-                  </TableCell>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                  ) : null}
+                  {columnVisibility.created ? (
+                    <TableCell className="text-right text-xs text-muted-foreground">
+                      {format(new Date(lead.created_at), "PP")}
+                    </TableCell>
+                  ) : null}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -1650,7 +2272,7 @@ export function LeadsPageClient({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem asChild>
-                          <Link href={`/dashboard/leads/${lead.id}`}>
+                          <Link href={detailHref}>
                             <ChevronRight className="mr-2 h-4 w-4" />
                             View details
                           </Link>
@@ -1680,7 +2302,84 @@ export function LeadsPageClient({
             )}
           </TableBody>
         </Table>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/20 px-4 py-3 text-sm">
+          <div className="text-muted-foreground">
+            Showing{" "}
+            <span className="font-medium text-foreground">
+              {sortedLeads.length === 0 ? 0 : (page - 1) * pageSize + 1}
+            </span>
+            {" - "}
+            <span className="font-medium text-foreground">
+              {Math.min(page * pageSize, sortedLeads.length)}
+            </span>
+            {" of "}
+            <span className="font-medium text-foreground">{sortedLeads.length}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                setPageSize(Number(value));
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-8 w-[110px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size} / page
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            >
+              Prev
+            </Button>
+            <span className="px-1 text-muted-foreground">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page >= totalPages}
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       </Card>
+
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save custom view</DialogTitle>
+            <DialogDescription>
+              Save the current filters, sorting, pagination and visible columns.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              value={newViewName}
+              onChange={(event) => setNewViewName(event.target.value)}
+              placeholder="View name (e.g. My counselling leads)"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={onCreateSavedView}>Save view</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <LeadFormSheet open={creating} onOpenChange={setCreating} lead={null} />
       <LeadFormSheet

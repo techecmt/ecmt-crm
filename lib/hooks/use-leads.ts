@@ -40,6 +40,7 @@ export type LeadFilters = {
   counsellorId?: string | "all";
   /** Multi-select: empty array or undefined means all counsellors. */
   counsellorIds?: string[];
+  enabled?: boolean;
 };
 
 export type LeadWithRelations = Lead & {
@@ -49,8 +50,10 @@ export type LeadWithRelations = Lead & {
 };
 
 export function useLeads(filters: LeadFilters = {}) {
+  const { enabled = true, ...queryFilters } = filters;
   return useQuery({
-    queryKey: [...LEADS_KEY, filters],
+    enabled,
+    queryKey: [...LEADS_KEY, queryFilters],
     staleTime: 2 * 60 * 1000, // 2 min — leads don't change mid-session
     queryFn: async () => {
       const supabase = createClient();
@@ -61,21 +64,21 @@ export function useLeads(filters: LeadFilters = {}) {
         )
         .order("created_at", { ascending: false });
 
-      if (filters.status && filters.status !== "all") {
-        q = q.eq("status", filters.status);
+      if (queryFilters.status && queryFilters.status !== "all") {
+        q = q.eq("status", queryFilters.status);
       }
-      if (filters.source && filters.source !== "all") {
-        q = q.eq("source", filters.source);
+      if (queryFilters.source && queryFilters.source !== "all") {
+        q = q.eq("source", queryFilters.source);
       }
-      if (filters.collegeId && filters.collegeId !== "all") {
-        q = q.eq("college_id", filters.collegeId);
+      if (queryFilters.collegeId && queryFilters.collegeId !== "all") {
+        q = q.eq("college_id", queryFilters.collegeId);
       }
-      if (filters.course && filters.course !== "all") {
-        q = q.eq("interested_course", filters.course);
+      if (queryFilters.course && queryFilters.course !== "all") {
+        q = q.eq("interested_course", queryFilters.course);
       }
-      if (filters.counsellorIds && filters.counsellorIds.length > 0) {
-        const includeUnassigned = filters.counsellorIds.includes(UNASSIGNED_COUNSELLOR);
-        const realIds = filters.counsellorIds.filter(
+      if (queryFilters.counsellorIds && queryFilters.counsellorIds.length > 0) {
+        const includeUnassigned = queryFilters.counsellorIds.includes(UNASSIGNED_COUNSELLOR);
+        const realIds = queryFilters.counsellorIds.filter(
           (id) => id !== UNASSIGNED_COUNSELLOR,
         );
         if (includeUnassigned && realIds.length > 0) {
@@ -87,14 +90,14 @@ export function useLeads(filters: LeadFilters = {}) {
         } else {
           q = q.in("assigned_counsellor", realIds);
         }
-      } else if (filters.counsellorId && filters.counsellorId !== "all") {
-        q = q.eq("assigned_counsellor", filters.counsellorId);
+      } else if (queryFilters.counsellorId && queryFilters.counsellorId !== "all") {
+        q = q.eq("assigned_counsellor", queryFilters.counsellorId);
       }
-      if (filters.search) {
+      if (queryFilters.search) {
         // Escape backslashes/double-quotes and wrap each pattern in double
         // quotes so reserved PostgREST characters (commas, parentheses, spaces)
         // in the search term can't break or inject into the or() expression.
-        const escaped = filters.search.replace(/[\\"]/g, (match) => `\\${match}`);
+        const escaped = queryFilters.search.replace(/[\\"]/g, (match) => `\\${match}`);
         const term = `"%${escaped}%"`;
         q = q.or(
           `full_name.ilike.${term},phone.ilike.${term},email.ilike.${term},city.ilike.${term},interested_course.ilike.${term}`,
@@ -127,28 +130,35 @@ export function useLead(id: string | undefined) {
 }
 
 export function useLeadDuplicateCandidates({
-  phoneKey,
+  phone,
+  collegeId,
+  course,
   excludeLeadId,
 }: {
-  phoneKey?: string;
+  phone?: string;
+  collegeId?: string | null;
+  course?: string | null;
   excludeLeadId?: string | null;
 }) {
   return useQuery({
-    enabled: !!phoneKey,
-    queryKey: [...LEADS_KEY, "duplicate-candidates", phoneKey ?? "", excludeLeadId ?? null],
+    enabled: !!phone?.trim(),
+    queryKey: [
+      ...LEADS_KEY,
+      "duplicate-candidates",
+      phone?.trim() ?? "",
+      collegeId ?? null,
+      course ?? null,
+      excludeLeadId ?? null,
+    ],
     queryFn: async () => {
-      if (!phoneKey) return [] as DuplicateCheckLead[];
+      if (!phone?.trim()) return [] as DuplicateCheckLead[];
       const supabase = createClient();
-      let q = supabase
-        .from("leads")
-        .select("id,full_name,phone,college_id,interested_course,status,created_at")
-        .eq("phone_key", phoneKey)
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (excludeLeadId) {
-        q = q.neq("id", excludeLeadId);
-      }
-      const { data, error } = await q;
+      const { data, error } = await supabase.rpc("get_lead_duplicate_matches", {
+        p_phone: phone,
+        p_college_id: collegeId ?? null,
+        p_interested_course: course ?? null,
+        p_exclude_lead_id: excludeLeadId ?? null,
+      });
       if (error) throw new Error(error.message);
       return (data ?? []) as DuplicateCheckLead[];
     },
@@ -199,7 +209,6 @@ export type LeadUpsertInput = {
   utm_source?: string | null;
   utm_medium?: string | null;
   utm_campaign?: string | null;
-  is_duplicate?: boolean;
   initial_follow_up_priority?: FollowUpPriority;
   initial_follow_up_remarks?: string | null;
 };
