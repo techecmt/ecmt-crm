@@ -36,6 +36,7 @@ import {
   type UserAuditEventRow,
   useUserAuditReport,
 } from "@/lib/hooks/use-user-audit-report";
+import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
 
 function monthKey(date: Date) {
   return format(date, "yyyy-MM");
@@ -52,9 +53,9 @@ type UserSummary = {
   counsellingStarted: number;
 };
 
-type CounsellorLeadSummary = {
-  counsellorId: string;
-  counsellorName: string;
+type LeadRegistrationSummary = {
+  groupId: string;
+  groupName: string;
   leadsCreated: number;
   registeredUnpaid: number;
   regFeePaid: number;
@@ -73,10 +74,13 @@ function initSummary(userId: string, name: string): UserSummary {
   };
 }
 
-function initCounsellorSummary(counsellorId: string, counsellorName: string): CounsellorLeadSummary {
+function initLeadRegistrationSummary(
+  groupId: string,
+  groupName: string,
+): LeadRegistrationSummary {
   return {
-    counsellorId,
-    counsellorName,
+    groupId,
+    groupName,
     leadsCreated: 0,
     registeredUnpaid: 0,
     regFeePaid: 0,
@@ -88,11 +92,16 @@ function toUserName(user: { full_name: string | null; email: string } | null | u
   return user.full_name || user.email;
 }
 
-function summarizeLeadsByCounsellor(leads: AdminReportLeadRow[], fromDate: string, toDate: string) {
+function summarizeLeads(
+  leads: AdminReportLeadRow[],
+  fromDate: string,
+  toDate: string,
+  getGroup: (lead: AdminReportLeadRow) => { id: string; name: string },
+) {
   const from = new Date(`${fromDate}T00:00:00`);
   const to = new Date(`${toDate}T23:59:59.999`);
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
-    return [] as CounsellorLeadSummary[];
+    return [] as LeadRegistrationSummary[];
   }
 
   const inRange = (value: string | null) => {
@@ -102,16 +111,13 @@ function summarizeLeadsByCounsellor(leads: AdminReportLeadRow[], fromDate: strin
     return at >= from && at <= to;
   };
 
-  const map = new Map<string, CounsellorLeadSummary>();
+  const map = new Map<string, LeadRegistrationSummary>();
   const ensure = (lead: AdminReportLeadRow) => {
-    const counsellorId = lead.assigned_counsellor ?? "unassigned";
-    const counsellorName = lead.counsellor
-      ? toUserName(lead.counsellor)
-      : "Unassigned";
-    if (!map.has(counsellorId)) {
-      map.set(counsellorId, initCounsellorSummary(counsellorId, counsellorName));
+    const group = getGroup(lead);
+    if (!map.has(group.id)) {
+      map.set(group.id, initLeadRegistrationSummary(group.id, group.name));
     }
-    return map.get(counsellorId)!;
+    return map.get(group.id)!;
   };
 
   for (const lead of leads) {
@@ -140,6 +146,27 @@ function summarizeLeadsByCounsellor(leads: AdminReportLeadRow[], fromDate: strin
       const bTotal = b.leadsCreated + b.registeredUnpaid + b.regFeePaid;
       return bTotal - aTotal;
     });
+}
+
+function summarizeLeadsByCounsellor(leads: AdminReportLeadRow[], fromDate: string, toDate: string) {
+  return summarizeLeads(leads, fromDate, toDate, (lead) => ({
+    id: lead.assigned_counsellor ?? "unassigned",
+    name: lead.counsellor ? toUserName(lead.counsellor) : "Unassigned",
+  }));
+}
+
+function summarizeLeadsByCourse(leads: AdminReportLeadRow[], fromDate: string, toDate: string) {
+  return summarizeLeads(leads, fromDate, toDate, (lead) => {
+    const trimmed = (lead.interested_course ?? "").trim();
+    return { id: trimmed || "unspecified", name: trimmed || "Unspecified" };
+  });
+}
+
+function summarizeLeadsBySource(leads: AdminReportLeadRow[], fromDate: string, toDate: string) {
+  return summarizeLeads(leads, fromDate, toDate, (lead) => ({
+    id: lead.source,
+    name: LEAD_SOURCE_LABELS[lead.source] ?? lead.source,
+  }));
 }
 
 function summarizeByUser(events: UserAuditEventRow[], crmEntriesRange: CrmEntryRow[]) {
@@ -245,6 +272,63 @@ function MetricCard({
   );
 }
 
+function LeadRegistrationSummaryTable({
+  labelColumn,
+  rows,
+  emptyMessage,
+}: {
+  labelColumn: string;
+  rows: LeadRegistrationSummary[];
+  emptyMessage: string;
+}) {
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.leadsCreated += row.leadsCreated;
+      acc.registeredUnpaid += row.registeredUnpaid;
+      acc.regFeePaid += row.regFeePaid;
+      return acc;
+    },
+    { leadsCreated: 0, registeredUnpaid: 0, regFeePaid: 0 },
+  );
+
+  if (rows.length === 0) {
+    return (
+      <div className="py-8 text-center text-sm text-muted-foreground">
+        {emptyMessage}
+      </div>
+    );
+  }
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{labelColumn}</TableHead>
+          <TableHead className="text-right">Leads Created</TableHead>
+          <TableHead className="text-right">Registered (Unpaid)</TableHead>
+          <TableHead className="text-right">Reg Fee Paid</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.groupId}>
+            <TableCell className="font-medium">{row.groupName}</TableCell>
+            <TableCell className="text-right">{row.leadsCreated}</TableCell>
+            <TableCell className="text-right">{row.registeredUnpaid}</TableCell>
+            <TableCell className="text-right">{row.regFeePaid}</TableCell>
+          </TableRow>
+        ))}
+        <TableRow className="bg-muted/30 font-semibold">
+          <TableCell>Grand Total</TableCell>
+          <TableCell className="text-right">{totals.leadsCreated}</TableCell>
+          <TableCell className="text-right">{totals.registeredUnpaid}</TableCell>
+          <TableCell className="text-right">{totals.regFeePaid}</TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
+  );
+}
+
 export function UserAuditReportsClient() {
   const now = React.useMemo(() => new Date(), []);
   const [fromDate, setFromDate] = React.useState(format(subDays(now, 29), "yyyy-MM-dd"));
@@ -252,6 +336,10 @@ export function UserAuditReportsClient() {
   const [month, setMonth] = React.useState(monthKey(now));
   const [collegeId, setCollegeId] = React.useState("all");
   const [course, setCourse] = React.useState("all");
+  const [source, setSource] = React.useState<LeadSource | "all">("all");
+  const [leadCreatedBy, setLeadCreatedBy] = React.useState<
+    "all" | "system" | "users"
+  >("all");
   const [counsellorId, setCounsellorId] = React.useState("all");
 
   const report = useUserAuditReport({
@@ -260,6 +348,8 @@ export function UserAuditReportsClient() {
     month,
     collegeId: collegeId === "all" ? undefined : collegeId,
     course: course === "all" ? undefined : course,
+    source: source === "all" ? undefined : source,
+    leadCreatedBy: leadCreatedBy === "all" ? undefined : leadCreatedBy,
     counsellorId: counsellorId === "all" ? undefined : counsellorId,
   });
 
@@ -289,18 +379,13 @@ export function UserAuditReportsClient() {
     () => summarizeLeadsByCounsellor(report.data?.leads ?? [], fromDate, toDate),
     [fromDate, toDate, report.data?.leads],
   );
-  const counsellorLeadTotals = React.useMemo(
-    () =>
-      counsellorLeadSummaries.reduce(
-        (acc, row) => {
-          acc.leadsCreated += row.leadsCreated;
-          acc.registeredUnpaid += row.registeredUnpaid;
-          acc.regFeePaid += row.regFeePaid;
-          return acc;
-        },
-        { leadsCreated: 0, registeredUnpaid: 0, regFeePaid: 0 },
-      ),
-    [counsellorLeadSummaries],
+  const courseLeadSummaries = React.useMemo(
+    () => summarizeLeadsByCourse(report.data?.leads ?? [], fromDate, toDate),
+    [fromDate, toDate, report.data?.leads],
+  );
+  const sourceLeadSummaries = React.useMemo(
+    () => summarizeLeadsBySource(report.data?.leads ?? [], fromDate, toDate),
+    [fromDate, toDate, report.data?.leads],
   );
 
   const collegeOptions = React.useMemo(
@@ -325,6 +410,10 @@ export function UserAuditReportsClient() {
   const counsellorOptions = (report.data?.profiles ?? []).filter((p) =>
     ["counsellor", "admission_manager", "management", "super_admin"].includes(p.role),
   );
+  const sourceOptions = React.useMemo(
+    () => Object.keys(LEAD_SOURCE_LABELS) as LeadSource[],
+    [],
+  );
 
   if (report.isLoading) {
     return (
@@ -348,7 +437,10 @@ export function UserAuditReportsClient() {
       <Card>
         <CardHeader>
           <CardTitle>User Audit Filters</CardTitle>
-          <CardDescription>Filter reports by date, college, course, and counsellor.</CardDescription>
+          <CardDescription>
+            Filter reports by date, college, course, source, creator type, and
+            counsellor.
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-3">
           <div className="grid w-full gap-1 sm:w-auto">
@@ -396,6 +488,35 @@ export function UserAuditReportsClient() {
             </Select>
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
+            <label className="text-xs text-muted-foreground">Source</label>
+            <Select value={source} onValueChange={(value) => setSource(value as LeadSource | "all")}>
+              <SelectTrigger className="w-full sm:w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sources</SelectItem>
+                {sourceOptions.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {LEAD_SOURCE_LABELS[item]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid w-full gap-1 sm:w-auto">
+            <label className="text-xs text-muted-foreground">Lead Created</label>
+            <Select value={leadCreatedBy} onValueChange={(value) => setLeadCreatedBy(value as "all" | "system" | "users")}>
+              <SelectTrigger className="w-full sm:w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="system">System</SelectItem>
+                <SelectItem value="users">Users</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Counsellor</label>
             <Select value={counsellorId} onValueChange={setCounsellorId}>
               <SelectTrigger className="w-full sm:w-[220px]">
@@ -420,6 +541,8 @@ export function UserAuditReportsClient() {
               setMonth(monthKey(now));
               setCollegeId("all");
               setCourse("all");
+              setSource("all");
+              setLeadCreatedBy("all");
               setCounsellorId("all");
             }}
           >
@@ -523,38 +646,43 @@ export function UserAuditReportsClient() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {counsellorLeadSummaries.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              No lead or registration data for selected filters.
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Counsellor</TableHead>
-                  <TableHead className="text-right">Leads Created</TableHead>
-                  <TableHead className="text-right">Registered (Unpaid)</TableHead>
-                  <TableHead className="text-right">Reg Fee Paid</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {counsellorLeadSummaries.map((row) => (
-                  <TableRow key={row.counsellorId}>
-                    <TableCell className="font-medium">{row.counsellorName}</TableCell>
-                    <TableCell className="text-right">{row.leadsCreated}</TableCell>
-                    <TableCell className="text-right">{row.registeredUnpaid}</TableCell>
-                    <TableCell className="text-right">{row.regFeePaid}</TableCell>
-                  </TableRow>
-                ))}
-                <TableRow className="bg-muted/30 font-semibold">
-                  <TableCell>Grand Total</TableCell>
-                  <TableCell className="text-right">{counsellorLeadTotals.leadsCreated}</TableCell>
-                  <TableCell className="text-right">{counsellorLeadTotals.registeredUnpaid}</TableCell>
-                  <TableCell className="text-right">{counsellorLeadTotals.regFeePaid}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          )}
+          <LeadRegistrationSummaryTable
+            labelColumn="Counsellor"
+            rows={counsellorLeadSummaries}
+            emptyMessage="No lead or registration data for selected filters."
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Courses Lead & Registration Summary</CardTitle>
+          <CardDescription>
+            Grouped by interested course with current filters applied.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LeadRegistrationSummaryTable
+            labelColumn="Course"
+            rows={courseLeadSummaries}
+            emptyMessage="No lead or registration data for selected filters."
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sources Lead & Registration Summary</CardTitle>
+          <CardDescription>
+            Grouped by lead source with current filters applied.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LeadRegistrationSummaryTable
+            labelColumn="Source"
+            rows={sourceLeadSummaries}
+            emptyMessage="No lead or registration data for selected filters."
+          />
         </CardContent>
       </Card>
 

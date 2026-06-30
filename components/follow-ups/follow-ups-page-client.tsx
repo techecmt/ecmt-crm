@@ -10,9 +10,6 @@ import {
   startOfWeek,
   subWeeks,
 } from "date-fns";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
 import {
   CalendarClock,
   CheckCircle2,
@@ -40,14 +37,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -61,7 +50,6 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import {
   useCompleteFollowUpTask,
   useFollowUps,
@@ -78,6 +66,7 @@ import {
 } from "@/lib/types";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
 import { cn } from "@/lib/utils";
+import { CompleteFollowUpDialog } from "@/components/follow-ups/complete-follow-up-dialog";
 
 type Filter = "mine" | "all";
 type DatePreset = "all" | "today" | "this_week" | "last_week" | "next_week";
@@ -673,95 +662,6 @@ function FollowUpList({
         })}
       </CardContent>
     </Card>
-  );
-}
-
-type CompleteValues = {
-  id: string;
-  remarks: string;
-};
-
-function CompleteFollowUpDialog({
-  task,
-  open,
-  isSaving,
-  onOpenChange,
-  onSubmit,
-}: {
-  task: FollowUpWithRelations | null;
-  open: boolean;
-  isSaving: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (values: CompleteValues) => Promise<void>;
-}) {
-  const schema = z.object({
-    remarks: z.string().trim().min(1, "Completion notes are required"),
-  });
-  type FormValues = z.infer<typeof schema>;
-
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      remarks: "",
-    },
-  });
-
-  React.useEffect(() => {
-    if (open) {
-      form.reset({ remarks: "" });
-    }
-  }, [form, open]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Complete follow-up</DialogTitle>
-          <DialogDescription>Add completion notes.</DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form
-            className="grid gap-4"
-            onSubmit={form.handleSubmit((values) =>
-              onSubmit({
-                id: task?.id ?? "",
-                remarks: values.remarks,
-              }),
-            )}
-          >
-            <FormField
-              control={form.control}
-              name="remarks"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Completion notes</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={4}
-                      placeholder="What happened on this follow-up?"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSaving || !task}>
-                {isSaving ? "Completing…" : "Complete follow-up"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
   );
 }
 

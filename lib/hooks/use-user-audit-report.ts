@@ -4,7 +4,7 @@ import { endOfMonth, startOfMonth } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 
 import { createClient } from "@/lib/supabase/client";
-import type { College, LeadStatus, Profile } from "@/lib/types";
+import type { College, LeadSource, LeadStatus, Profile } from "@/lib/types";
 
 export type UserAuditFilters = {
   fromDate?: string;
@@ -12,6 +12,8 @@ export type UserAuditFilters = {
   month?: string;
   collegeId?: string;
   course?: string;
+  source?: LeadSource;
+  leadCreatedBy?: "system" | "users";
   counsellorId?: string;
 };
 
@@ -30,7 +32,12 @@ export type UserAuditEventRow = {
   lead_id: string | null;
   metadata: Record<string, unknown> | null;
   user: { id: string; full_name: string | null; email: string } | null;
-  lead: { id: string; college_id: string | null; interested_course: string | null } | null;
+  lead: {
+    id: string;
+    college_id: string | null;
+    interested_course: string | null;
+    created_by: string | null;
+  } | null;
 };
 
 export type CrmEntryRow = {
@@ -48,6 +55,8 @@ export type AdminReportLeadRow = {
   registration_completed_at: string | null;
   college_id: string | null;
   interested_course: string | null;
+  source: LeadSource;
+  created_by: string | null;
   assigned_counsellor: string | null;
   counsellor: { id: string; full_name: string | null; email: string } | null;
 };
@@ -60,6 +69,7 @@ type RawUserAuditEventRow = Omit<UserAuditEventRow, "user" | "lead"> & {
     id: string;
     college_id: string | null;
     interested_course: string | null;
+    created_by: string | null;
   }>;
 };
 
@@ -116,7 +126,7 @@ export function useUserAuditReport(filters: UserAuditFilters) {
       let eventsQuery = supabase
         .from("user_audit_events")
         .select(
-          "id,user_id,event_type,created_at,lead_id,metadata,user:profiles(id,full_name,email),lead:leads(id,college_id,interested_course)",
+          "id,user_id,event_type,created_at,lead_id,metadata,user:profiles(id,full_name,email),lead:leads(id,college_id,interested_course,created_by)",
         )
         .neq("event_type", "crm_entry")
         .order("created_at", { ascending: false });
@@ -145,10 +155,16 @@ export function useUserAuditReport(filters: UserAuditFilters) {
       let leadsQuery = supabase
         .from("leads")
         .select(
-          "id,created_at,status,registration_completed_at,college_id,interested_course,assigned_counsellor,counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email)",
+          "id,created_at,status,registration_completed_at,college_id,interested_course,source,created_by,assigned_counsellor,counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email)",
         )
         .order("created_at", { ascending: false });
       if (filters.collegeId) leadsQuery = leadsQuery.eq("college_id", filters.collegeId);
+      if (filters.source) leadsQuery = leadsQuery.eq("source", filters.source);
+      if (filters.leadCreatedBy === "system") {
+        leadsQuery = leadsQuery.is("created_by", null);
+      } else if (filters.leadCreatedBy === "users") {
+        leadsQuery = leadsQuery.not("created_by", "is", null);
+      }
       if (filters.counsellorId) {
         leadsQuery = leadsQuery.eq("assigned_counsellor", filters.counsellorId);
       }
@@ -187,6 +203,12 @@ export function useUserAuditReport(filters: UserAuditFilters) {
         if (coursesNeedle) {
           const eventCourse = normalizeCourse(event.lead?.interested_course);
           if (eventCourse !== coursesNeedle) return false;
+        }
+        if (filters.leadCreatedBy === "system" && event.lead?.created_by !== null) {
+          return false;
+        }
+        if (filters.leadCreatedBy === "users" && !event.lead?.created_by) {
+          return false;
         }
         return true;
       });

@@ -78,8 +78,14 @@ import {
 } from "@/lib/types";
 import { LeadStatusSelect } from "@/components/leads/status-select";
 import { LeadFormSheet } from "@/components/leads/lead-form-sheet";
-import { useFollowUps, nextUpcomingPerLead } from "@/lib/hooks/use-follow-ups";
+import {
+  useCompleteFollowUpTask,
+  useFollowUps,
+  nextUpcomingPerLead,
+  type FollowUpWithRelations,
+} from "@/lib/hooks/use-follow-ups";
 import { FollowUpFormDialog } from "@/components/follow-ups/follow-up-form-dialog";
+import { CompleteFollowUpDialog } from "@/components/follow-ups/complete-follow-up-dialog";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
 import {
   useAdmissionGoals,
@@ -118,11 +124,14 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const { data: lead, isLoading } = useLead(leadId);
   const { data: activities } = useLeadActivities(leadId);
   const { data: followUps } = useFollowUps({ leadId });
+  const completeFollowUp = useCompleteFollowUpTask();
   const { data: admissionGoals } = useAdmissionGoals({ status: "all" });
   const addNote = useAddLeadNote();
   const recordGoalEvent = useRecordAdmissionGoalEvent();
   const [editing, setEditing] = React.useState(false);
   const [followUpOpen, setFollowUpOpen] = React.useState(false);
+  const [completingTask, setCompletingTask] =
+    React.useState<FollowUpWithRelations | null>(null);
   const [noteTitle, setNoteTitle] = React.useState("");
   const [noteBody, setNoteBody] = React.useState("");
   const noteActivities = React.useMemo(
@@ -737,7 +746,11 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                   <ul className="divide-y">
                     {allPendingFollowUps.map((f, index) => (
                       <li key={f.id} className="py-3">
-                        <FollowUpRow followUp={f} isNextUp={index === 0} />
+                        <FollowUpRow
+                          followUp={f}
+                          isNextUp={index === 0}
+                          onComplete={setCompletingTask}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -770,6 +783,16 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
         </TabsContent>
       </Tabs>
 
+      <CompleteFollowUpDialog
+        task={completingTask}
+        open={!!completingTask}
+        isSaving={completeFollowUp.isPending}
+        onOpenChange={(open) => !open && setCompletingTask(null)}
+        onSubmit={async (values) => {
+          await completeFollowUp.mutateAsync(values);
+          setCompletingTask(null);
+        }}
+      />
       <LeadFormSheet
         open={editing}
         onOpenChange={setEditing}
@@ -788,9 +811,11 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
 function FollowUpRow({
   followUp,
   isNextUp = false,
+  onComplete,
 }: {
-  followUp: import("@/lib/hooks/use-follow-ups").FollowUpWithRelations;
+  followUp: FollowUpWithRelations;
   isNextUp?: boolean;
+  onComplete?: (followUp: FollowUpWithRelations) => void;
 }) {
   const overdue =
     followUp.status === "pending" && isPast(new Date(followUp.scheduled_at));
@@ -850,17 +875,28 @@ function FollowUpRow({
           </div>
         ) : null}
       </div>
-      <Badge
-        variant={
-          followUp.status === "completed"
-            ? "default"
-            : followUp.status === "missed"
-            ? "destructive"
-            : "secondary"
-        }
-      >
-        {followUp.status}
-      </Badge>
+      <div className="flex items-center gap-2">
+        {followUp.status === "pending" && onComplete ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onComplete(followUp)}
+          >
+            Complete
+          </Button>
+        ) : null}
+        <Badge
+          variant={
+            followUp.status === "completed"
+              ? "default"
+              : followUp.status === "missed"
+              ? "destructive"
+              : "secondary"
+          }
+        >
+          {followUp.status}
+        </Badge>
+      </div>
     </div>
   );
 }
