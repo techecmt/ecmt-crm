@@ -12,6 +12,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   XAxis,
   YAxis,
 } from "recharts";
@@ -105,11 +106,25 @@ const BUCKET_CONFIG: ChartConfig = {
 };
 
 const DAY_BUCKETS: { label: string; min: number; max: number | null }[] = [
-  { label: "0–7 days", min: 0, max: 7 },
-  { label: "8–14 days", min: 8, max: 14 },
-  { label: "15–30 days", min: 15, max: 30 },
-  { label: "31+ days", min: 31, max: null },
+  { label: "0–2 days", min: 0, max: 2 },
+  { label: "3–4 days", min: 3, max: 4 },
+  { label: "5–7 days", min: 5, max: 7 },
+  { label: "8–12 days", min: 8, max: 12 },
+  { label: "13–20 days", min: 13, max: 20 },
+  { label: "21+ days", min: 21, max: null },
 ];
+
+function chartCountLabel(value: unknown) {
+  const count = Number(value);
+  if (!Number.isFinite(count) || count <= 0) return "";
+  return String(count);
+}
+
+function chartBucketLabel(value: unknown) {
+  const count = Number(value);
+  if (!Number.isFinite(count)) return "";
+  return String(count);
+}
 
 function toUserName(user: { full_name: string | null; email: string } | null | undefined) {
   if (!user) return "Unassigned";
@@ -200,7 +215,10 @@ function buildTrendData(leads: RegistrationReportLeadRow[], fromDate: string, to
     if (isRegistrationPaid(lead.status)) bucket.paid += 1;
   }
 
-  return Array.from(byDay.values());
+  return Array.from(byDay.values()).map((row) => ({
+    ...row,
+    total: row.unpaid + row.paid,
+  }));
 }
 
 function emptyBreakdown(): CountBreakdown {
@@ -761,13 +779,36 @@ export function RegistrationReportsClient() {
               <EmptyChart label="No registrations in selected period" />
             ) : (
               <ChartContainer config={TREND_CONFIG} className="h-[280px] w-full">
-                <BarChart data={trendData} margin={{ left: 8, right: 8 }}>
+                <BarChart data={trendData} margin={{ left: 8, right: 8, top: 20 }}>
                   <CartesianGrid vertical={false} />
                   <XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={24} />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={32} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="unpaid" stackId="registrations" fill="var(--color-unpaid)" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="paid" stackId="registrations" fill="var(--color-paid)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="unpaid" stackId="registrations" fill="var(--color-unpaid)" radius={[0, 0, 0, 0]}>
+                    <LabelList
+                      dataKey="unpaid"
+                      position="center"
+                      formatter={chartCountLabel}
+                      className="fill-primary-foreground"
+                      fontSize={11}
+                    />
+                  </Bar>
+                  <Bar dataKey="paid" stackId="registrations" fill="var(--color-paid)" radius={[4, 4, 0, 0]}>
+                    <LabelList
+                      dataKey="paid"
+                      position="center"
+                      formatter={chartCountLabel}
+                      className="fill-primary-foreground"
+                      fontSize={11}
+                    />
+                    <LabelList
+                      dataKey="total"
+                      position="top"
+                      formatter={chartCountLabel}
+                      className="fill-foreground"
+                      fontSize={11}
+                    />
+                  </Bar>
                 </BarChart>
               </ChartContainer>
             )}
@@ -786,12 +827,28 @@ export function RegistrationReportsClient() {
               <EmptyChart label="No registration timing data" />
             ) : (
               <ChartContainer config={BUCKET_CONFIG} className="h-[280px] w-full">
-                <BarChart data={dayBuckets} margin={{ left: 8, right: 8 }}>
+                <BarChart data={dayBuckets} margin={{ left: 8, right: 8, top: 20, bottom: 8 }}>
                   <CartesianGrid vertical={false} />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    interval={0}
+                    angle={-18}
+                    height={52}
+                    fontSize={11}
+                  />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={32} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="var(--color-count)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill="var(--color-count)" radius={[4, 4, 0, 0]}>
+                    <LabelList
+                      dataKey="count"
+                      position="top"
+                      formatter={chartBucketLabel}
+                      className="fill-foreground"
+                      fontSize={11}
+                    />
+                  </Bar>
                 </BarChart>
               </ChartContainer>
             )}

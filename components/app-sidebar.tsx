@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Building2,
-  ChartNoAxesCombined,
   ClipboardList,
   GraduationCap,
   LayoutDashboard,
@@ -81,7 +80,6 @@ const NAV_ITEMS: NavItem[] = [
       },
     ],
   },
-  { href: "/dashboard/admission-goals", label: "Admission Goals", icon: ChartNoAxesCombined, module: "admission_goals" },
   { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
   { href: "/dashboard/colleges", label: "Colleges", icon: Building2, module: "colleges" },
   { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone, module: "marketing" },
