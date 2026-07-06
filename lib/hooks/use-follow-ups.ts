@@ -25,6 +25,8 @@ export type FollowUpWithRelations = FollowUp & {
     status: string;
     lead_score: number;
     assigned_counsellor: string | null;
+    college_id: string | null;
+    college: { id: string; name: string } | null;
   } | null;
   assignee: { id: string; full_name: string | null; email: string } | null;
 };
@@ -34,6 +36,7 @@ export type FollowUpsQueryOpts = {
   leadId?: string;
   /** Filter by a specific assignee. Use "me" to filter to the current user. */
   assignedTo?: string | "me";
+  collegeId?: string;
   upcomingOnly?: boolean;
   fromDate?: string;
   toDate?: string;
@@ -56,16 +59,20 @@ export function useFollowUps(opts: FollowUpsQueryOpts = {}) {
       } else if (opts.assignedTo) {
         assignedToId = opts.assignedTo;
       }
+      const leadSelect = opts.collegeId
+        ? "lead:leads!inner(id,full_name,phone,status,lead_score,assigned_counsellor,college_id,college:colleges(id,name))"
+        : "lead:leads(id,full_name,phone,status,lead_score,assigned_counsellor,college_id,college:colleges(id,name))";
       let q = supabase
         .from("follow_ups")
         .select(
-          "*, lead:leads(id,full_name,phone,status,lead_score,assigned_counsellor), assignee:profiles!follow_ups_assigned_user_id_fkey(id,full_name,email)",
+          `*, ${leadSelect}, assignee:profiles!follow_ups_assigned_user_id_fkey(id,full_name,email)`,
         )
         .order("due_date", { ascending: true })
         .order("due_time", { ascending: true });
       if (opts.status && opts.status !== "all") q = q.eq("status", opts.status);
       if (opts.leadId) q = q.eq("lead_id", opts.leadId);
       if (assignedToId) q = q.eq("assigned_user_id", assignedToId);
+      if (opts.collegeId) q = q.eq("lead.college_id", opts.collegeId);
       if (opts.upcomingOnly) {
         q = q.gte("scheduled_at", new Date().toISOString());
       }

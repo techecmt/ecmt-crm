@@ -57,6 +57,7 @@ import {
   nextUpcomingPerLead,
   type FollowUpWithRelations,
 } from "@/lib/hooks/use-follow-ups";
+import { useColleges } from "@/lib/hooks/use-colleges";
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import {
   FOLLOW_UP_PRIORITY_LABELS,
@@ -93,6 +94,7 @@ export function FollowUpsPageClient({
   const [startDate, setStartDate] = React.useState("");
   const [endDate, setEndDate] = React.useState("");
   const [dateSortOrder, setDateSortOrder] = React.useState<DateSortOrder>("asc");
+  const [collegeFilter, setCollegeFilter] = React.useState<string>("");
 
   const assignedTo = React.useMemo(() => {
     if (!isAdmin) return "me" as const;
@@ -135,9 +137,11 @@ export function FollowUpsPageClient({
 
   const { data: followUps, isLoading } = useFollowUps({
     assignedTo,
+    collegeId: collegeFilter || undefined,
     fromDate: dateRange.fromDate,
     toDate: dateRange.toDate,
   });
+  const { data: colleges } = useColleges({ activeOnly: true });
   const { data: profiles } = useProfiles();
   const complete = useCompleteFollowUpTask();
   const [completingTask, setCompletingTask] =
@@ -215,7 +219,7 @@ export function FollowUpsPageClient({
 
       <Card>
         <CardContent className="space-y-3 py-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <div className="grid gap-1.5 rounded-md border p-2.5">
               <label className="text-xs font-medium text-foreground">Preset</label>
               <Select
@@ -278,6 +282,25 @@ export function FollowUpsPageClient({
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid gap-1.5 rounded-md border p-2.5">
+              <label className="text-xs font-medium text-foreground">College</label>
+              <Select
+                value={collegeFilter || "all"}
+                onValueChange={(value) => setCollegeFilter(value === "all" ? "" : value)}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="All colleges" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All colleges</SelectItem>
+                  {(colleges ?? []).map((college) => (
+                    <SelectItem key={college.id} value={college.id}>
+                      {college.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -289,9 +312,10 @@ export function FollowUpsPageClient({
                 setExactDate("");
                 setStartDate("");
                 setEndDate("");
+                setCollegeFilter("");
               }}
             >
-              Clear date filters
+              Clear filters
             </Button>
             <p className="text-xs text-muted-foreground">
               Use <span className="font-medium text-foreground">Exact date</span> or a{" "}
@@ -622,6 +646,9 @@ function FollowUpList({
                         {f.assignee?.full_name ?? f.assignee?.email ?? "Unassigned"}
                       </Badge>
                     ) : null}
+                    <Badge variant="outline" className="text-[10px]">
+                      {f.lead?.college?.name ?? "Unassigned college"}
+                    </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {format(new Date(f.scheduled_at), "PPp")}
