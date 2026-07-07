@@ -53,7 +53,13 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, module: "dashboard" },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    module: "dashboard",
+    superAdminOnly: true,
+  },
   {
     href: "/dashboard/leads",
     label: "Leads",
