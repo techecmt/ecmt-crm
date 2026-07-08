@@ -14,7 +14,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { format, startOfMonth } from "date-fns";
+import { startOfMonth } from "date-fns";
+import { getSgtMonthKey } from "@/lib/timezone";
 
 import {
   Card,
@@ -42,6 +43,14 @@ const sourcePalette = [
   "hsl(var(--chart-4))",
   "hsl(var(--chart-5))",
 ];
+
+function formatSgtMonthShort(input: Date) {
+  return new Intl.DateTimeFormat("en-SG", {
+    timeZone: "Asia/Singapore",
+    month: "short",
+    year: "2-digit",
+  }).format(input);
+}
 
 export function MarketingPageClient({ leads }: { leads: Lead[] }) {
   const sources = Object.keys(LEAD_SOURCE_LABELS) as LeadSource[];
@@ -77,10 +86,10 @@ export function MarketingPageClient({ leads }: { leads: Lead[] }) {
   const now = new Date();
   for (let i = 5; i >= 0; i--) {
     const d = startOfMonth(new Date(now.getFullYear(), now.getMonth() - i, 1));
-    const key = format(d, "MMM yy");
+    const bucketMonthKey = getSgtMonthKey(d);
+    const key = formatSgtMonthShort(d);
     const monthLeads = leads.filter((l) => {
-      const ld = new Date(l.created_at);
-      return ld.getMonth() === d.getMonth() && ld.getFullYear() === d.getFullYear();
+      return getSgtMonthKey(l.created_at) === bucketMonthKey;
     });
     buckets.push({
       month: key,

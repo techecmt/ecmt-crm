@@ -8,6 +8,7 @@ import {
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
+import { sgtDateTimeToUtcIso } from "@/lib/timezone";
 import type {
   FollowUp,
   FollowUpPriority,
@@ -124,7 +125,10 @@ export type FollowUpInput = {
 };
 
 function scheduledAtFromTask(input: Pick<FollowUpInput, "due_date" | "due_time">) {
-  return new Date(`${input.due_date}T${input.due_time}`).toISOString();
+  return (
+    sgtDateTimeToUtcIso(input.due_date, input.due_time) ??
+    new Date(`${input.due_date}T${input.due_time}`).toISOString()
+  );
 }
 
 export function useUpsertFollowUp() {

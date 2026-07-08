@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { format } from "date-fns";
 import {
   Bot,
   ChevronLeft,
@@ -26,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { formatSgtTime24 } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import {
   useConvertConversationToLead,
@@ -320,7 +320,7 @@ export function ConversationDetail({
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
   const isHumanAgent = !isUser && !!message.sent_by_user_id;
-  const time = format(new Date(message.created_at), "HH:mm");
+  const time = formatSgtTime24(message.created_at);
 
   return (
     <div className={cn("flex", isUser ? "justify-start" : "justify-end")}>

@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { format } from "date-fns";
 import { Bot, ChevronLeft, Send, User, UserCheck, Phone, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+import { formatSgtTime24 } from "@/lib/timezone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -210,7 +210,7 @@ export function ConversationDetail({ conversation, onBack }: ConversationDetailP
 
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
-  const time = format(new Date(message.created_at), "HH:mm");
+  const time = formatSgtTime24(message.created_at);
 
   return (
     <div

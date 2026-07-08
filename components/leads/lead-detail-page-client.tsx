@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { differenceInCalendarDays, format, formatDistanceToNow, isPast } from "date-fns";
+import { format, formatDistanceToNow, isPast } from "date-fns";
 import {
   ArrowLeft,
   Building2,
@@ -91,6 +91,7 @@ import {
   useAdmissionGoals,
   useRecordAdmissionGoalEvent,
 } from "@/lib/hooks/use-admission-goals";
+import { differenceInSgtCalendarDays, formatSgtDate, formatSgtDateTime } from "@/lib/timezone";
 
 export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const params = useSearchParams();
@@ -181,8 +182,8 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const completedCounsellingDisplayCount = completedCounsellingCount;
   const lastCompletedFollowUp = completedFollowUps[0];
   const daysSinceLastFollowUp = lastCompletedFollowUp?.completed_at
-    ? differenceInCalendarDays(new Date(), new Date(lastCompletedFollowUp.completed_at))
-    : differenceInCalendarDays(new Date(), new Date(lead?.created_at ?? new Date()));
+    ? differenceInSgtCalendarDays(new Date(), lastCompletedFollowUp.completed_at)
+    : differenceInSgtCalendarDays(new Date(), lead?.created_at ?? new Date());
   const linkedAdmissionGoals = React.useMemo(
     () =>
       (admissionGoals ?? []).filter((goal) =>
@@ -192,10 +193,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   );
   const leadToRegistrationDays = lead?.registration_completed_at
     ? Math.max(
-        differenceInCalendarDays(
-          new Date(lead.registration_completed_at),
-          new Date(lead.created_at),
-        ),
+        differenceInSgtCalendarDays(lead.registration_completed_at, lead.created_at),
         0,
       )
     : null;
@@ -410,7 +408,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                   Registration Completed
                 </div>
                 <p className="mt-1 text-sm">
-                  {format(new Date(lead.registration_completed_at), "PPP")}
+                  {formatSgtDate(lead.registration_completed_at)}
                 </p>
                 {leadToRegistrationDays !== null ? (
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -528,7 +526,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               are added on counselling completion (72-hour intervals).
               {lead.status === "counselling_completed" && lead.counselling_completed_at ? (
                 <>
-                  {" "}Completed {format(new Date(lead.counselling_completed_at), "PP")}.
+                  {" "}Completed {formatSgtDate(lead.counselling_completed_at)}.
                 </>
               ) : null}
             </CardDescription>
@@ -541,7 +539,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               {nextPending && nextPending.sequence ? (
                 <Badge variant="outline">
                   Next: follow-up #{nextPending.sequence} on{" "}
-                  {format(new Date(nextPending.scheduled_at), "PP p")}
+                  {formatSgtDateTime(nextPending.scheduled_at)}
                 </Badge>
               ) : null}
             </div>
@@ -571,11 +569,11 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                       )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {format(new Date(item.scheduled_at), "PP p")}
+                      {formatSgtDateTime(item.scheduled_at)}
                     </div>
                     {item.completed_at ? (
                       <div className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300">
-                        Completed {format(new Date(item.completed_at), "PP")}
+                        Completed {formatSgtDate(item.completed_at)}
                       </div>
                     ) : null}
                   </div>
@@ -680,7 +678,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                           {a.user?.full_name || a.user?.email || "System"}
                         </span>
                         <Separator orientation="vertical" className="h-3" />
-                        <span>{format(new Date(a.created_at), "PPp")}</span>
+                        <span>{formatSgtDateTime(a.created_at)}</span>
                       </div>
                     </li>
                   ))}
@@ -701,7 +699,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium">{note.title}</span>
                         <Badge variant="outline" className="text-[10px]">
-                          {format(new Date(note.created_at), "PPp")}
+                          {formatSgtDateTime(note.created_at)}
                         </Badge>
                         {typeof note.metadata?.status_at_note === "string" ? (
                           <Badge variant="secondary" className="text-[10px]">
@@ -833,7 +831,7 @@ function FollowUpRow({
             <Clock className="h-4 w-4 text-amber-600" />
           )}
           {FOLLOW_UP_TYPE_LABELS[followUp.followup_type ?? followUp.type]} —{" "}
-          {format(new Date(followUp.scheduled_at), "PPp")}
+          {formatSgtDateTime(followUp.scheduled_at)}
           {isNextUp ? (
             <Badge variant="default" className="text-[10px]">
               Next up

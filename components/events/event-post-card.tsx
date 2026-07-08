@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { format } from "date-fns";
 import { CalendarDays, MapPin, MoreVertical, Pencil, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { formatSgtDate } from "@/lib/timezone";
 import type { EventPost } from "@/lib/types";
 
 const GRID_VISIBLE = 7;
@@ -59,7 +59,7 @@ export function EventPostCard({ post, canManage, onEdit, onDelete }: EventPostCa
             {post.event_date && (
               <span className="flex items-center gap-1.5">
                 <CalendarDays className="h-3.5 w-3.5 text-emerald-500" />
-                {format(new Date(post.event_date), "dd MMM yyyy")}
+                {formatSgtDate(post.event_date)}
               </span>
             )}
             {(collegeLabel || post.location) && (

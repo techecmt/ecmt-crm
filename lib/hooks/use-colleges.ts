@@ -68,7 +68,7 @@ export function useUpsertCollege() {
   return useMutation({
     mutationFn: async (input: CollegeUpsertInput) => {
       const supabase = createClient();
-      const payload = { ...input };
+      const payload = { ...input, country: "Singapore" };
       if (input.id) {
         const { data, error } = await supabase
           .from("colleges")

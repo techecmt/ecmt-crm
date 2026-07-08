@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { format } from "date-fns";
 import {
   AlertTriangle,
   Building2,
@@ -12,6 +11,7 @@ import {
   Users,
   UsersRound,
 } from "lucide-react";
+import { formatSgtDate } from "@/lib/timezone";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -200,7 +200,7 @@ export function SuperAdminDashboard({
         <Card>
           <CardHeader>
             <CardTitle>Follow-up snapshot</CardTitle>
-            <CardDescription>Pending tasks as of {format(new Date(), "PP")}.</CardDescription>
+            <CardDescription>Pending tasks as of {formatSgtDate(new Date())}.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <SnapshotRow

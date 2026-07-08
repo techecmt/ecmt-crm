@@ -3,7 +3,6 @@
 import * as React from "react";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { format } from "date-fns";
 import { AlertTriangle, History } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -46,6 +45,7 @@ import {
   type DuplicateCheckLead,
 } from "@/lib/lead-duplicates";
 import { nationalityFormDefaults } from "@/lib/nationalities";
+import { formatSgtDate } from "@/lib/timezone";
 import {
   DEFAULT_LEAD_SOURCE,
   HIGHEST_QUALIFICATION_LABELS,
@@ -614,7 +614,7 @@ function DuplicateMatchList({ matches }: { matches: DuplicateCheckLead[] }) {
         <li key={match.id} className="flex flex-wrap items-center gap-x-1.5 text-xs">
           <span className="font-medium">{match.full_name}</span>
           <span>· {LEAD_STATUS_LABELS[match.status]}</span>
-          <span>· {format(new Date(match.created_at), "PP")}</span>
+          <span>· {formatSgtDate(match.created_at)}</span>
           <Link
             href={`/dashboard/leads/${match.id}`}
             target="_blank"

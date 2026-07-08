@@ -122,6 +122,7 @@ import {
 import { LeadFormSheet } from "@/components/leads/lead-form-sheet";
 import { LeadStatusSelect } from "@/components/leads/status-select";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
+import { formatSgtDate, formatSgtTimestampKey } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -1540,7 +1541,7 @@ export function LeadsPageClient({
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
-    const timestamp = format(new Date(), "yyyyMMdd-HHmmss");
+    const timestamp = formatSgtTimestampKey(new Date());
     anchor.href = url;
     anchor.download = `leads-export-${timestamp}.csv`;
     anchor.click();
@@ -2260,7 +2261,7 @@ export function LeadsPageClient({
                   ) : null}
                   {columnVisibility.created ? (
                     <TableCell className="text-right text-xs text-muted-foreground">
-                      {format(new Date(lead.created_at), "PP")}
+                      {formatSgtDate(lead.created_at)}
                     </TableCell>
                   ) : null}
                   <TableCell onClick={(e) => e.stopPropagation()}>

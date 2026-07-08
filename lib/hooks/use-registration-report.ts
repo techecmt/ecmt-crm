@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { createClient } from "@/lib/supabase/client";
+import { getSgtDayEndUtcIso, getSgtDayStartUtcIso } from "@/lib/timezone";
 import type { College, LeadSource, LeadStatus, Profile } from "@/lib/types";
 
 export type RegistrationReportFilters = {
@@ -40,11 +41,11 @@ function flattenRelation<T>(value: RelationMaybeArray<T>): T | null {
 }
 
 function toIsoRangeStart(date: string) {
-  return `${date}T00:00:00.000Z`;
+  return getSgtDayStartUtcIso(date) ?? `${date}T00:00:00.000Z`;
 }
 
 function toIsoRangeEnd(date: string) {
-  return `${date}T23:59:59.999Z`;
+  return getSgtDayEndUtcIso(date) ?? `${date}T23:59:59.999Z`;
 }
 
 function normalizeCourse(value: string | null | undefined) {

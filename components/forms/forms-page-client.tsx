@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { format } from "date-fns";
 import {
   Bar,
   BarChart,
@@ -65,6 +64,7 @@ import {
   type FormField,
   type FormSubmission,
 } from "@/lib/hooks/use-forms";
+import { formatSgtDate, formatSgtDateTime, formatSgtDateTimeExport } from "@/lib/timezone";
 
 const RATING_COLORS = [
   "hsl(var(--chart-5))",
@@ -186,6 +186,14 @@ function toColumns(headers: string[], minWidth = 14) {
   return headers.map((h) => ({ width: Math.max(h.length + 2, minWidth) }));
 }
 
+function formatSgtShortDay(input: string) {
+  return new Intl.DateTimeFormat("en-SG", {
+    timeZone: "Asia/Singapore",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(input));
+}
+
 async function exportToExcel(
   formTitle: string,
   fields: FormField[],
@@ -204,7 +212,7 @@ async function exportToExcel(
   ];
   const rows: SheetData = submissions.map((s, idx) => [
     idx + 1,
-    format(new Date(s.submitted_at), "yyyy-MM-dd HH:mm"),
+    formatSgtDateTimeExport(s.submitted_at),
     s.submitter_name ?? "",
     s.submitter_email ?? "",
     ...activeFields.map((f) => toExcelCellValue(s.values_json?.[f.field_key])),
@@ -243,7 +251,7 @@ async function exportToExcel(
   if (textFields.length > 0) {
     const txtHeaders = ["Submitted At", "Submitter", ...textFields.map((f) => f.label)];
     const txtRows: SheetData = submissions.map((s) => [
-      format(new Date(s.submitted_at), "yyyy-MM-dd HH:mm"),
+      formatSgtDateTimeExport(s.submitted_at),
       s.submitter_name ?? s.submitter_email ?? "",
       ...textFields.map((f) => toExcelCellValue(s.values_json?.[f.field_key])),
     ]);
@@ -381,7 +389,7 @@ export function FormsPageClient() {
   const dailyData = React.useMemo(() => {
     const map: Record<string, number> = {};
     (submissions ?? []).forEach((s) => {
-      const day = format(new Date(s.submitted_at), "MMM d");
+      const day = formatSgtShortDay(s.submitted_at);
       map[day] = (map[day] ?? 0) + 1;
     });
     return Object.entries(map)
@@ -495,7 +503,7 @@ export function FormsPageClient() {
               <KpiCard title="Rating Questions" value={ratingFields.length} />
               <KpiCard
                 title="Latest Submission"
-                value={format(new Date(submissions[0].submitted_at), "d MMM yyyy")}
+                value={formatSgtDate(submissions[0].submitted_at)}
               />
             </div>
 
@@ -755,7 +763,7 @@ export function FormsPageClient() {
                             {idx + 1}
                           </TableCell>
                           <TableCell className="z-10 bg-background text-xs md:sticky md:left-12">
-                            {format(new Date(s.submitted_at), "d MMM yy, HH:mm")}
+                            {formatSgtDateTime(s.submitted_at)}
                           </TableCell>
                           <TableCell className="z-10 bg-background font-medium md:sticky md:left-[196px]">
                             {s.submitter_name ?? "—"}

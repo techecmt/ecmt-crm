@@ -4,6 +4,12 @@ import { endOfMonth, startOfMonth } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 
 import { createClient } from "@/lib/supabase/client";
+import {
+  getSgtDayEndUtcIso,
+  getSgtDayStartUtcIso,
+  getSgtMonthKey,
+  getSgtMonthRangeUtc,
+} from "@/lib/timezone";
 import type { College, LeadSource, LeadStatus, Profile } from "@/lib/types";
 
 export type UserAuditFilters = {
@@ -88,22 +94,12 @@ function flattenRelation<T>(value: RelationMaybeArray<T>): T | null {
 
 function toIsoRangeStart(date?: string) {
   if (!date) return undefined;
-  return `${date}T00:00:00.000Z`;
+  return getSgtDayStartUtcIso(date) ?? `${date}T00:00:00.000Z`;
 }
 
 function toIsoRangeEnd(date?: string) {
   if (!date) return undefined;
-  return `${date}T23:59:59.999Z`;
-}
-
-function parseMonthKey(month?: string) {
-  const now = new Date();
-  if (!month) return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [year, monthPart] = month.split("-").map(Number);
-  if (!year || !monthPart || monthPart < 1 || monthPart > 12) {
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  }
-  return new Date(Date.UTC(year, monthPart - 1, 1));
+  return getSgtDayEndUtcIso(date) ?? `${date}T23:59:59.999Z`;
 }
 
 function normalizeCourse(value: string | null | undefined) {
@@ -117,9 +113,10 @@ export function useUserAuditReport(filters: UserAuditFilters) {
       const supabase = createClient();
       const fromIso = toIsoRangeStart(filters.fromDate);
       const toIso = toIsoRangeEnd(filters.toDate);
-      const monthDate = parseMonthKey(filters.month);
-      const monthStartIso = startOfMonth(monthDate).toISOString();
-      const monthEndIso = endOfMonth(monthDate).toISOString();
+      const monthKey = filters.month ?? getSgtMonthKey();
+      const monthRange = getSgtMonthRangeUtc(monthKey);
+      const monthStartIso = monthRange?.startIso ?? startOfMonth(new Date()).toISOString();
+      const monthEndIso = monthRange?.endIso ?? endOfMonth(new Date()).toISOString();
 
       const coursesNeedle = normalizeCourse(filters.course);
 

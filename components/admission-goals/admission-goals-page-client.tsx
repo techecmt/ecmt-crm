@@ -66,6 +66,7 @@ import {
 import { useAdmissionGoalDashboard, useDeleteAdmissionGoal, useRecordAdmissionGoalEvent, useUpsertAdmissionGoal, type AdmissionGoalDashboardRow, type AdmissionGoalInput } from "@/lib/hooks/use-admission-goals";
 import { useColleges } from "@/lib/hooks/use-colleges";
 import { useProfiles } from "@/lib/hooks/use-profiles";
+import { formatSgtDate, getSgtDateKey } from "@/lib/timezone";
 import {
   ADMISSION_GOAL_EVENT_LABELS,
   ADMISSION_GOAL_STATUS_LABELS,
@@ -95,10 +96,8 @@ const funnelOrder: AdmissionGoalEventType[] = [
 const emptyGoalInput: AdmissionGoalInput = {
   title: "",
   target_count: 10,
-  start_date: new Date().toISOString().slice(0, 10),
-  end_date: new Date(new Date().setMonth(new Date().getMonth() + 1))
-    .toISOString()
-    .slice(0, 10),
+  start_date: getSgtDateKey(new Date()),
+  end_date: getSgtDateKey(new Date(new Date().setMonth(new Date().getMonth() + 1))),
   course_name: "",
   college_id: "",
   intake: "",
@@ -112,11 +111,7 @@ function percent(value: number) {
 
 function formatDate(value: string | null) {
   if (!value) return "Not enough pace";
-  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatSgtDate(value);
 }
 
 export function AdmissionGoalsPageClient({

@@ -121,7 +121,7 @@ export function CollegeFormDialog({
         <DialogHeader>
           <DialogTitle>{college ? "Edit college" : "Add college"}</DialogTitle>
           <DialogDescription>
-            College profile, courses and admission capacity.
+            College profile, courses and admission capacity. Country is fixed to Singapore.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

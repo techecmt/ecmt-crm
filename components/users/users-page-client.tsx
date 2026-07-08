@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { format } from "date-fns";
 import {
   Mail,
   Pencil,
@@ -79,6 +78,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { formatSgtDate } from "@/lib/timezone";
 
 const roles = Object.keys(USER_ROLE_LABELS) as UserRole[];
 
@@ -270,7 +270,7 @@ export function UsersPageClient({
                         )}
                       </TableCell>
                       <TableCell className="text-right text-xs text-muted-foreground">
-                        {format(new Date(p.created_at), "PP")}
+                        {formatSgtDate(p.created_at)}
                       </TableCell>
                       <TableCell>
                         {canManageAuth ? (

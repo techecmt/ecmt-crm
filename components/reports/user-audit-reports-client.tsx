@@ -3,9 +3,6 @@
 import * as React from "react";
 import {
   eachDayOfInterval,
-  endOfMonth,
-  format,
-  startOfMonth,
   subDays,
 } from "date-fns";
 import { Activity, CalendarDays, CheckCircle2, UserCheck, UsersRound } from "lucide-react";
@@ -36,11 +33,18 @@ import {
   type UserAuditEventRow,
   useUserAuditReport,
 } from "@/lib/hooks/use-user-audit-report";
+import {
+  formatSgtDate,
+  formatSgtDateTime,
+  formatSgtMonthYear,
+  getSgtDateKey,
+  getSgtDayEndUtcIso,
+  getSgtDayStartUtcIso,
+  getSgtHour,
+  getSgtMonthKey,
+  getSgtMonthRangeUtc,
+} from "@/lib/timezone";
 import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
-
-function monthKey(date: Date) {
-  return format(date, "yyyy-MM");
-}
 
 type UserSummary = {
   userId: string;
@@ -98,8 +102,10 @@ function summarizeLeads(
   toDate: string,
   getGroup: (lead: AdminReportLeadRow) => { id: string; name: string },
 ) {
-  const from = new Date(`${fromDate}T00:00:00`);
-  const to = new Date(`${toDate}T23:59:59.999`);
+  const fromIso = getSgtDayStartUtcIso(fromDate);
+  const toIso = getSgtDayEndUtcIso(toDate);
+  const from = fromIso ? new Date(fromIso) : new Date(`${fromDate}T00:00:00.000Z`);
+  const to = toIso ? new Date(toIso) : new Date(`${toDate}T23:59:59.999Z`);
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
     return [] as LeadRegistrationSummary[];
   }
@@ -214,16 +220,16 @@ function summarizeByUser(events: UserAuditEventRow[], crmEntriesRange: CrmEntryR
 }
 
 function buildHeatmap(entries: CrmEntryRow[], month: Date) {
+  const monthRange = getSgtMonthRangeUtc(getSgtMonthKey(month));
   const days = eachDayOfInterval({
-    start: startOfMonth(month),
-    end: endOfMonth(month),
+    start: monthRange ? new Date(monthRange.startIso) : month,
+    end: monthRange ? new Date(monthRange.endIso) : month,
   });
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const counts = new Map<string, number>();
 
   for (const entry of entries) {
-    const at = new Date(entry.created_at);
-    const key = `${format(at, "yyyy-MM-dd")}-${at.getHours()}`;
+    const key = `${getSgtDateKey(entry.created_at)}-${getSgtHour(entry.created_at)}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
 
@@ -331,9 +337,9 @@ function LeadRegistrationSummaryTable({
 
 export function UserAuditReportsClient() {
   const now = React.useMemo(() => new Date(), []);
-  const [fromDate, setFromDate] = React.useState(format(subDays(now, 29), "yyyy-MM-dd"));
-  const [toDate, setToDate] = React.useState(format(now, "yyyy-MM-dd"));
-  const [month, setMonth] = React.useState(monthKey(now));
+  const [fromDate, setFromDate] = React.useState(getSgtDateKey(subDays(now, 29)));
+  const [toDate, setToDate] = React.useState(getSgtDateKey(now));
+  const [month, setMonth] = React.useState(getSgtMonthKey(now));
   const [collegeId, setCollegeId] = React.useState("all");
   const [course, setCourse] = React.useState("all");
   const [source, setSource] = React.useState<LeadSource | "all">("all");
@@ -353,7 +359,10 @@ export function UserAuditReportsClient() {
     counsellorId: counsellorId === "all" ? undefined : counsellorId,
   });
 
-  const monthDate = React.useMemo(() => new Date(`${month}-01T00:00:00Z`), [month]);
+  const monthDate = React.useMemo(() => {
+    const monthRange = getSgtMonthRangeUtc(month);
+    return new Date(monthRange?.startIso ?? `${month}-01T00:00:00Z`);
+  }, [month]);
   const heatmap = React.useMemo(
     () => buildHeatmap(report.data?.crmEntriesMonth ?? [], monthDate),
     [monthDate, report.data?.crmEntriesMonth],
@@ -536,9 +545,9 @@ export function UserAuditReportsClient() {
             type="button"
             variant="outline"
             onClick={() => {
-              setFromDate(format(subDays(now, 29), "yyyy-MM-dd"));
-              setToDate(format(now, "yyyy-MM-dd"));
-              setMonth(monthKey(now));
+              setFromDate(getSgtDateKey(subDays(now, 29)));
+              setToDate(getSgtDateKey(now));
+              setMonth(getSgtMonthKey(now));
               setCollegeId("all");
               setCourse("all");
               setSource("all");
@@ -586,7 +595,7 @@ export function UserAuditReportsClient() {
 
       <Card>
         <CardHeader>
-          <CardTitle>CRM Entry Heatmap ({format(monthDate, "MMMM yyyy")})</CardTitle>
+          <CardTitle>CRM Entry Heatmap ({formatSgtMonthYear(monthDate)})</CardTitle>
           <CardDescription>
             Hour-by-hour CRM entries for the selected month. Date and counsellor filters apply; college/course do not apply to CRM entry logs.
           </CardDescription>
@@ -600,9 +609,9 @@ export function UserAuditReportsClient() {
                   <div
                     key={day.toISOString()}
                     className="w-5 text-center text-[10px] text-muted-foreground"
-                    title={format(day, "PPPP")}
+                    title={formatSgtDate(day)}
                   >
-                    {format(day, "d")}
+                    {Number(getSgtDateKey(day).split("-")[2] ?? "0")}
                   </div>
                 ))}
               </div>
@@ -612,7 +621,7 @@ export function UserAuditReportsClient() {
                     {String(hour).padStart(2, "0")}:00
                   </div>
                   {heatmap.days.map((day) => {
-                    const dateKey = format(day, "yyyy-MM-dd");
+                    const dateKey = getSgtDateKey(day);
                     const key = `${dateKey}-${hour}`;
                     const count = heatmap.counts.get(key) ?? 0;
                     return (
@@ -620,7 +629,7 @@ export function UserAuditReportsClient() {
                         key={key}
                         count={count}
                         maxCount={heatmap.maxCount}
-                        title={`${format(day, "PP")} ${String(hour).padStart(2, "0")}:00 · ${count} entries`}
+                        title={`${formatSgtDate(day)} ${String(hour).padStart(2, "0")}:00 · ${count} entries`}
                       />
                     );
                   })}
@@ -738,7 +747,7 @@ export function UserAuditReportsClient() {
               {(report.data?.crmEntriesRange ?? []).slice(0, 20).map((entry) => (
                 <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
                   <span>{toUserName(entry.user)}</span>
-                  <span className="text-muted-foreground">{format(new Date(entry.created_at), "PPpp")}</span>
+                  <span className="text-muted-foreground">{formatSgtDateTime(entry.created_at)}</span>
                 </li>
               ))}
             </ul>

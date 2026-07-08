@@ -3,9 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  differenceInCalendarDays,
   eachDayOfInterval,
-  format,
   subDays,
 } from "date-fns";
 import {
@@ -58,6 +56,11 @@ import {
   type RegistrationReportLeadRow,
   useRegistrationReport,
 } from "@/lib/hooks/use-registration-report";
+import {
+  differenceInSgtCalendarDays,
+  formatSgtDate,
+  getSgtDateKey,
+} from "@/lib/timezone";
 import { LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS, type LeadSource } from "@/lib/types";
 
 type GroupSummary = {
@@ -127,12 +130,18 @@ function toUserName(user: { full_name: string | null; email: string } | null | u
 
 function daysToRegister(lead: RegistrationReportLeadRow) {
   return Math.max(
-    differenceInCalendarDays(
-      new Date(lead.registration_completed_at),
-      new Date(lead.created_at),
-    ),
+    differenceInSgtCalendarDays(lead.registration_completed_at, lead.created_at),
     0,
   );
+}
+
+function formatSgtShortDay(input: Date | string) {
+  const date = input instanceof Date ? input : new Date(input);
+  return new Intl.DateTimeFormat("en-SG", {
+    timeZone: "Asia/Singapore",
+    month: "short",
+    day: "numeric",
+  }).format(date);
 }
 
 function median(values: number[]) {
@@ -189,20 +198,20 @@ function summarizeByGroup(
 }
 
 function buildTrendData(leads: RegistrationReportLeadRow[], fromDate: string, toDate: string) {
-  const from = new Date(`${fromDate}T00:00:00`);
-  const to = new Date(`${toDate}T00:00:00`);
+  const from = new Date(`${fromDate}T00:00:00Z`);
+  const to = new Date(`${toDate}T00:00:00Z`);
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) return [];
 
   const days = eachDayOfInterval({ start: from, end: to });
   const byDay = new Map<string, { date: string; unpaid: number; paid: number }>();
 
   for (const day of days) {
-    const key = format(day, "yyyy-MM-dd");
-    byDay.set(key, { date: format(day, "MMM d"), unpaid: 0, paid: 0 });
+    const key = getSgtDateKey(day);
+    byDay.set(key, { date: formatSgtShortDay(day), unpaid: 0, paid: 0 });
   }
 
   for (const lead of leads) {
-    const key = format(new Date(lead.registration_completed_at), "yyyy-MM-dd");
+    const key = getSgtDateKey(lead.registration_completed_at);
     const bucket = byDay.get(key);
     if (!bucket) continue;
     if (isRegistrationUnpaid(lead.status)) bucket.unpaid += 1;
@@ -480,8 +489,8 @@ function CourseBySourceTable({
 
 export function RegistrationReportsClient() {
   const now = React.useMemo(() => new Date(), []);
-  const [fromDate, setFromDate] = React.useState(format(subDays(now, 29), "yyyy-MM-dd"));
-  const [toDate, setToDate] = React.useState(format(now, "yyyy-MM-dd"));
+  const [fromDate, setFromDate] = React.useState(getSgtDateKey(subDays(now, 29)));
+  const [toDate, setToDate] = React.useState(getSgtDateKey(now));
   const [collegeIds, setCollegeIds] = React.useState<string[]>([]);
   const [courses, setCourses] = React.useState<string[]>([]);
   const [sources, setSources] = React.useState<LeadSource[]>([]);
@@ -717,8 +726,8 @@ export function RegistrationReportsClient() {
             type="button"
             variant="outline"
             onClick={() => {
-              setFromDate(format(subDays(now, 29), "yyyy-MM-dd"));
-              setToDate(format(now, "yyyy-MM-dd"));
+              setFromDate(getSgtDateKey(subDays(now, 29)));
+              setToDate(getSgtDateKey(now));
               setCollegeIds([]);
               setCourses([]);
               setSources([]);
@@ -975,7 +984,7 @@ export function RegistrationReportsClient() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      {format(new Date(lead.registration_completed_at), "PP")}
+                      {formatSgtDate(lead.registration_completed_at)}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">

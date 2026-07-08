@@ -23,7 +23,7 @@ import {
   TrendingUp,
   UsersRound,
 } from "lucide-react";
-import { differenceInCalendarDays, format } from "date-fns";
+import { differenceInSgtCalendarDays, formatSgtDateTime, getSgtDateKey, getSgtMonthKey } from "@/lib/timezone";
 
 import { Badge } from "@/components/ui/badge";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
@@ -140,9 +140,8 @@ export function DashboardOverview({ leads, colleges, usersCount, profile, follow
   ).length;
   const conversion = totalLeads > 0 ? ((admissions / totalLeads) * 100).toFixed(1) : "0";
   const newLeadsThisMonth = leads.filter((l) => {
-    const d = new Date(l.created_at);
     const now = new Date();
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    return getSgtMonthKey(l.created_at) === getSgtMonthKey(now);
   }).length;
 
   const collegeData = colleges.map((c) => ({
@@ -164,7 +163,7 @@ export function DashboardOverview({ leads, colleges, usersCount, profile, follow
     count: leads.filter((l) => l.status === s).length,
   }));
   const now = new Date();
-  const todayKey = format(now, "yyyy-MM-dd");
+  const todayKey = getSgtDateKey(now);
   const pendingTasks = followUps.filter((f) => f.status === "pending");
   const todaysFollowUps = pendingTasks.filter((f) => f.due_date === todayKey);
   const missedFollowUps = pendingTasks.filter((f) => new Date(f.scheduled_at) < now);
@@ -192,7 +191,7 @@ export function DashboardOverview({ leads, colleges, usersCount, profile, follow
       const lastFollowUp = completedByLead.get(lead.id) ?? lead.created_at;
       return {
         lead,
-        days: differenceInCalendarDays(now, new Date(lastFollowUp)),
+        days: differenceInSgtCalendarDays(now, lastFollowUp),
       };
     })
     .filter((item) => item.days >= 7)
@@ -438,7 +437,7 @@ export function DashboardOverview({ leads, colleges, usersCount, profile, follow
                         {f.lead?.full_name ?? "Unknown lead"}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {format(new Date(f.scheduled_at), "PPp")} ·{" "}
+                        {formatSgtDateTime(f.scheduled_at)} ·{" "}
                         {FOLLOW_UP_TYPE_LABELS[f.followup_type]}
                       </div>
                     </div>
@@ -527,7 +526,7 @@ function TaskListCard({
                         {task.lead?.full_name ?? "Unknown lead"}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {format(new Date(task.scheduled_at), "PPp")} ·{" "}
+                        {formatSgtDateTime(task.scheduled_at)} ·{" "}
                         {FOLLOW_UP_TYPE_LABELS[task.followup_type]}
                       </div>
                     </div>

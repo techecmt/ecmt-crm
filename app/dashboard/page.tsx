@@ -2,6 +2,7 @@ import { DashboardUnderConstruction } from "@/components/dashboard/dashboard-und
 import { SuperAdminDashboard } from "@/components/dashboard/super-admin-dashboard";
 import { requireModule } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { getSgtDateKey } from "@/lib/timezone";
 import type { LeadStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -147,7 +148,7 @@ async function loadSuperAdminData() {
   const collegeRows = colleges ?? [];
   const profileRows = profiles ?? [];
   const now = new Date();
-  const todayKey = formatDateKey(now);
+  const todayKey = getSgtDateKey(now);
 
   const pendingFollowUps = followUps ?? [];
   const userNamesById = new Map<string, string>(
@@ -198,13 +199,6 @@ async function loadSuperAdminData() {
       todayKey,
     ),
   };
-}
-
-function formatDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 export default async function DashboardPage() {

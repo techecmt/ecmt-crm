@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   addWeeks,
   endOfWeek,
-  format,
   isPast,
   startOfWeek,
   subWeeks,
@@ -66,6 +65,7 @@ import {
   type UserRole,
 } from "@/lib/types";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
+import { formatSgtDateTime, getSgtDateKey } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { CompleteFollowUpDialog } from "@/components/follow-ups/complete-follow-up-dialog";
 
@@ -74,7 +74,7 @@ type DatePreset = "all" | "today" | "this_week" | "last_week" | "next_week";
 type DateSortOrder = "asc" | "desc";
 
 function toDateInput(value: Date) {
-  return format(value, "yyyy-MM-dd");
+  return getSgtDateKey(value);
 }
 
 export function FollowUpsPageClient({
@@ -651,7 +651,7 @@ function FollowUpList({
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {format(new Date(f.scheduled_at), "PPp")}
+                    {formatSgtDateTime(f.scheduled_at)}
                     {f.lead ? (
                       <span className="ml-2">
                         <WhatsAppPhoneLink phone={f.lead.phone} />
