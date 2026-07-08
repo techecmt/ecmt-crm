@@ -42,13 +42,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -488,39 +482,47 @@ export function RegistrationReportsClient() {
   const now = React.useMemo(() => new Date(), []);
   const [fromDate, setFromDate] = React.useState(format(subDays(now, 29), "yyyy-MM-dd"));
   const [toDate, setToDate] = React.useState(format(now, "yyyy-MM-dd"));
-  const [collegeId, setCollegeId] = React.useState("all");
-  const [course, setCourse] = React.useState("all");
-  const [source, setSource] = React.useState<LeadSource | "all">("all");
-  const [counsellorId, setCounsellorId] = React.useState("all");
-  const [paymentStatus, setPaymentStatus] = React.useState<"all" | "unpaid" | "paid">("all");
+  const [collegeIds, setCollegeIds] = React.useState<string[]>([]);
+  const [courses, setCourses] = React.useState<string[]>([]);
+  const [sources, setSources] = React.useState<LeadSource[]>([]);
+  const [counsellorIds, setCounsellorIds] = React.useState<string[]>([]);
+  const [paymentStatuses, setPaymentStatuses] = React.useState<Array<"unpaid" | "paid">>([]);
 
   const report = useRegistrationReport({
     fromDate,
     toDate,
-    collegeId: collegeId === "all" ? undefined : collegeId,
-    course: course === "all" ? undefined : course,
-    source: source === "all" ? undefined : source,
-    counsellorId: counsellorId === "all" ? undefined : counsellorId,
-    paymentStatus,
+    collegeIds: collegeIds.length > 0 ? collegeIds : undefined,
+    courses: courses.length > 0 ? courses : undefined,
+    sources: sources.length > 0 ? sources : undefined,
+    counsellorIds: counsellorIds.length > 0 ? counsellorIds : undefined,
+    paymentStatuses: paymentStatuses.length > 0 ? paymentStatuses : undefined,
   });
 
   const leads = report.data?.leads ?? [];
   const collegeOptions = report.data?.colleges ?? [];
-  const selectedCollege = collegeOptions.find((c) => c.id === collegeId);
+  const selectedColleges = collegeOptions.filter((college) => collegeIds.includes(college.id));
 
   const courseOptions = React.useMemo(() => {
-    if (selectedCollege) {
-      return Array.from(new Set((selectedCollege.courses ?? []).map((c) => c.trim()).filter(Boolean)));
-    }
+    const collegesForCourses =
+      selectedColleges.length > 0 ? selectedColleges : collegeOptions;
     const set = new Set<string>();
-    for (const college of collegeOptions) {
+    for (const college of collegesForCourses) {
       for (const item of college.courses ?? []) {
         const normalized = item.trim();
         if (normalized) set.add(normalized);
       }
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [collegeOptions, selectedCollege]);
+  }, [collegeOptions, selectedColleges]);
+
+  React.useEffect(() => {
+    if (courses.length === 0) return;
+    const validCourses = new Set(courseOptions);
+    const nextCourses = courses.filter((course) => validCourses.has(course));
+    if (nextCourses.length !== courses.length) {
+      setCourses(nextCourses);
+    }
+  }, [courseOptions, courses]);
 
   const counsellorOptions = (report.data?.profiles ?? []).filter((p) =>
     ["counsellor", "admission_manager", "management", "super_admin"].includes(p.role),
@@ -636,83 +638,80 @@ export function RegistrationReportsClient() {
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">College</label>
-            <Select value={collegeId} onValueChange={setCollegeId}>
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All colleges</SelectItem>
-                {collegeOptions.map((college) => (
-                  <SelectItem key={college.id} value={college.id}>
-                    {college.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MultiSelectFilter
+              options={collegeOptions.map((college) => ({
+                value: college.id,
+                label: college.name,
+              }))}
+              selected={collegeIds}
+              onChange={setCollegeIds}
+              placeholder="All colleges"
+              allLabel="All colleges"
+              searchPlaceholder="Search colleges…"
+              emptyMessage="No colleges found."
+            />
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Course</label>
-            <Select value={course} onValueChange={setCourse}>
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All courses</SelectItem>
-                {courseOptions.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MultiSelectFilter
+              options={courseOptions.map((course) => ({
+                value: course,
+                label: course,
+              }))}
+              selected={courses}
+              onChange={setCourses}
+              placeholder="All courses"
+              allLabel="All courses"
+              searchPlaceholder="Search courses…"
+              emptyMessage="No courses found."
+            />
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Source</label>
-            <Select value={source} onValueChange={(value) => setSource(value as LeadSource | "all")}>
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All sources</SelectItem>
-                {sourceOptions.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {LEAD_SOURCE_LABELS[item]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MultiSelectFilter
+              options={sourceOptions.map((source) => ({
+                value: source,
+                label: LEAD_SOURCE_LABELS[source],
+              }))}
+              selected={sources}
+              onChange={(values) => setSources(values as LeadSource[])}
+              placeholder="All sources"
+              allLabel="All sources"
+              searchPlaceholder="Search sources…"
+              emptyMessage="No sources found."
+            />
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Counsellor</label>
-            <Select value={counsellorId} onValueChange={setCounsellorId}>
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All counsellors</SelectItem>
-                {counsellorOptions.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.full_name || p.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MultiSelectFilter
+              options={counsellorOptions.map((profile) => ({
+                value: profile.id,
+                label: profile.full_name || profile.email,
+              }))}
+              selected={counsellorIds}
+              onChange={setCounsellorIds}
+              placeholder="All counsellors"
+              allLabel="All counsellors"
+              searchPlaceholder="Search counsellors…"
+              emptyMessage="No counsellors found."
+            />
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Payment status</label>
-            <Select
-              value={paymentStatus}
-              onValueChange={(value) => setPaymentStatus(value as "all" | "unpaid" | "paid")}
-            >
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All registrations</SelectItem>
-                <SelectItem value="unpaid">Unpaid only</SelectItem>
-                <SelectItem value="paid">Paid only</SelectItem>
-              </SelectContent>
-            </Select>
+            <MultiSelectFilter
+              options={[
+                { value: "unpaid", label: "Unpaid only" },
+                { value: "paid", label: "Paid only" },
+              ]}
+              selected={paymentStatuses}
+              onChange={(values) =>
+                setPaymentStatuses(values as Array<"unpaid" | "paid">)
+              }
+              placeholder="All registrations"
+              allLabel="All registrations"
+              searchPlaceholder="Search status…"
+              emptyMessage="No statuses found."
+            />
           </div>
           <Button
             type="button"
@@ -720,11 +719,11 @@ export function RegistrationReportsClient() {
             onClick={() => {
               setFromDate(format(subDays(now, 29), "yyyy-MM-dd"));
               setToDate(format(now, "yyyy-MM-dd"));
-              setCollegeId("all");
-              setCourse("all");
-              setSource("all");
-              setCounsellorId("all");
-              setPaymentStatus("all");
+              setCollegeIds([]);
+              setCourses([]);
+              setSources([]);
+              setCounsellorIds([]);
+              setPaymentStatuses([]);
             }}
           >
             Reset filters

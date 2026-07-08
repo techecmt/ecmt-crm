@@ -8,11 +8,11 @@ import type { College, LeadSource, LeadStatus, Profile } from "@/lib/types";
 export type RegistrationReportFilters = {
   fromDate: string;
   toDate: string;
-  collegeId?: string;
-  course?: string;
-  source?: LeadSource;
-  counsellorId?: string;
-  paymentStatus?: "all" | "unpaid" | "paid";
+  collegeIds?: string[];
+  courses?: string[];
+  sources?: LeadSource[];
+  counsellorIds?: string[];
+  paymentStatuses?: Array<"unpaid" | "paid">;
 };
 
 export type RegistrationReportLeadRow = {
@@ -66,7 +66,9 @@ export function useRegistrationReport(filters: RegistrationReportFilters) {
       const supabase = createClient();
       const fromIso = toIsoRangeStart(filters.fromDate);
       const toIso = toIsoRangeEnd(filters.toDate);
-      const coursesNeedle = normalizeCourse(filters.course);
+      const selectedCourses = (filters.courses ?? [])
+        .map((course) => normalizeCourse(course))
+        .filter(Boolean);
 
       let leadsQuery = supabase
         .from("leads")
@@ -78,10 +80,14 @@ export function useRegistrationReport(filters: RegistrationReportFilters) {
         .lte("registration_completed_at", toIso)
         .order("registration_completed_at", { ascending: false });
 
-      if (filters.collegeId) leadsQuery = leadsQuery.eq("college_id", filters.collegeId);
-      if (filters.source) leadsQuery = leadsQuery.eq("source", filters.source);
-      if (filters.counsellorId) {
-        leadsQuery = leadsQuery.eq("assigned_counsellor", filters.counsellorId);
+      if (filters.collegeIds && filters.collegeIds.length > 0) {
+        leadsQuery = leadsQuery.in("college_id", filters.collegeIds);
+      }
+      if (filters.sources && filters.sources.length > 0) {
+        leadsQuery = leadsQuery.in("source", filters.sources);
+      }
+      if (filters.counsellorIds && filters.counsellorIds.length > 0) {
+        leadsQuery = leadsQuery.in("assigned_counsellor", filters.counsellorIds);
       }
 
       const [{ data: leads, error: leadsError }, { data: profiles, error: profilesError }, { data: colleges, error: collegesError }] =
@@ -108,16 +114,23 @@ export function useRegistrationReport(filters: RegistrationReportFilters) {
         registration_completed_at: lead.registration_completed_at!,
       }));
 
-      if (coursesNeedle) {
-        normalizedLeads = normalizedLeads.filter(
-          (lead) => normalizeCourse(lead.interested_course) === coursesNeedle,
+      if (selectedCourses.length > 0) {
+        normalizedLeads = normalizedLeads.filter((lead) =>
+          selectedCourses.includes(normalizeCourse(lead.interested_course)),
         );
       }
 
-      if (filters.paymentStatus === "unpaid") {
-        normalizedLeads = normalizedLeads.filter((lead) => isRegistrationUnpaid(lead.status));
-      } else if (filters.paymentStatus === "paid") {
-        normalizedLeads = normalizedLeads.filter((lead) => isRegistrationPaid(lead.status));
+      const paymentStatuses = filters.paymentStatuses ?? [];
+      if (paymentStatuses.length === 1) {
+        if (paymentStatuses[0] === "unpaid") {
+          normalizedLeads = normalizedLeads.filter((lead) => isRegistrationUnpaid(lead.status));
+        } else {
+          normalizedLeads = normalizedLeads.filter((lead) => isRegistrationPaid(lead.status));
+        }
+      } else if (paymentStatuses.length > 1) {
+        normalizedLeads = normalizedLeads.filter(
+          (lead) => isRegistrationUnpaid(lead.status) || isRegistrationPaid(lead.status),
+        );
       }
 
       return {

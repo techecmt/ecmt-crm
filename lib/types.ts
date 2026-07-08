@@ -111,7 +111,8 @@ export type AppModule =
   | "forms"
   | "users"
   | "settings"
-  | "whatsapp";
+  | "whatsapp"
+  | "events";
 
 export const APP_MODULE_LABELS: Record<AppModule, string> = {
   dashboard: "Dashboard",
@@ -125,6 +126,7 @@ export const APP_MODULE_LABELS: Record<AppModule, string> = {
   users: "Users",
   settings: "Settings",
   whatsapp: "WhatsApp",
+  events: "Events & News",
 };
 
 export const ALL_MODULES: AppModule[] = Object.keys(APP_MODULE_LABELS) as AppModule[];
@@ -455,4 +457,43 @@ export const ADMISSION_GOAL_EVENT_LABELS: Record<AdmissionGoalEventType, string>
   application_submitted: "Application Submitted",
   admission_confirmed: "Admission Confirmed",
   visa_approved: "Visa Approved",
+};
+
+export type EventPostType = "event" | "news";
+export type EventPostStatus = "draft" | "published";
+
+export interface EventPostPhoto {
+  id: string;
+  post_id: string;
+  storage_path: string;
+  url: string;
+  display_order: number;
+  caption: string | null;
+  created_at: string;
+}
+
+export interface EventPost {
+  id: string;
+  title: string;
+  description: string | null;
+  type: EventPostType;
+  event_date: string | null;
+  location: string | null;
+  college_id: string | null;
+  status: EventPostStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  photos?: EventPostPhoto[];
+  college?: Pick<College, "id" | "name" | "city" | "country"> | null;
+}
+
+export const EVENT_POST_TYPE_LABELS: Record<EventPostType, string> = {
+  event: "Event",
+  news: "News",
+};
+
+export const EVENT_POST_STATUS_LABELS: Record<EventPostStatus, string> = {
+  draft: "Draft",
+  published: "Published",
 };

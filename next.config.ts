@@ -10,6 +10,15 @@ const nextConfig: NextConfig = {
     "*.ngrok-free.app",
     "*.ngrok.io",
   ],
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "qgmpiaxddyshkureyanw.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

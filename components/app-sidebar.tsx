@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Building2,
+  CalendarDays,
   ClipboardList,
   GraduationCap,
   LayoutDashboard,
@@ -88,6 +89,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
   { href: "/dashboard/colleges", label: "Colleges", icon: Building2, module: "colleges" },
+  { href: "/dashboard/events", label: "Events & News", icon: CalendarDays, module: "events" },
   { href: "/dashboard/marketing", label: "Marketing", icon: Megaphone, module: "marketing" },
   { href: "/dashboard/forms", label: "Forms", icon: ClipboardList, module: "forms" },
   { href: "/dashboard/users", label: "Users", icon: Users, adminOnly: true, module: "users" },
