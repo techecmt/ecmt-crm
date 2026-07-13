@@ -36,9 +36,10 @@ export function LoginForm({
         password,
       });
       if (error) throw error;
-      // Full navigation ensures auth cookies are sent on the first dashboard
-      // request (important when accessing the app via ngrok or other tunnels).
-      window.location.assign("/dashboard");
+      // Full navigation ensures auth cookies are sent on the first request
+      // (important when accessing the app via ngrok or other tunnels).
+      // Land on leads — /dashboard is super-admin only and caused redirect loops.
+      window.location.assign("/dashboard/leads");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {

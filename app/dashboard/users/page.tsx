@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
   const profile = await requireModule("users");
-  if (!isAdminRole(profile.role)) redirect("/dashboard");
+  if (!isAdminRole(profile.role)) redirect("/dashboard/leads");
   return (
     <UsersPageClient
       currentUserId={profile.id}

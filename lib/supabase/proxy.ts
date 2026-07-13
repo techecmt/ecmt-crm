@@ -67,12 +67,18 @@ export async function updateSession(request: NextRequest) {
   let isActiveUser = !!user;
 
   if (userId) {
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("is_active")
       .eq("id", userId)
       .maybeSingle();
-    if (profile && !profile.is_active) {
+    // Only trust a *successful* query. A transient error (e.g. brief token
+    // refresh race) must NOT flip this, or a valid session gets bounced to
+    // /auth/login on every single request. Also: never call auth.signOut()
+    // here — doing so previously turned a transient false-positive into a
+    // permanent, self-perpetuating redirect loop instead of self-recovering
+    // on the next request.
+    if (!profileError && (!profile || !profile.is_active)) {
       isActiveUser = false;
     }
   }
@@ -85,9 +91,13 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // Always land on leads after auth — /dashboard is super-admin only and was
+  // the center of a redirect loop when profile lookup failed in RSC.
+  const postLoginPath = "/dashboard/leads";
+
   if (pathname === "/") {
     const url = request.nextUrl.clone();
-    url.pathname = isActiveUser ? "/dashboard" : "/auth/login";
+    url.pathname = isActiveUser ? postLoginPath : "/auth/login";
     return redirectWithCookies(url, supabaseResponse);
   }
 
@@ -105,7 +115,7 @@ export async function updateSession(request: NextRequest) {
     !pathname.startsWith("/auth/update-password")
   ) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = postLoginPath;
     return redirectWithCookies(url, supabaseResponse);
   }
 

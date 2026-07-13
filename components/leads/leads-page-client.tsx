@@ -139,6 +139,9 @@ const sources = Object.keys(LEAD_SOURCE_LABELS) as LeadSource[];
 const NO_BULK_CHANGE = "__no_change";
 const DEFAULT_PAGE_SIZE = 25;
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+/** Stable reference — an inline `[]` fallback creates a new array every render,
+ * which breaks identity-based effect deps and can cause render loops. */
+const EMPTY_LEADS: LeadWithRelations[] = [];
 const LEADS_STATE_STORAGE_KEY = "leads.tableState.v1";
 const LEADS_CUSTOM_VIEWS_STORAGE_KEY = "leads.customViews.v1";
 const LEADS_SELECTED_VIEW_STORAGE_KEY = "leads.selectedViewId.v1";
@@ -1235,11 +1238,16 @@ export function LeadsPageClient({
 
   const sortedLeads = hasExpertSearchActive
     ? clientSortedLeads
-    : (paginatedLeadsData?.leads ?? []);
+    : (paginatedLeadsData?.leads ?? EMPTY_LEADS);
 
   React.useEffect(() => {
     const visibleIds = new Set(sortedLeads.map((lead) => lead.id));
-    setSelectedLeadIds((prev) => prev.filter((id) => visibleIds.has(id)));
+    setSelectedLeadIds((prev) => {
+      const next = prev.filter((id) => visibleIds.has(id));
+      // Bail out if nothing actually changed — returning a new array
+      // unconditionally here would re-trigger this effect every render.
+      return next.length === prev.length ? prev : next;
+    });
   }, [sortedLeads]);
 
   const totalPages = React.useMemo(

@@ -46,7 +46,7 @@ export function SignUpForm({
         password,
         options: {
           data: { full_name: fullName.trim() },
-          emailRedirectTo: `${window.location.origin}/auth/confirm?next=/dashboard`,
+          emailRedirectTo: `${window.location.origin}/auth/confirm?next=/dashboard/leads`,
         },
       });
       if (error) throw error;

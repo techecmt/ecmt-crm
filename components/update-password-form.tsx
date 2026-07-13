@@ -56,7 +56,7 @@ export function UpdatePasswordForm({
       const supabase = createClient();
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
-      window.location.assign("/dashboard");
+      window.location.assign("/dashboard/leads");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {

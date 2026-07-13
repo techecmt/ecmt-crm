@@ -90,7 +90,7 @@ export async function POST(request: Request) {
       role,
       module_permissions: modulePermissions,
     },
-    redirectTo: `${request.headers.get("origin") || process.env.NEXT_PUBLIC_SITE_URL || ""}/auth/confirm?next=/dashboard`,
+    redirectTo: `${request.headers.get("origin") || process.env.NEXT_PUBLIC_SITE_URL || ""}/auth/confirm?next=/dashboard/leads`,
   });
 
   if (error) {

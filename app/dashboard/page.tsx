@@ -1,9 +1,9 @@
-import { DashboardUnderConstruction } from "@/components/dashboard/dashboard-under-construction";
 import { SuperAdminDashboard } from "@/components/dashboard/super-admin-dashboard";
-import { requireModule } from "@/lib/auth";
+import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getSgtDateKey } from "@/lib/timezone";
 import type { LeadStatus } from "@/lib/types";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -202,10 +202,12 @@ async function loadSuperAdminData() {
 }
 
 export default async function DashboardPage() {
-  const profile = await requireModule("dashboard");
+  // Do not gate this route with requireModule("dashboard") — a denied redirect
+  // back to /dashboard (or login bouncing here) caused infinite 307 loops.
+  const profile = await requireProfile();
 
   if (profile.role !== "super_admin") {
-    return <DashboardUnderConstruction />;
+    redirect("/dashboard/leads");
   }
 
   const data = await loadSuperAdminData();
