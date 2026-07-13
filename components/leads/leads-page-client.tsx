@@ -106,10 +106,18 @@ import {
   useBulkUpdateLeads,
   useDeleteLead,
   useLeads,
+  useLeadsPaginated,
+  useLeadsStatusCounts,
+  fetchAllLeads,
   UNASSIGNED_COUNSELLOR,
   type LeadFilters,
   type LeadWithRelations,
 } from "@/lib/hooks/use-leads";
+import {
+  applyExpertSearchFilter,
+  applyStatusFilter,
+  sortLeadsList,
+} from "@/lib/leads-list-navigation";
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import {
   LEAD_SOURCE_LABELS,
@@ -991,6 +999,8 @@ export function LeadsPageClient({
   const [bulkStatus, setBulkStatus] = React.useState<LeadStatus | "">("");
   const [bulkCounsellor, setBulkCounsellor] = React.useState(NO_BULK_CHANGE);
   const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
+  const [exportPreviewLeads, setExportPreviewLeads] = React.useState<LeadWithRelations[]>([]);
+  const [exportPreviewLoading, setExportPreviewLoading] = React.useState(false);
   const [exportColumns, setExportColumns] =
     React.useState<ExportColumnKey[]>(DEFAULT_EXPORT_COLUMNS);
   const [exportMatchMode, setExportMatchMode] = React.useState<ExportMatchMode>("all");
@@ -1028,14 +1038,52 @@ export function LeadsPageClient({
     }),
     [columnVisibility, counsellorIds, expertSearch, filters, page, pageSize, search, sortDir, sortKey],
   );
-  // Single query — always fetch all statuses, filter client-side.
-  // This halves network round-trips: status tab clicks are now instant.
+  // Expert search needs the full in-memory set; otherwise paginate on the server.
+  const hasExpertSearchActive = Object.values(expertSearch).some((v) =>
+    typeof v === "boolean" ? v : v !== "",
+  );
+  const baseLeadFilters = React.useMemo(
+    () => ({
+      source: filters.source,
+      collegeId: filters.collegeId,
+      course: filters.course,
+      counsellorIds,
+      search: debouncedSearch || undefined,
+    }),
+    [counsellorIds, debouncedSearch, filters.collegeId, filters.course, filters.source],
+  );
+  const {
+    data: paginatedLeadsData,
+    isLoading: isPaginatedLoading,
+    isFetching: isPaginatedFetching,
+    refetch: refetchPaginated,
+  } = useLeadsPaginated({
+    ...baseLeadFilters,
+    status: filters.status ?? "all",
+    page,
+    pageSize,
+    sortKey,
+    sortDir,
+    enabled: !hasExpertSearchActive,
+  });
   const {
     data: allLeads,
-    isLoading,
-    isFetching,
-    refetch,
-  } = useLeads({ ...filters, counsellorIds, status: "all", search: debouncedSearch });
+    isLoading: isAllLeadsLoading,
+    isFetching: isAllLeadsFetching,
+    refetch: refetchAllLeads,
+  } = useLeads({
+    ...baseLeadFilters,
+    status: "all",
+    enabled: hasExpertSearchActive,
+  });
+  const { data: serverStatusCounts } = useLeadsStatusCounts({
+    ...baseLeadFilters,
+    status: "all",
+    enabled: !hasExpertSearchActive,
+  });
+  const isLoading = hasExpertSearchActive ? isAllLeadsLoading : isPaginatedLoading;
+  const isFetching = hasExpertSearchActive ? isAllLeadsFetching : isPaginatedFetching;
+  const refetch = hasExpertSearchActive ? refetchAllLeads : refetchPaginated;
   const { data: colleges } = useColleges();
   const { data: profiles } = useProfiles();
   const bulkUpdateLeads = useBulkUpdateLeads();
@@ -1166,100 +1214,28 @@ export function LeadsPageClient({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [colleges, filters.collegeId]);
 
-  // Expert search applied first (without status), so both the table and the
-  // status-tab counts reflect the same expert-filtered set.
   const expertFilteredLeads = React.useMemo(() => {
-    const currentLeads = allLeads ?? [];
-    if (!currentLeads.length) return [];
+    if (!hasExpertSearchActive) return [];
+    return applyExpertSearchFilter(allLeads ?? [], expertSearch);
+  }, [allLeads, expertSearch, hasExpertSearchActive]);
 
-    const includeTerms = expertSearch.mustInclude
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
-    const excludeTerms = expertSearch.exclude
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
-    const city = expertSearch.city.trim().toLowerCase();
-    const course = expertSearch.interestedCourse.trim().toLowerCase();
-    const campaign = expertSearch.campaign.trim().toLowerCase();
-    const minScore = expertSearch.minScore.trim()
-      ? Number(expertSearch.minScore)
-      : null;
-    const maxScore = expertSearch.maxScore.trim()
-      ? Number(expertSearch.maxScore)
-      : null;
+  const clientFilteredLeads = React.useMemo(() => {
+    if (!hasExpertSearchActive) return [];
+    return applyStatusFilter(expertFilteredLeads, filters.status ?? "all");
+  }, [expertFilteredLeads, filters.status, hasExpertSearchActive]);
 
-    return currentLeads.filter((lead) => {
-      const haystack = [
-        lead.full_name,
-        lead.phone,
-        lead.email ?? "",
-        lead.city ?? "",
-        lead.interested_course ?? "",
-        lead.campaign ?? "",
-        lead.utm_source ?? "",
-        lead.utm_medium ?? "",
-        lead.utm_campaign ?? "",
-        lead.description ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
+  const clientSortedLeads = React.useMemo(() => {
+    if (!hasExpertSearchActive) return [];
+    return sortLeadsList(clientFilteredLeads, sortKey, sortDir);
+  }, [clientFilteredLeads, hasExpertSearchActive, sortDir, sortKey]);
 
-      const includesAllTerms = includeTerms.every((term) => haystack.includes(term));
-      if (!includesAllTerms) return false;
+  const tableTotalCount = hasExpertSearchActive
+    ? clientSortedLeads.length
+    : (paginatedLeadsData?.totalCount ?? 0);
 
-      const hasExcludedTerms = excludeTerms.some((term) => haystack.includes(term));
-      if (hasExcludedTerms) return false;
-
-      if (city && !(lead.city ?? "").toLowerCase().includes(city)) return false;
-      if (course && !(lead.interested_course ?? "").toLowerCase().includes(course)) {
-        return false;
-      }
-      if (campaign && !(lead.campaign ?? "").toLowerCase().includes(campaign)) {
-        return false;
-      }
-      if (minScore !== null && !Number.isNaN(minScore) && lead.lead_score < minScore) {
-        return false;
-      }
-      if (maxScore !== null && !Number.isNaN(maxScore) && lead.lead_score > maxScore) {
-        return false;
-      }
-      if (expertSearch.hasEmailOnly && !lead.email) return false;
-      if (expertSearch.duplicatesOnly && !lead.is_duplicate) return false;
-
-      return true;
-    });
-  }, [allLeads, expertSearch]);
-
-  // Status filter is applied client-side since we always fetch all statuses.
-  const filteredLeads = React.useMemo(() => {
-    if (!filters.status || filters.status === "all") return expertFilteredLeads;
-    return expertFilteredLeads.filter((lead) => lead.status === filters.status);
-  }, [expertFilteredLeads, filters.status]);
-
-  const sortedLeads = React.useMemo(() => {
-    const list = [...filteredLeads];
-    list.sort((a, b) => {
-      const direction = sortDir === "asc" ? 1 : -1;
-      if (sortKey === "created_at") {
-        return (
-          (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * direction
-        );
-      }
-      if (sortKey === "full_name") {
-        return a.full_name.localeCompare(b.full_name) * direction;
-      }
-      if (sortKey === "lead_score") {
-        return (a.lead_score - b.lead_score) * direction;
-      }
-      if (sortKey === "status") {
-        return LEAD_STATUS_LABELS[a.status].localeCompare(LEAD_STATUS_LABELS[b.status]) * direction;
-      }
-      return LEAD_SOURCE_LABELS[a.source].localeCompare(LEAD_SOURCE_LABELS[b.source]) * direction;
-    });
-    return list;
-  }, [filteredLeads, sortDir, sortKey]);
+  const sortedLeads = hasExpertSearchActive
+    ? clientSortedLeads
+    : (paginatedLeadsData?.leads ?? []);
 
   React.useEffect(() => {
     const visibleIds = new Set(sortedLeads.map((lead) => lead.id));
@@ -1267,13 +1243,14 @@ export function LeadsPageClient({
   }, [sortedLeads]);
 
   const totalPages = React.useMemo(
-    () => Math.max(1, Math.ceil(sortedLeads.length / pageSize)),
-    [pageSize, sortedLeads.length],
+    () => Math.max(1, Math.ceil(tableTotalCount / pageSize)),
+    [pageSize, tableTotalCount],
   );
   const paginatedLeads = React.useMemo(() => {
+    if (!hasExpertSearchActive) return sortedLeads;
     const start = (page - 1) * pageSize;
     return sortedLeads.slice(start, start + pageSize);
-  }, [page, pageSize, sortedLeads]);
+  }, [hasExpertSearchActive, page, pageSize, sortedLeads]);
   React.useEffect(() => {
     if (page > totalPages) {
       setPage(totalPages);
@@ -1290,6 +1267,13 @@ export function LeadsPageClient({
 
   const selectedLeadsCount = selectedLeadIds.length;
   const statusCounts = React.useMemo(() => {
+    if (!hasExpertSearchActive) {
+      return (
+        serverStatusCounts ??
+        (Object.fromEntries(statuses.map((status) => [status, 0])) as Record<LeadStatus, number>)
+      );
+    }
+
     const counts = Object.fromEntries(statuses.map((status) => [status, 0])) as Record<
       LeadStatus,
       number
@@ -1300,15 +1284,74 @@ export function LeadsPageClient({
       }
     });
     return counts;
-  }, [expertFilteredLeads]);
+  }, [expertFilteredLeads, hasExpertSearchActive, serverStatusCounts]);
   const totalLeadCount = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
+  React.useEffect(() => {
+    setPage(1);
+  }, [
+    counsellorIds,
+    debouncedSearch,
+    expertSearch,
+    filters.collegeId,
+    filters.course,
+    filters.source,
+    filters.status,
+    sortDir,
+    sortKey,
+  ]);
+
+  React.useEffect(() => {
+    if (!exportDialogOpen) {
+      setExportPreviewLeads([]);
+      return;
+    }
+
+    let cancelled = false;
+    setExportPreviewLoading(true);
+
+    void (async () => {
+      try {
+        const all = hasExpertSearchActive
+          ? (allLeads ?? [])
+          : await fetchAllLeads({ ...baseLeadFilters, status: "all" });
+        if (cancelled) return;
+
+        let leads = applyExpertSearchFilter(all, expertSearch);
+        leads = applyStatusFilter(leads, filters.status ?? "all");
+        setExportPreviewLeads(sortLeadsList(leads, sortKey, sortDir));
+      } catch (error) {
+        if (!cancelled) {
+          setExportPreviewLeads([]);
+          toast.error(error instanceof Error ? error.message : "Failed to prepare export.");
+        }
+      } finally {
+        if (!cancelled) {
+          setExportPreviewLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    allLeads,
+    baseLeadFilters,
+    exportDialogOpen,
+    expertSearch,
+    filters.status,
+    hasExpertSearchActive,
+    sortDir,
+    sortKey,
+  ]);
+
   const exportReadyLeads = React.useMemo(() => {
-    if (!exportRules.length) return sortedLeads;
-    return sortedLeads.filter((lead) => {
+    if (!exportRules.length) return exportPreviewLeads;
+    return exportPreviewLeads.filter((lead) => {
       const ruleMatches = exportRules.map((rule) => matchesExportRule(lead, rule));
       return exportMatchMode === "all" ? ruleMatches.every(Boolean) : ruleMatches.some(Boolean);
     });
-  }, [exportMatchMode, exportRules, sortedLeads]);
+  }, [exportMatchMode, exportPreviewLeads, exportRules]);
   const exportColumnGroups = React.useMemo(() => {
     const term = exportColumnSearch.trim().toLowerCase();
     return EXPORT_CATEGORY_ORDER.map((category) => ({
@@ -1360,9 +1403,6 @@ export function LeadsPageClient({
   // The default counsellor selection is the logged-in user's own leads.
   const isDefaultCounsellorSelection =
     counsellorIds.length === 1 && counsellorIds[0] === currentUserId;
-  const hasExpertSearchActive = Object.values(expertSearch).some((v) =>
-    typeof v === "boolean" ? v : v !== "",
-  );
   const hasCustomColumnVisibility = TABLE_COLUMN_ORDER.some(
     (key) => columnVisibility[key] !== DEFAULT_COLUMN_VISIBILITY[key],
   );
@@ -2158,7 +2198,7 @@ export function LeadsPageClient({
                   </TableCell>
                 </TableRow>
               ))
-            ) : !sortedLeads || sortedLeads.length === 0 ? (
+            ) : !paginatedLeads || paginatedLeads.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={tableColSpan}
@@ -2307,14 +2347,14 @@ export function LeadsPageClient({
           <div className="text-muted-foreground">
             Showing{" "}
             <span className="font-medium text-foreground">
-              {sortedLeads.length === 0 ? 0 : (page - 1) * pageSize + 1}
+              {tableTotalCount === 0 ? 0 : (page - 1) * pageSize + 1}
             </span>
             {" - "}
             <span className="font-medium text-foreground">
-              {Math.min(page * pageSize, sortedLeads.length)}
+              {Math.min(page * pageSize, tableTotalCount)}
             </span>
             {" of "}
-            <span className="font-medium text-foreground">{sortedLeads.length}</span>
+            <span className="font-medium text-foreground">{tableTotalCount}</span>
           </div>
           <div className="flex items-center gap-2">
             <Select
@@ -2735,10 +2775,14 @@ export function LeadsPageClient({
               </Button>
               <Button
                 onClick={handleExportCsv}
-                disabled={exportColumns.length === 0 || exportReadyLeads.length === 0}
+                disabled={
+                  exportColumns.length === 0 ||
+                  exportReadyLeads.length === 0 ||
+                  exportPreviewLoading
+                }
               >
                 <Download className="mr-2 h-4 w-4" />
-                Export CSV
+                {exportPreviewLoading ? "Preparing…" : "Export CSV"}
               </Button>
             </div>
           </DialogFooter>

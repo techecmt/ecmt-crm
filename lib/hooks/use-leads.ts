@@ -23,11 +23,15 @@ import type {
   LeadStatus,
   NotInterestedReason,
 } from "@/lib/types";
+import { PIPELINE_LEAD_STATUSES } from "@/lib/types";
 
 const LEADS_KEY = ["leads"] as const;
 
 /** Sentinel used inside counsellorIds to match leads with no assigned counsellor. */
 export const UNASSIGNED_COUNSELLOR = "unassigned";
+
+/** PostgREST returns at most this many rows per request unless paginated. */
+export const LEADS_FETCH_BATCH_SIZE = 1000;
 
 export type LeadFilters = {
   search?: string;
@@ -49,63 +53,205 @@ export type LeadWithRelations = Lead & {
   follow_ups: { status: FollowUpStatus }[] | null;
 };
 
+const LEADS_SELECT =
+  "*, college:colleges(id,name), counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email), follow_ups(status)";
+
+export type LeadSortKey = "created_at" | "full_name" | "lead_score" | "status" | "source";
+export type LeadSortDir = "asc" | "desc";
+
+export type LeadsPaginatedParams = LeadFilters & {
+  page: number;
+  pageSize: number;
+  sortKey?: LeadSortKey;
+  sortDir?: LeadSortDir;
+};
+
+export type LeadsPaginatedResult = {
+  leads: LeadWithRelations[];
+  totalCount: number;
+};
+
+type LeadStatusRow = { status: LeadStatus };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyLeadFilters(query: any, filters: LeadFilters) {
+  let q = query;
+
+  if (filters.status && filters.status !== "all") {
+    q = q.eq("status", filters.status);
+  }
+  if (filters.source && filters.source !== "all") {
+    q = q.eq("source", filters.source);
+  }
+  if (filters.collegeId && filters.collegeId !== "all") {
+    q = q.eq("college_id", filters.collegeId);
+  }
+  if (filters.course && filters.course !== "all") {
+    q = q.eq("interested_course", filters.course);
+  }
+  if (filters.counsellorIds && filters.counsellorIds.length > 0) {
+    const includeUnassigned = filters.counsellorIds.includes(UNASSIGNED_COUNSELLOR);
+    const realIds = filters.counsellorIds.filter((id) => id !== UNASSIGNED_COUNSELLOR);
+    if (includeUnassigned && realIds.length > 0) {
+      q = q.or(
+        `assigned_counsellor.in.(${realIds.join(",")}),assigned_counsellor.is.null`,
+      );
+    } else if (includeUnassigned) {
+      q = q.is("assigned_counsellor", null);
+    } else {
+      q = q.in("assigned_counsellor", realIds);
+    }
+  } else if (filters.counsellorId && filters.counsellorId !== "all") {
+    q = q.eq("assigned_counsellor", filters.counsellorId);
+  }
+  if (filters.search) {
+    const escaped = filters.search.replace(/[\\"]/g, (match) => `\\${match}`);
+    const term = `"%${escaped}%"`;
+    q = q.or(
+      `full_name.ilike.${term},phone.ilike.${term},email.ilike.${term},city.ilike.${term},interested_course.ilike.${term}`,
+    );
+  }
+
+  return q;
+}
+
+type FetchLeadBatchOptions = {
+  from: number;
+  to: number;
+  sortKey?: LeadSortKey;
+  sortDir?: LeadSortDir;
+  select?: string;
+  count?: boolean;
+};
+
+async function fetchLeadBatch(
+  filters: LeadFilters,
+  options: FetchLeadBatchOptions,
+): Promise<{ data: LeadWithRelations[]; count: number | null }> {
+  const supabase = createClient();
+  const sortKey = options.sortKey ?? "created_at";
+  const sortDir = options.sortDir ?? "desc";
+
+  let q = supabase
+    .from("leads")
+    .select(
+      options.select ?? LEADS_SELECT,
+      options.count ? { count: "exact" } : undefined,
+    );
+  q = applyLeadFilters(q, filters);
+  q = q.order(sortKey, { ascending: sortDir === "asc" });
+  if (sortKey !== "created_at") {
+    q = q.order("created_at", { ascending: false });
+  }
+  q = q.range(options.from, options.to);
+
+  const { data, error, count } = await q;
+  if (error) throw new Error(error.message);
+  return {
+    data: (data ?? []) as unknown as LeadWithRelations[],
+    count: count ?? null,
+  };
+}
+
+/** Fetch every lead matching filters, paging past the PostgREST 1,000-row cap. */
+export async function fetchAllLeads(filters: LeadFilters = {}): Promise<LeadWithRelations[]> {
+  const all: LeadWithRelations[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data } = await fetchLeadBatch(filters, {
+      from,
+      to: from + LEADS_FETCH_BATCH_SIZE - 1,
+    });
+    all.push(...data);
+    if (data.length < LEADS_FETCH_BATCH_SIZE) break;
+    from += LEADS_FETCH_BATCH_SIZE;
+  }
+
+  return all;
+}
+
+async function fetchLeadStatusRows(filters: LeadFilters): Promise<LeadStatusRow[]> {
+  const all: LeadStatusRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const supabase = createClient();
+    let q = supabase.from("leads").select("status");
+    q = applyLeadFilters(q, { ...filters, status: "all" });
+    q = q.order("created_at", { ascending: false });
+    q = q.range(from, from + LEADS_FETCH_BATCH_SIZE - 1);
+
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+
+    const rows = (data ?? []) as LeadStatusRow[];
+    all.push(...rows);
+    if (rows.length < LEADS_FETCH_BATCH_SIZE) break;
+    from += LEADS_FETCH_BATCH_SIZE;
+  }
+
+  return all;
+}
+
 export function useLeads(filters: LeadFilters = {}) {
   const { enabled = true, ...queryFilters } = filters;
   return useQuery({
     enabled,
     queryKey: [...LEADS_KEY, queryFilters],
     staleTime: 2 * 60 * 1000, // 2 min — leads don't change mid-session
-    queryFn: async () => {
-      const supabase = createClient();
-      let q = supabase
-        .from("leads")
-        .select(
-          "*, college:colleges(id,name), counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email), follow_ups(status)",
-        )
-        .order("created_at", { ascending: false });
+    queryFn: () => fetchAllLeads(queryFilters),
+  });
+}
 
-      if (queryFilters.status && queryFilters.status !== "all") {
-        q = q.eq("status", queryFilters.status);
-      }
-      if (queryFilters.source && queryFilters.source !== "all") {
-        q = q.eq("source", queryFilters.source);
-      }
-      if (queryFilters.collegeId && queryFilters.collegeId !== "all") {
-        q = q.eq("college_id", queryFilters.collegeId);
-      }
-      if (queryFilters.course && queryFilters.course !== "all") {
-        q = q.eq("interested_course", queryFilters.course);
-      }
-      if (queryFilters.counsellorIds && queryFilters.counsellorIds.length > 0) {
-        const includeUnassigned = queryFilters.counsellorIds.includes(UNASSIGNED_COUNSELLOR);
-        const realIds = queryFilters.counsellorIds.filter(
-          (id) => id !== UNASSIGNED_COUNSELLOR,
-        );
-        if (includeUnassigned && realIds.length > 0) {
-          q = q.or(
-            `assigned_counsellor.in.(${realIds.join(",")}),assigned_counsellor.is.null`,
-          );
-        } else if (includeUnassigned) {
-          q = q.is("assigned_counsellor", null);
-        } else {
-          q = q.in("assigned_counsellor", realIds);
+export function useLeadsPaginated(params: LeadsPaginatedParams) {
+  const {
+    enabled = true,
+    page,
+    pageSize,
+    sortKey = "created_at",
+    sortDir = "desc",
+    ...queryFilters
+  } = params;
+
+  return useQuery({
+    enabled,
+    queryKey: [...LEADS_KEY, "paginated", { page, pageSize, sortKey, sortDir, ...queryFilters }],
+    staleTime: 2 * 60 * 1000,
+    queryFn: async (): Promise<LeadsPaginatedResult> => {
+      const from = (page - 1) * pageSize;
+      const { data, count } = await fetchLeadBatch(queryFilters, {
+        from,
+        to: from + pageSize - 1,
+        sortKey,
+        sortDir,
+        count: true,
+      });
+      return { leads: data, totalCount: count ?? data.length };
+    },
+  });
+}
+
+export function useLeadsStatusCounts(filters: LeadFilters = {}) {
+  const { enabled = true, ...queryFilters } = filters;
+
+  return useQuery({
+    enabled,
+    queryKey: [...LEADS_KEY, "status-counts", queryFilters],
+    staleTime: 2 * 60 * 1000,
+    queryFn: async () => {
+      const rows = await fetchLeadStatusRows(queryFilters);
+      const counts = Object.fromEntries(
+        PIPELINE_LEAD_STATUSES.map((status) => [status, 0]),
+      ) as Record<LeadStatus, number>;
+
+      for (const row of rows) {
+        if (row.status in counts) {
+          counts[row.status] += 1;
         }
-      } else if (queryFilters.counsellorId && queryFilters.counsellorId !== "all") {
-        q = q.eq("assigned_counsellor", queryFilters.counsellorId);
       }
-      if (queryFilters.search) {
-        // Escape backslashes/double-quotes and wrap each pattern in double
-        // quotes so reserved PostgREST characters (commas, parentheses, spaces)
-        // in the search term can't break or inject into the or() expression.
-        const escaped = queryFilters.search.replace(/[\\"]/g, (match) => `\\${match}`);
-        const term = `"%${escaped}%"`;
-        q = q.or(
-          `full_name.ilike.${term},phone.ilike.${term},email.ilike.${term},city.ilike.${term},interested_course.ilike.${term}`,
-        );
-      }
-      const { data, error } = await q;
-      if (error) throw new Error(error.message);
-      return (data ?? []) as LeadWithRelations[];
+
+      return counts;
     },
   });
 }
