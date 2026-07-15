@@ -33,6 +33,10 @@ export async function GET(request: NextRequest) {
       assigned_user_id,
       mode,
       lead_id,
+      lifecycle_status,
+      bot_enabled,
+      visitor_data,
+      source_url,
       updated_at,
       created_at,
       messages (
@@ -61,7 +65,8 @@ export async function GET(request: NextRequest) {
   }
 
   if (profile.role === "counsellor") {
-    query = query.eq("assigned_user_id", profile.id);
+    // Unassigned chats remain visible so a counsellor can claim a visitor-requested handoff.
+    query = query.or(`assigned_user_id.eq.${profile.id},assigned_user_id.is.null`);
   }
 
   const { data: conversations, error } = await query;
@@ -82,6 +87,10 @@ export async function GET(request: NextRequest) {
     assigned_user_id: c.assigned_user_id,
     mode: c.mode,
     lead_id: c.lead_id,
+    lifecycle_status: c.lifecycle_status,
+    bot_enabled: c.bot_enabled ?? true,
+    visitor_data: c.visitor_data ?? null,
+    source_url: c.source_url ?? null,
     updated_at: c.updated_at,
     created_at: c.created_at,
     last_message: c.messages?.[0] || null,

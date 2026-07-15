@@ -48,9 +48,14 @@ export async function PATCH(
 
   const { data: before } = await supabase
     .from("conversations")
-    .select("lead_id, status, assigned_user_id")
+    .select("lead_id, status, assigned_user_id, channel")
     .eq("id", id)
     .single();
+
+  if (before?.channel === "website" && updates.status === "resolved") {
+    updates.lifecycle_status = "closed";
+    updates.bot_enabled = false;
+  }
 
   const { data: updatedConversation, error } = await supabase
     .from("conversations")

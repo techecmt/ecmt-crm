@@ -1,4 +1,4 @@
-export type Channel = "whatsapp" | "messenger";
+export type Channel = "whatsapp" | "messenger" | "website";
 
 export interface ParsedInboundMessage {
   channel: Channel;

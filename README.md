@@ -116,6 +116,18 @@ WHATSAPP_ACCESS_TOKEN=
 
 Messenger page credentials are configured from the app in `Message Centre Settings` and stored in the `messaging_pages` table.
 
+## Website chat widget
+
+1. Deploy the CRM after the website-chat migration has been applied.
+2. In `Message Centre Settings` → `Connections`, add the exact website origin (for example, `https://www.edusphere.edu.sg`) under **Website chat widget** and save.
+3. Copy the generated script and paste it before `</body>` on that website:
+
+```html
+<script src="https://YOUR-CRM-DOMAIN/widget.js" data-widget-key="YOUR-WIDGET-KEY" async></script>
+```
+
+The widget stores visitor name, email, phone, interested courses, qualification evidence, transcript, and source page on the conversation. It does not create or modify lead records; agents continue to use the existing manual lead workflow.
+
 ## More Supabase examples
 
 - [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)

@@ -37,6 +37,8 @@ export type AIInput = {
   channel: Channel;
   leadContext?: string | null;
   linkedConversationSummary?: string | null;
+  leadCaptureContext?: string | null;
+  disableAutomaticEscalation?: boolean;
 };
 
 export type AIResult = {
@@ -58,6 +60,9 @@ const TONE_INSTRUCTIONS: Record<string, string> = {
 function channelInstruction(channel: Channel) {
   if (channel === "whatsapp") {
     return "Output plain text only. Do not use markdown.";
+  }
+  if (channel === "website") {
+    return "Keep replies concise, friendly, and easy to scan in a website chat widget. Use lightweight markdown only when it improves clarity.";
   }
   return "Keep formatting lightweight and readable for Messenger. Do not use heavy markdown.";
 }
@@ -118,6 +123,7 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
 
   const escalationKeywords: string[] = settings?.escalation_keywords ?? [];
   const shouldEscalate =
+    !input.disableAutomaticEscalation &&
     settings?.escalation_enabled !== false &&
     checkEscalation(lastUserMsg, escalationKeywords);
 
@@ -146,6 +152,9 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
     input.leadContext ? `Lead context:\n${input.leadContext}` : null,
     input.linkedConversationSummary
       ? `Related conversation memory:\n${input.linkedConversationSummary}`
+      : null,
+    input.leadCaptureContext
+      ? `Website visitor details collected so far:\n${input.leadCaptureContext}\n\nContinue to help first. Ask naturally for any missing contact detail or course only after the visitor shows interest; do not present a rigid form.`
       : null,
     knowledge ? `Knowledge base:\n${knowledge}` : null,
     settings?.auto_collect_lead

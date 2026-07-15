@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { formatDistanceToNow } from "date-fns";
-import { LinkIcon, MessageCircle, Search, User } from "lucide-react";
+import { Globe2, LinkIcon, MessageCircle, Search, User } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -102,6 +102,7 @@ export function MessageCentrePageClient() {
                 <SelectItem value="all">All channels</SelectItem>
                 <SelectItem value="whatsapp">WhatsApp</SelectItem>
                 <SelectItem value="messenger">Messenger</SelectItem>
+                <SelectItem value="website">Website chat</SelectItem>
               </SelectContent>
             </Select>
             <Select
@@ -285,8 +286,15 @@ function ConversationItem({
         ) : null}
         <div className="mt-1 flex flex-wrap items-center gap-1">
           <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-            {conversation.channel === "whatsapp" ? "WA" : "MSG"}
+            {conversation.channel === "whatsapp"
+              ? "WA"
+              : conversation.channel === "messenger"
+                ? "MSG"
+                : "WEB"}
           </Badge>
+          {conversation.channel === "website" ? (
+            <Globe2 className="h-3 w-3 text-blue-600" aria-label="Website chat" />
+          ) : null}
           {pageName ? (
             <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
               {pageName}
@@ -295,6 +303,11 @@ function ConversationItem({
           <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
             {conversation.status}
           </Badge>
+          {conversation.lifecycle_status === "escalation_requested" ? (
+            <Badge className="bg-amber-500 px-1.5 py-0 text-[10px] hover:bg-amber-500">
+              Needs attention
+            </Badge>
+          ) : null}
           <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
             {conversation.mode === "agent" ? "AI" : "Human"}
           </Badge>

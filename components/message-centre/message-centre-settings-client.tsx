@@ -61,6 +61,7 @@ import {
   useUpdateAISettings,
   useUpdateMessagingPage,
 } from "@/lib/hooks/use-message-centre-settings";
+import { WebsiteWidgetSettings } from "@/components/message-centre/website-widget-settings";
 
 const TONE_OPTIONS = [
   { value: "professional_friendly", label: "Professional & Friendly" },
@@ -707,6 +708,8 @@ function ConnectionsTab() {
 
   return (
     <div className="space-y-6">
+      <WebsiteWidgetSettings />
+
       {/* Messenger */}
       <Card>
         <CardHeader>

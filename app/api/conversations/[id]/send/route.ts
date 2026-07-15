@@ -63,11 +63,40 @@ export async function POST(
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
-  // Update conversation timestamp
-  await supabase
-    .from("conversations")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", id);
+  const updatedAt = new Date().toISOString();
+  if (conversation.channel === "website") {
+    // The first human reply claims the website conversation and stops bot replies.
+    const { data: claimed } = await supabase
+      .from("conversations")
+      .update({
+        assigned_user_id: profile.id,
+        lifecycle_status: "human_handled",
+        bot_enabled: false,
+        mode: "human",
+        updated_at: updatedAt,
+      })
+      .eq("id", id)
+      .is("assigned_user_id", null)
+      .select("id");
+
+    // Preserve a deliberate existing assignee while still recording the takeover.
+    if (!claimed?.length) {
+      await supabase
+        .from("conversations")
+        .update({
+          lifecycle_status: "human_handled",
+          bot_enabled: false,
+          mode: "human",
+          updated_at: updatedAt,
+        })
+        .eq("id", id);
+    }
+  } else {
+    await supabase
+      .from("conversations")
+      .update({ updated_at: updatedAt })
+      .eq("id", id);
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 export interface Conversation {
   id: string;
-  channel: "whatsapp" | "messenger";
+  channel: "whatsapp" | "messenger" | "website";
   page_id: string | null;
   external_user_id: string;
   phone: string | null;
@@ -13,6 +13,22 @@ export interface Conversation {
   assigned_user_id: string | null;
   mode: "agent" | "human";
   lead_id: string | null;
+  lifecycle_status:
+    | "new"
+    | "bot_handled"
+    | "escalation_requested"
+    | "human_handled"
+    | "closed"
+    | null;
+  bot_enabled: boolean;
+  visitor_data: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    interested_courses?: string[];
+    qualified?: boolean;
+  } | null;
+  source_url: string | null;
   updated_at: string;
   created_at: string;
   last_message: {
@@ -33,7 +49,7 @@ export interface Message {
 }
 
 export type ConversationFilters = {
-  channel?: "all" | "whatsapp" | "messenger";
+  channel?: "all" | "whatsapp" | "messenger" | "website";
   page_id?: string | "all";
   status?: "all" | "open" | "pending" | "resolved" | "spam";
   assigned_user_id?: string | "all" | "unassigned";
@@ -67,7 +83,13 @@ export function useConversations(filters: ConversationFilters = {}) {
       const qs = toQueryString(filters);
       const res = await fetch(`/api/conversations${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new Error("Failed to fetch conversations");
-      return res.json();
+      const conversations = (await res.json()) as Conversation[];
+      return conversations.sort((a, b) => {
+        const aPriority = a.lifecycle_status === "escalation_requested" ? 0 : 1;
+        const bPriority = b.lifecycle_status === "escalation_requested" ? 0 : 1;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      });
     },
     refetchInterval: 10000,
   });

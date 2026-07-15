@@ -110,7 +110,11 @@ export function ConversationDetail({
             </h3>
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <Badge variant="outline">
-                {conversation.channel === "whatsapp" ? "WhatsApp" : "Messenger"}
+                {conversation.channel === "whatsapp"
+                  ? "WhatsApp"
+                  : conversation.channel === "messenger"
+                    ? "Messenger"
+                    : "Website chat"}
               </Badge>
               {conversation.page_id ? <Badge variant="outline">{pageName}</Badge> : null}
               <span>{conversation.external_user_id}</span>
@@ -135,6 +139,18 @@ export function ConversationDetail({
                 </>
               )}
             </Badge>
+            {conversation.lifecycle_status ? (
+              <Badge
+                variant={conversation.lifecycle_status === "escalation_requested" ? "default" : "outline"}
+                className={
+                  conversation.lifecycle_status === "escalation_requested"
+                    ? "bg-amber-500 hover:bg-amber-500"
+                    : undefined
+                }
+              >
+                {conversation.lifecycle_status.replace(/_/g, " ")}
+              </Badge>
+            ) : null}
             <Switch
               checked={conversation.mode === "human"}
               onCheckedChange={(checked) =>
@@ -240,6 +256,26 @@ export function ConversationDetail({
             </Button>
           )}
         </div>
+        {conversation.channel === "website" && conversation.visitor_data ? (
+          <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs">
+            <p className="font-medium text-foreground">Captured website visitor details</p>
+            <div className="mt-1 grid gap-1 text-muted-foreground sm:grid-cols-2">
+              <span>Email: {conversation.visitor_data.email || "Not provided"}</span>
+              <span>Phone: {conversation.visitor_data.phone || "Not provided"}</span>
+              <span>
+                Courses: {conversation.visitor_data.interested_courses?.join(", ") || "Not provided"}
+              </span>
+              <span>
+                Qualification: {conversation.visitor_data.qualified ? "Qualified" : "Not qualified yet"}
+              </span>
+            </div>
+            {conversation.source_url ? (
+              <p className="mt-1 truncate text-muted-foreground" title={conversation.source_url}>
+                Page: {conversation.source_url}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <ScrollArea ref={scrollRef} className="flex-1 p-4">

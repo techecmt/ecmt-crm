@@ -86,8 +86,12 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith("/auth");
 
-  // Meta webhook verification and delivery requests must be publicly reachable.
-  if (pathname.startsWith("/api/webhook")) {
+  // Meta webhook delivery and the isolated website widget must be publicly reachable.
+  if (
+    pathname.startsWith("/api/webhook") ||
+    pathname.startsWith("/api/public/widget") ||
+    pathname === "/widget"
+  ) {
     return supabaseResponse;
   }
 
