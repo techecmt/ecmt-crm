@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Send, Sparkles } from "lucide-react";
+import { Loader2, Send, Sparkles, X } from "lucide-react";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -64,6 +64,12 @@ export function WebsiteWidgetClient() {
   const [isSending, setIsSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  const closeWidget = () => {
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "ecmt-widget-close" }, "*");
+    }
+  };
 
   React.useEffect(() => {
     const stored = window.sessionStorage.getItem(STORAGE_KEY);
@@ -179,6 +185,14 @@ export function WebsiteWidgetClient() {
           <p className="truncate text-xs text-blue-100">{status}</p>
         </div>
         <Sparkles className="ml-auto h-4 w-4 text-white/50" aria-hidden />
+        <button
+          type="button"
+          onClick={closeWidget}
+          aria-label="Close chat"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </header>
 
       {!session ? (

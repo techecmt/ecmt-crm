@@ -81,8 +81,8 @@
     ":20px;box-sizing:border-box;width:min(390px,calc(100% - 32px));width:min(390px,calc(100dvw - 32px));" +
     "height:min(620px,calc(100% - 130px));height:min(620px,calc(100dvh - 130px));" +
     "border:0;border-radius:16px;box-shadow:0 18px 60px rgba(15,23,42,.28);background:#fff;display:none;overflow:hidden}" +
-    "@media (max-width:480px){.ecmt-chat-frame{width:min(360px,calc(100% - 32px));width:min(360px,calc(100dvw - 32px));" +
-    "height:min(560px,calc(100% - 112px));height:min(560px,calc(100dvh - 112px));bottom:84px}}";
+    "@media (max-width:480px){.ecmt-chat-frame{top:0;right:0;bottom:0;left:0;width:auto;height:auto;" +
+    "max-width:none;max-height:none;border-radius:0;box-shadow:none}}";
   document.head.appendChild(style);
 
   var launcher = document.createElement("button");
@@ -130,6 +130,15 @@
     launcher.innerHTML = ICON_CLOSE;
     launcher.setAttribute("aria-label", "Close chat");
     startSession();
+  }
+
+  function closeChat() {
+    if (!opened) return;
+    opened = false;
+    frame.style.display = "none";
+    launcher.innerHTML = ICON_CHAT;
+    launcher.setAttribute("aria-label", label);
+    clearNudge();
   }
 
   function showNudge() {
@@ -212,11 +221,7 @@
 
   launcher.addEventListener("click", function () {
     if (opened) {
-      opened = false;
-      frame.style.display = "none";
-      launcher.innerHTML = ICON_CHAT;
-      launcher.setAttribute("aria-label", label);
-      clearNudge();
+      closeChat();
       return;
     }
     openChat();
@@ -234,6 +239,7 @@
   window.addEventListener("message", function (event) {
     if (event.origin !== crmOrigin || event.source !== frame.contentWindow) return;
     if (event.data && event.data.type === "ecmt-widget-ready") postSession();
+    if (event.data && event.data.type === "ecmt-widget-close") closeChat();
   });
 
   function mount() {
