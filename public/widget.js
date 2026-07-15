@@ -21,7 +21,7 @@
 
   var crmOrigin = new URL(script.src, window.location.href).origin;
   var position = script.getAttribute("data-position") === "left" ? "left" : "right";
-  var label = script.getAttribute("data-label") || "Chat with admissions";
+  var label = script.getAttribute("data-label") || "Talk with ESRA";
   var opened = false;
   var loaded = false;
   var session = null;
@@ -37,23 +37,32 @@
     // Storage can be disabled by the host page's privacy settings.
   }
 
+  var ICON_CHAT =
+    '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+  var ICON_CLOSE =
+    '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
   var style = document.createElement("style");
   style.textContent =
     ".ecmt-chat-launcher{position:fixed;z-index:2147483646;bottom:20px;" +
     position +
-    ":20px;border:0;border-radius:999px;background:#2563eb;color:#fff;padding:13px 18px;" +
-    "font:600 14px/1.2 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" +
-    "box-shadow:0 10px 30px rgba(37,99,235,.28);cursor:pointer}" +
-    ".ecmt-chat-frame{position:fixed;z-index:2147483647;bottom:76px;" +
+    ":20px;display:flex;align-items:center;justify-content:center;width:60px;height:60px;" +
+    "border:0;border-radius:999px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;" +
+    "box-shadow:0 12px 30px rgba(37,99,235,.4);cursor:pointer;padding:0;" +
+    "transition:transform .18s ease,box-shadow .18s ease}" +
+    ".ecmt-chat-launcher:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 16px 36px rgba(37,99,235,.48)}" +
+    ".ecmt-chat-launcher:disabled{opacity:.7;cursor:default}" +
+    ".ecmt-chat-launcher svg{display:block}" +
+    ".ecmt-chat-frame{position:fixed;z-index:2147483647;bottom:92px;" +
     position +
-    ":20px;width:min(390px,calc(100vw - 32px));height:min(620px,calc(100vh - 110px));" +
+    ":20px;width:min(390px,calc(100vw - 32px));height:min(620px,calc(100vh - 130px));" +
     "border:0;border-radius:16px;box-shadow:0 18px 60px rgba(15,23,42,.28);background:#fff;display:none;overflow:hidden}";
   document.head.appendChild(style);
 
   var launcher = document.createElement("button");
   launcher.type = "button";
   launcher.className = "ecmt-chat-launcher";
-  launcher.textContent = label;
+  launcher.innerHTML = ICON_CHAT;
   launcher.setAttribute("aria-label", label);
 
   var frame = document.createElement("iframe");
@@ -77,7 +86,6 @@
     }
 
     launcher.disabled = true;
-    launcher.textContent = "Starting chat…";
     var url = new URL(window.location.href);
     var utm = {};
     ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"].forEach(function (key) {
@@ -109,12 +117,12 @@
           // The iframe still receives this session for the current page visit.
         }
         launcher.disabled = false;
-        launcher.textContent = opened ? "Close chat" : label;
+        launcher.innerHTML = opened ? ICON_CLOSE : ICON_CHAT;
         postSession();
       })
       .catch(function (error) {
         launcher.disabled = false;
-        launcher.textContent = label;
+        launcher.innerHTML = opened ? ICON_CLOSE : ICON_CHAT;
         console.error("[ECMT Widget] " + error.message);
       });
   }
@@ -122,7 +130,8 @@
   launcher.addEventListener("click", function () {
     opened = !opened;
     frame.style.display = opened ? "block" : "none";
-    launcher.textContent = opened ? "Close chat" : label;
+    launcher.innerHTML = opened ? ICON_CLOSE : ICON_CHAT;
+    launcher.setAttribute("aria-label", opened ? "Close chat" : label);
     if (opened) startSession();
   });
 

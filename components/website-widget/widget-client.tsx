@@ -144,19 +144,10 @@ export function WebsiteWidgetClient() {
       <header className="relative flex items-center gap-3 overflow-hidden bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 px-4 py-3.5 text-white shadow-sm">
         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-base font-semibold ring-1 ring-white/25 backdrop-blur">
           {AGENT_NAME.charAt(0)}
-          <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-blue-600 bg-emerald-400" />
         </div>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold leading-tight">Admissions Assistant</p>
-          <p className="flex items-center gap-1.5 text-xs text-blue-100">
-            <span
-              className={cn(
-                "inline-block h-1.5 w-1.5 rounded-full bg-emerald-400",
-                isSending && "animate-pulse",
-              )}
-            />
-            {status}
-          </p>
+          <p className="truncate text-xs text-blue-100">{status}</p>
         </div>
         <Sparkles className="ml-auto h-4 w-4 text-white/50" aria-hidden />
       </header>
