@@ -78,8 +78,11 @@
     "box-shadow:4px 4px 8px rgba(15,23,42,.06)}" +
     ".ecmt-chat-frame{position:fixed;z-index:2147483647;bottom:92px;" +
     position +
-    ":20px;box-sizing:border-box;width:min(390px,calc(100% - 32px));height:min(620px,calc(100% - 130px));" +
-    "border:0;border-radius:16px;box-shadow:0 18px 60px rgba(15,23,42,.28);background:#fff;display:none;overflow:hidden}";
+    ":20px;box-sizing:border-box;width:min(390px,calc(100% - 32px));width:min(390px,calc(100dvw - 32px));" +
+    "height:min(620px,calc(100% - 130px));height:min(620px,calc(100dvh - 130px));" +
+    "border:0;border-radius:16px;box-shadow:0 18px 60px rgba(15,23,42,.28);background:#fff;display:none;overflow:hidden}" +
+    "@media (max-width:480px){.ecmt-chat-frame{width:min(360px,calc(100% - 32px));width:min(360px,calc(100dvw - 32px));" +
+    "height:min(560px,calc(100% - 112px));height:min(560px,calc(100dvh - 112px));bottom:84px}}";
   document.head.appendChild(style);
 
   var launcher = document.createElement("button");
