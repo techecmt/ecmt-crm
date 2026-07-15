@@ -81,7 +81,7 @@
     ":20px;box-sizing:border-box;width:min(390px,calc(100% - 32px));width:min(390px,calc(100dvw - 32px));" +
     "height:min(620px,calc(100% - 130px));height:min(620px,calc(100dvh - 130px));" +
     "border:0;border-radius:16px;box-shadow:0 18px 60px rgba(15,23,42,.28);background:#fff;display:none;overflow:hidden}" +
-    "@media (max-width:480px){.ecmt-chat-frame{top:0;right:0;bottom:0;left:0;width:auto;height:auto;" +
+    "@media (max-width:480px){.ecmt-chat-frame{top:0;right:0;bottom:0;left:0;width:100%;height:100%;height:100dvh;" +
     "max-width:none;max-height:none;border-radius:0;box-shadow:none}}";
   document.head.appendChild(style);
 
