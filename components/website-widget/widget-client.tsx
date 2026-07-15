@@ -27,6 +27,35 @@ function formatTime(value: string) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function MessageContent({ content }: { content: string }) {
+  const parts = content.split(/(https?:\/\/[^\s<]+)/g);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (!/^https?:\/\//i.test(part)) return <React.Fragment key={index}>{part}</React.Fragment>;
+
+        const match = part.match(/^(.*?)([),.!?;:]*)$/);
+        const url = match?.[1] || part;
+        const trailingPunctuation = match?.[2] || "";
+        return (
+          <React.Fragment key={index}>
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="break-all font-medium underline decoration-current/40 underline-offset-2 transition-opacity hover:opacity-70"
+            >
+              {url}
+            </a>
+            {trailingPunctuation}
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+}
+
 export function WebsiteWidgetClient() {
   const [session, setSession] = React.useState<WidgetSession | null>(null);
   const [messages, setMessages] = React.useState<WidgetMessage[]>([]);
@@ -189,7 +218,7 @@ export function WebsiteWidgetClient() {
                             : "rounded-bl-md border border-slate-200/70 bg-white text-slate-800",
                         )}
                       >
-                        {message.content}
+                        <MessageContent content={message.content} />
                         <span
                           className={cn(
                             "mt-1 block text-right text-[10px] tabular-nums",
