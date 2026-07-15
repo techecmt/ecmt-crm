@@ -48,9 +48,12 @@
   }
 
   var ICON_CHAT =
-    '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+    '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>';
   var ICON_CLOSE =
     '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  var LAUNCHER_LABEL_HTML = '<span class="ecmt-chat-launcher-label">' + label + "</span>";
+  var LAUNCHER_CHAT_HTML = ICON_CHAT + LAUNCHER_LABEL_HTML;
+  var LAUNCHER_CLOSE_HTML = ICON_CLOSE + LAUNCHER_LABEL_HTML;
 
   var style = document.createElement("style");
   style.textContent =
@@ -63,7 +66,8 @@
     "transition:transform .18s ease,box-shadow .18s ease}" +
     ".ecmt-chat-launcher:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 16px 36px rgba(37,99,235,.48)}" +
     ".ecmt-chat-launcher:disabled{opacity:.7;cursor:default}" +
-    ".ecmt-chat-launcher svg{display:block}" +
+    ".ecmt-chat-launcher svg{display:block;flex-shrink:0}" +
+    ".ecmt-chat-launcher-label{display:none;font:600 14px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap}" +
     ".ecmt-chat-launcher.ecmt-chat-pulse{animation:ecmt-chat-pulse 1.6s ease-in-out infinite}" +
     "@keyframes ecmt-chat-pulse{0%,100%{box-shadow:0 12px 30px rgba(37,99,235,.4),0 0 0 0 rgba(37,99,235,.45)}" +
     "70%{box-shadow:0 12px 30px rgba(37,99,235,.4),0 0 0 16px rgba(37,99,235,0)}}" +
@@ -81,14 +85,24 @@
     ":20px;box-sizing:border-box;width:min(390px,calc(100% - 32px));width:min(390px,calc(100dvw - 32px));" +
     "height:min(620px,calc(100% - 130px));height:min(620px,calc(100dvh - 130px));" +
     "border:0;border-radius:16px;box-shadow:0 18px 60px rgba(15,23,42,.28);background:#fff;display:none;overflow:hidden}" +
-    "@media (max-width:480px){.ecmt-chat-frame{top:0;right:0;bottom:0;left:0;width:100%;height:100%;height:100dvh;" +
-    "max-width:none;max-height:none;border-radius:0;box-shadow:none}}";
+    "@media (max-width:480px){" +
+    ".ecmt-chat-frame{top:0;right:0;bottom:0;left:0;width:100%;height:100%;height:100dvh;" +
+    "max-width:none;max-height:none;border-radius:0;box-shadow:none;" +
+    "transform:translateY(100%);transition:transform .32s cubic-bezier(.16,1,.3,1)}" +
+    ".ecmt-chat-frame.ecmt-chat-frame--open{transform:translateY(0)}" +
+    ".ecmt-chat-launcher{left:50%;right:auto;transform:translateX(-50%);width:auto;height:52px;" +
+    "padding:0 20px 0 18px;gap:9px;border-radius:999px}" +
+    ".ecmt-chat-launcher:hover{transform:translateX(-50%) translateY(-2px) scale(1.03)}" +
+    ".ecmt-chat-launcher-label{display:inline-block}" +
+    ".ecmt-chat-nudge{left:50%;right:auto;transform:translateX(-50%);bottom:82px}" +
+    ".ecmt-chat-nudge::after{left:50%;right:auto;margin-left:-7px}" +
+    "}";
   document.head.appendChild(style);
 
   var launcher = document.createElement("button");
   launcher.type = "button";
   launcher.className = "ecmt-chat-launcher";
-  launcher.innerHTML = ICON_CHAT;
+  launcher.innerHTML = LAUNCHER_CHAT_HTML;
   launcher.setAttribute("aria-label", label);
 
   var nudge = document.createElement("button");
@@ -127,7 +141,12 @@
     opened = true;
     clearNudge();
     frame.style.display = "block";
-    launcher.innerHTML = ICON_CLOSE;
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        frame.classList.add("ecmt-chat-frame--open");
+      });
+    });
+    launcher.innerHTML = LAUNCHER_CLOSE_HTML;
     launcher.setAttribute("aria-label", "Close chat");
     startSession();
   }
@@ -135,8 +154,15 @@
   function closeChat() {
     if (!opened) return;
     opened = false;
-    frame.style.display = "none";
-    launcher.innerHTML = ICON_CHAT;
+    frame.classList.remove("ecmt-chat-frame--open");
+    if (window.matchMedia("(max-width:480px)").matches) {
+      window.setTimeout(function () {
+        if (!opened) frame.style.display = "none";
+      }, 320);
+    } else {
+      frame.style.display = "none";
+    }
+    launcher.innerHTML = LAUNCHER_CHAT_HTML;
     launcher.setAttribute("aria-label", label);
     clearNudge();
   }
@@ -209,12 +235,12 @@
           // The iframe still receives this session for the current page visit.
         }
         launcher.disabled = false;
-        launcher.innerHTML = opened ? ICON_CLOSE : ICON_CHAT;
+        launcher.innerHTML = opened ? LAUNCHER_CLOSE_HTML : LAUNCHER_CHAT_HTML;
         postSession();
       })
       .catch(function (error) {
         launcher.disabled = false;
-        launcher.innerHTML = opened ? ICON_CLOSE : ICON_CHAT;
+        launcher.innerHTML = opened ? LAUNCHER_CLOSE_HTML : LAUNCHER_CHAT_HTML;
         console.error("[ECMT Widget] " + error.message);
       });
   }
