@@ -1,11 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Send, Sparkles } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 
 type WidgetSession = {
   conversationId: string;
@@ -20,6 +19,13 @@ type WidgetMessage = {
 };
 
 const STORAGE_KEY = "ecmt-website-chat-session";
+const AGENT_NAME = "ESRA";
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
 export function WebsiteWidgetClient() {
   const [session, setSession] = React.useState<WidgetSession | null>(null);
@@ -94,7 +100,7 @@ export function WebsiteWidgetClient() {
       "[data-radix-scroll-area-viewport]",
     );
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
-  }, [messages]);
+  }, [messages, isSending]);
 
   const send = async () => {
     const message = input.trim();
@@ -126,54 +132,111 @@ export function WebsiteWidgetClient() {
     }
   };
 
+  const lastMessage = messages[messages.length - 1];
+  const status = isSending
+    ? `${AGENT_NAME} is typing…`
+    : lastMessage?.role === "assistant"
+      ? `${AGENT_NAME} is waiting for you`
+      : "Online";
+
   return (
-    <main className="flex h-screen min-h-[460px] flex-col overflow-hidden bg-background text-foreground">
-      <header className="border-b bg-blue-600 px-4 py-3 text-primary-foreground">
-        <p className="font-semibold">Admissions Assistant</p>
-        <p className="text-xs text-blue-100">Ask about courses and admissions</p>
+    <main className="flex h-screen min-h-[460px] flex-col overflow-hidden bg-slate-50 text-slate-900">
+      <header className="relative flex items-center gap-3 overflow-hidden bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 px-4 py-3.5 text-white shadow-sm">
+        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-base font-semibold ring-1 ring-white/25 backdrop-blur">
+          {AGENT_NAME.charAt(0)}
+          <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-blue-600 bg-emerald-400" />
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold leading-tight">Admissions Assistant</p>
+          <p className="flex items-center gap-1.5 text-xs text-blue-100">
+            <span
+              className={cn(
+                "inline-block h-1.5 w-1.5 rounded-full bg-emerald-400",
+                isSending && "animate-pulse",
+              )}
+            />
+            {status}
+          </p>
+        </div>
+        <Sparkles className="ml-auto h-4 w-4 text-white/50" aria-hidden />
       </header>
 
       {!session ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-          <p className="text-sm text-muted-foreground">Starting your secure chat…</p>
+          <p className="text-sm text-slate-500">Starting your secure chat…</p>
         </div>
       ) : (
         <>
-          <ScrollArea ref={scrollRef} className="flex-1 p-4">
+          <ScrollArea ref={scrollRef} className="flex-1 px-3.5 py-4">
             {isLoading && messages.length === 0 ? (
               <div className="flex justify-center py-6">
                 <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
               </div>
             ) : (
               <div className="space-y-3">
-                {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
+                {messages.map((message) => {
+                  const isUser = message.role === "user";
+                  return (
                     <div
-                      className={`max-w-[82%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-                        message.role === "user"
-                          ? "rounded-br-sm bg-blue-600 text-white"
-                          : "rounded-bl-sm bg-muted text-foreground"
-                      }`}
+                      key={message.id}
+                      className={cn(
+                        "flex items-end gap-2 duration-300 animate-in fade-in slide-in-from-bottom-1",
+                        isUser ? "justify-end" : "justify-start",
+                      )}
                     >
-                      {message.content}
+                      {!isUser ? (
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-[11px] font-semibold text-white shadow-sm">
+                          {AGENT_NAME.charAt(0)}
+                        </div>
+                      ) : null}
+                      <div
+                        className={cn(
+                          "group max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm",
+                          isUser
+                            ? "rounded-br-md bg-gradient-to-br from-blue-600 to-indigo-600 text-white"
+                            : "rounded-bl-md border border-slate-200/70 bg-white text-slate-800",
+                        )}
+                      >
+                        {message.content}
+                        <span
+                          className={cn(
+                            "mt-1 block text-right text-[10px] tabular-nums",
+                            isUser ? "text-blue-100/80" : "text-slate-400",
+                          )}
+                        >
+                          {formatTime(message.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {isSending ? (
+                  <div className="flex items-end gap-2 duration-300 animate-in fade-in slide-in-from-bottom-1">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-[11px] font-semibold text-white shadow-sm">
+                      {AGENT_NAME.charAt(0)}
+                    </div>
+                    <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-slate-200/70 bg-white px-3.5 py-3 shadow-sm">
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
                     </div>
                   </div>
-                ))}
+                ) : null}
               </div>
             )}
           </ScrollArea>
 
           {error ? (
-            <p className="border-t px-3 py-2 text-xs text-destructive">{error}</p>
+            <p className="border-t border-slate-200 bg-red-50 px-4 py-2 text-xs text-red-600">
+              {error}
+            </p>
           ) : null}
 
-          <div className="border-t p-3">
-            <div className="flex gap-2">
-              <Input
+          <div className="border-t border-slate-200 bg-white p-3">
+            <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 pl-3.5 transition-colors focus-within:border-blue-400 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100">
+              <textarea
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -185,16 +248,26 @@ export function WebsiteWidgetClient() {
                 placeholder="Type your message…"
                 disabled={isSending}
                 aria-label="Chat message"
+                rows={1}
+                className="max-h-28 flex-1 resize-none self-center bg-transparent py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none disabled:opacity-60"
               />
-              <Button
-                size="icon"
+              <button
+                type="button"
                 onClick={() => void send()}
                 disabled={!input.trim() || isSending}
                 aria-label="Send message"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </Button>
+                {isSending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </button>
             </div>
+            <p className="mt-1.5 text-center text-[10px] text-slate-400">
+              Powered by {AGENT_NAME} · Admissions AI
+            </p>
           </div>
         </>
       )}
