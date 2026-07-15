@@ -62,7 +62,11 @@ function channelInstruction(channel: Channel) {
     return "Output plain text only. Do not use markdown.";
   }
   if (channel === "website") {
-    return "Keep replies concise, friendly, and easy to scan in a website chat widget. Use lightweight markdown only when it improves clarity.";
+    return `Format specifically for a small website chat window:
+- Use plain text only: never use Markdown markers such as **, #, _, or backticks.
+- Keep each reply short: one or two brief paragraphs, or at most four bullet points.
+- Use the bullet character • followed by a space for lists, with one item per line.
+- Ask only one clear follow-up question at a time. Do not send a long questionnaire or a multi-step form in one response.`;
   }
   return "Keep formatting lightweight and readable for Messenger. Do not use heavy markdown.";
 }
@@ -74,6 +78,17 @@ function checkEscalation(
   if (!keywords.length) return false;
   const lower = text.toLowerCase();
   return keywords.some((kw) => lower.includes(kw.toLowerCase()));
+}
+
+function formatChatReply(reply: string) {
+  return reply
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/`/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export async function getAIResponse(input: AIInput): Promise<AIResult> {
@@ -178,7 +193,7 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
     const response = completion.choices[0]?.message?.content;
     if (!response) throw new Error("Empty AI response");
 
-    return { reply: response.trim(), shouldEscalate: false };
+    return { reply: formatChatReply(response), shouldEscalate: false };
   } catch (error) {
     console.error("[AI] Error getting response:", error);
     return {

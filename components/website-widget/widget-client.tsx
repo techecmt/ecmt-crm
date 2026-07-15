@@ -153,7 +153,7 @@ export function WebsiteWidgetClient() {
                     className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+                      className={`max-w-[82%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed ${
                         message.role === "user"
                           ? "rounded-br-sm bg-blue-600 text-white"
                           : "rounded-bl-sm bg-muted text-foreground"
