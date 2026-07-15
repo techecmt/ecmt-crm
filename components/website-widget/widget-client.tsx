@@ -257,7 +257,7 @@ export function WebsiteWidgetClient() {
               </button>
             </div>
             <p className="mt-1.5 text-center text-[10px] text-slate-400">
-              Powered by {AGENT_NAME} · Admissions AI
+              Powered by Ai - All data stored securely and encrypted.
             </p>
           </div>
         </>

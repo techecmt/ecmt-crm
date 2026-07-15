@@ -22,10 +22,20 @@
   var crmOrigin = new URL(script.src, window.location.href).origin;
   var position = script.getAttribute("data-position") === "left" ? "left" : "right";
   var label = script.getAttribute("data-label") || "Talk with ESRA";
+  var nudgeDelayMs = Math.max(
+    0,
+    Number(script.getAttribute("data-nudge-delay") || "60") * 1000
+  );
+  var autoOpenOnNudge = script.getAttribute("data-auto-open") === "true";
+  var nudgeText =
+    script.getAttribute("data-nudge-text") || "Need help with courses or admissions?";
   var opened = false;
   var loaded = false;
+  var nudged = false;
+  var nudgeTimer = null;
   var session = null;
   var storageKey = "ecmt_widget_session_" + crmOrigin + "_" + publicKey;
+  var nudgeSeenKey = "ecmt_widget_nudge_seen_" + crmOrigin + "_" + publicKey;
 
   try {
     var savedSession = window.localStorage.getItem(storageKey);
@@ -53,6 +63,18 @@
     ".ecmt-chat-launcher:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 16px 36px rgba(37,99,235,.48)}" +
     ".ecmt-chat-launcher:disabled{opacity:.7;cursor:default}" +
     ".ecmt-chat-launcher svg{display:block}" +
+    ".ecmt-chat-launcher.ecmt-chat-pulse{animation:ecmt-chat-pulse 1.6s ease-in-out infinite}" +
+    "@keyframes ecmt-chat-pulse{0%,100%{box-shadow:0 12px 30px rgba(37,99,235,.4),0 0 0 0 rgba(37,99,235,.45)}" +
+    "70%{box-shadow:0 12px 30px rgba(37,99,235,.4),0 0 0 16px rgba(37,99,235,0)}}" +
+    ".ecmt-chat-nudge{position:fixed;z-index:2147483646;bottom:92px;" +
+    position +
+    ":20px;max-width:min(260px,calc(100vw - 40px));padding:12px 14px;border-radius:14px;" +
+    "background:#fff;color:#0f172a;font:600 13px/1.35 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" +
+    "box-shadow:0 14px 40px rgba(15,23,42,.18);display:none;cursor:pointer}" +
+    ".ecmt-chat-nudge::after{content:'';position:absolute;bottom:-7px;" +
+    position +
+    ":22px;width:14px;height:14px;background:#fff;transform:rotate(45deg);" +
+    "box-shadow:4px 4px 8px rgba(15,23,42,.06)}" +
     ".ecmt-chat-frame{position:fixed;z-index:2147483647;bottom:92px;" +
     position +
     ":20px;width:min(390px,calc(100vw - 32px));height:min(620px,calc(100vh - 130px));" +
@@ -65,11 +87,68 @@
   launcher.innerHTML = ICON_CHAT;
   launcher.setAttribute("aria-label", label);
 
+  var nudge = document.createElement("button");
+  nudge.type = "button";
+  nudge.className = "ecmt-chat-nudge";
+  nudge.textContent = nudgeText;
+  nudge.setAttribute("aria-label", nudgeText);
+
   var frame = document.createElement("iframe");
   frame.className = "ecmt-chat-frame";
   frame.title = "Admissions Assistant";
   frame.setAttribute("allow", "clipboard-write");
   frame.src = crmOrigin + "/widget";
+
+  function markNudgeSeen() {
+    try {
+      window.sessionStorage.setItem(nudgeSeenKey, "1");
+    } catch (_) {
+      // sessionStorage may be unavailable.
+    }
+  }
+
+  function clearNudge() {
+    if (nudgeTimer) {
+      window.clearTimeout(nudgeTimer);
+      nudgeTimer = null;
+    }
+    nudged = true;
+    launcher.classList.remove("ecmt-chat-pulse");
+    nudge.style.display = "none";
+    markNudgeSeen();
+  }
+
+  function openChat() {
+    if (opened) return;
+    opened = true;
+    clearNudge();
+    frame.style.display = "block";
+    launcher.innerHTML = ICON_CLOSE;
+    launcher.setAttribute("aria-label", "Close chat");
+    startSession();
+  }
+
+  function showNudge() {
+    if (opened || nudged) return;
+    nudged = true;
+    markNudgeSeen();
+    if (autoOpenOnNudge) {
+      openChat();
+      return;
+    }
+    launcher.classList.add("ecmt-chat-pulse");
+    nudge.style.display = "block";
+  }
+
+  function scheduleNudge() {
+    if (!nudgeDelayMs || opened) return;
+    try {
+      if (window.sessionStorage.getItem(nudgeSeenKey) === "1") return;
+    } catch (_) {
+      // Continue; nudge still works without sessionStorage.
+    }
+    nudgeTimer = window.setTimeout(showNudge, nudgeDelayMs);
+  }
 
   function postSession() {
     if (!session || !loaded) return;
@@ -128,11 +207,19 @@
   }
 
   launcher.addEventListener("click", function () {
-    opened = !opened;
-    frame.style.display = opened ? "block" : "none";
-    launcher.innerHTML = opened ? ICON_CLOSE : ICON_CHAT;
-    launcher.setAttribute("aria-label", opened ? "Close chat" : label);
-    if (opened) startSession();
+    if (opened) {
+      opened = false;
+      frame.style.display = "none";
+      launcher.innerHTML = ICON_CHAT;
+      launcher.setAttribute("aria-label", label);
+      clearNudge();
+      return;
+    }
+    openChat();
+  });
+
+  nudge.addEventListener("click", function () {
+    openChat();
   });
 
   frame.addEventListener("load", function () {
@@ -147,7 +234,9 @@
 
   function mount() {
     document.body.appendChild(frame);
+    document.body.appendChild(nudge);
     document.body.appendChild(launcher);
+    scheduleNudge();
   }
 
   if (document.body) {
