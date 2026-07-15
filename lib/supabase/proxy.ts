@@ -90,7 +90,8 @@ export async function updateSession(request: NextRequest) {
   if (
     pathname.startsWith("/api/webhook") ||
     pathname.startsWith("/api/public/widget") ||
-    pathname === "/widget"
+    pathname === "/widget" ||
+    pathname === "/widget.js"
   ) {
     return supabaseResponse;
   }

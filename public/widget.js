@@ -6,6 +6,9 @@
 
   var script = document.currentScript;
   if (!script) {
+    script = document.querySelector('script[src*="/widget.js"][data-widget-key]');
+  }
+  if (!script) {
     var scripts = document.getElementsByTagName("script");
     script = scripts[scripts.length - 1];
   }
