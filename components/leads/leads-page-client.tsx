@@ -1664,7 +1664,7 @@ export function LeadsPageClient({
         <CardHeader className="space-y-1 pb-3">
           <CardTitle className="text-base">Search, filter & sort</CardTitle>
           <CardDescription>
-            Stripe-style controls for quick slicing, ranking, and expert-level querying.
+            Controls for quick slicing, ranking, and expert-level querying.
           </CardDescription>
           <div className="flex flex-wrap items-center gap-2 pt-2">
             <Button
