@@ -50,11 +50,11 @@ export type LeadFilters = {
 export type LeadWithRelations = Lead & {
   college: { id: string; name: string } | null;
   counsellor: { id: string; full_name: string | null; email: string } | null;
-  follow_ups: { status: FollowUpStatus }[] | null;
+  follow_ups: { status: FollowUpStatus; scheduled_at: string }[] | null;
 };
 
 const LEADS_SELECT =
-  "*, college:colleges(id,name), counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email), follow_ups(status)";
+  "*, college:colleges(id,name), counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email), follow_ups(status, scheduled_at)";
 
 export type LeadSortKey = "created_at" | "full_name" | "lead_score" | "status" | "source";
 export type LeadSortDir = "asc" | "desc";

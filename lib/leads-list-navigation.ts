@@ -224,6 +224,21 @@ export function applyStatusFilter(
   return leads.filter((lead) => lead.status === status);
 }
 
+export function leadHasOverdueFollowUp(lead: LeadWithRelations, now = new Date()): boolean {
+  return (lead.follow_ups ?? []).some(
+    (followUp) =>
+      followUp.status === "pending" && new Date(followUp.scheduled_at) < now,
+  );
+}
+
+export function applyOverdueFollowupsFilter(
+  leads: LeadWithRelations[],
+  enabled: boolean,
+): LeadWithRelations[] {
+  if (!enabled) return leads;
+  return leads.filter((lead) => leadHasOverdueFollowUp(lead));
+}
+
 export function sortLeadsList(
   leads: LeadWithRelations[],
   sortKey: LeadsSortKey,

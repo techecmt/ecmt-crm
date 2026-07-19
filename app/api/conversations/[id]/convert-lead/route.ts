@@ -4,6 +4,13 @@ import { canonicalizePhoneKey } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/server";
 import { isTerminalLeadStatus, type LeadSource, type LeadStatus } from "@/lib/types";
 
+type WebsiteVisitorData = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  interested_courses?: string[];
+};
+
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -21,7 +28,7 @@ export async function POST(
 
   const { data: conversation, error: conversationError } = await supabase
     .from("conversations")
-    .select("id, name, phone, lead_id, page_id, assigned_user_id")
+    .select("id, channel, name, phone, lead_id, page_id, assigned_user_id, visitor_data")
     .eq("id", id)
     .single();
 
@@ -34,7 +41,14 @@ export async function POST(
       { status: 400 },
     );
   }
-  const phoneKey = canonicalizePhoneKey(conversation.phone);
+  const visitorData =
+    conversation.channel === "website" &&
+    conversation.visitor_data &&
+    typeof conversation.visitor_data === "object"
+      ? (conversation.visitor_data as WebsiteVisitorData)
+      : null;
+  const phone = visitorData?.phone || conversation.phone;
+  const phoneKey = canonicalizePhoneKey(phone);
   if (!phoneKey) {
     return NextResponse.json(
       { error: "Valid phone number is required to convert to lead" },
@@ -56,8 +70,9 @@ export async function POST(
 
   let leadId = existingLead?.id ?? null;
   if (!leadId) {
-    let source: LeadSource = "facebook_organic";
-    if (conversation.page_id) {
+    let source: LeadSource =
+      conversation.channel === "website" ? "website" : "facebook_organic";
+    if (conversation.channel !== "website" && conversation.page_id) {
       const { data: page } = await supabase
         .from("messaging_pages")
         .select("name")
@@ -71,9 +86,14 @@ export async function POST(
     const { data: lead, error: leadError } = await supabase
       .from("leads")
       .insert({
-        full_name: conversation.name || `Message lead ${conversation.phone}`,
-        phone: conversation.phone,
+        full_name:
+          visitorData?.name ||
+          conversation.name ||
+          `Message lead ${phone}`,
+        phone,
         phone_key: phoneKey,
+        email: visitorData?.email || null,
+        interested_course: visitorData?.interested_courses?.[0] || null,
         source,
         status: "inquiry_received",
         lead_score: 0,

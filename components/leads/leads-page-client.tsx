@@ -115,6 +115,7 @@ import {
 } from "@/lib/hooks/use-leads";
 import {
   applyExpertSearchFilter,
+  applyOverdueFollowupsFilter,
   applyStatusFilter,
   sortLeadsList,
 } from "@/lib/leads-list-navigation";
@@ -150,6 +151,7 @@ type PersistedFilterState = {
   source: LeadSource | "all";
   collegeId: string | "all";
   course: string | "all";
+  overdueFollowupsOnly: boolean;
 };
 
 const DEFAULT_FILTERS: PersistedFilterState = {
@@ -157,6 +159,7 @@ const DEFAULT_FILTERS: PersistedFilterState = {
   source: "all",
   collegeId: "all",
   course: "all",
+  overdueFollowupsOnly: false,
 };
 
 function getFollowUpCounts(lead: LeadWithRelations) {
@@ -272,6 +275,7 @@ const LEADS_STATE_QUERY_KEYS = [
   "ex_max",
   "ex_email",
   "ex_dup",
+  "overdue_fu",
   "view",
 ] as const;
 
@@ -333,6 +337,7 @@ function sanitizePersistedState(
         typeof raw.filters?.course === "string" && raw.filters.course.length > 0
           ? raw.filters.course
           : fallback.filters.course,
+      overdueFollowupsOnly: !!raw.filters?.overdueFollowupsOnly,
     },
     counsellorIds:
       Array.isArray(raw.counsellorIds) && raw.counsellorIds.every((id) => typeof id === "string")
@@ -397,6 +402,7 @@ function getStateFromQueryString(
         source: (query.get("source") as LeadSource | "all") || fallback.filters.source,
         collegeId: query.get("college") || fallback.filters.collegeId,
         course: query.get("course") || fallback.filters.course,
+        overdueFollowupsOnly: query.get("overdue_fu") === "1",
       },
       counsellorIds: (query.get("counsellors") ?? "")
         .split(",")
@@ -438,6 +444,9 @@ function buildQueryFromState(
   query.set("source", state.filters.source);
   query.set("college", state.filters.collegeId);
   query.set("course", state.filters.course);
+  if (state.filters.overdueFollowupsOnly) {
+    query.set("overdue_fu", "1");
+  }
   query.set("sort", state.sortKey);
   query.set("dir", state.sortDir);
   query.set("page", String(state.page));
@@ -976,7 +985,7 @@ export function LeadsPageClient({
   const pathname = usePathname();
   const router = useRouter();
   const params = useSearchParams();
-  const [filters, setFilters] = React.useState<LeadFilters>(DEFAULT_FILTERS);
+  const [filters, setFilters] = React.useState<PersistedFilterState>(DEFAULT_FILTERS);
   // Default to the logged-in user's own leads; multi-selectable.
   const [counsellorIds, setCounsellorIds] = React.useState<string[]>([currentUserId]);
   const [counsellorPopoverOpen, setCounsellorPopoverOpen] = React.useState(false);
@@ -1029,6 +1038,7 @@ export function LeadsPageClient({
         source: filters.source ?? "all",
         collegeId: filters.collegeId ?? "all",
         course: filters.course ?? "all",
+        overdueFollowupsOnly: filters.overdueFollowupsOnly,
       },
       counsellorIds,
       search,
@@ -1045,6 +1055,7 @@ export function LeadsPageClient({
   const hasExpertSearchActive = Object.values(expertSearch).some((v) =>
     typeof v === "boolean" ? v : v !== "",
   );
+  const needsAllLeadsFetch = hasExpertSearchActive || filters.overdueFollowupsOnly;
   const baseLeadFilters = React.useMemo(
     () => ({
       source: filters.source,
@@ -1067,7 +1078,7 @@ export function LeadsPageClient({
     pageSize,
     sortKey,
     sortDir,
-    enabled: !hasExpertSearchActive,
+    enabled: !needsAllLeadsFetch,
   });
   const {
     data: allLeads,
@@ -1077,16 +1088,16 @@ export function LeadsPageClient({
   } = useLeads({
     ...baseLeadFilters,
     status: "all",
-    enabled: hasExpertSearchActive,
+    enabled: needsAllLeadsFetch,
   });
   const { data: serverStatusCounts } = useLeadsStatusCounts({
     ...baseLeadFilters,
     status: "all",
-    enabled: !hasExpertSearchActive,
+    enabled: !needsAllLeadsFetch,
   });
-  const isLoading = hasExpertSearchActive ? isAllLeadsLoading : isPaginatedLoading;
-  const isFetching = hasExpertSearchActive ? isAllLeadsFetching : isPaginatedFetching;
-  const refetch = hasExpertSearchActive ? refetchAllLeads : refetchPaginated;
+  const isLoading = needsAllLeadsFetch ? isAllLeadsLoading : isPaginatedLoading;
+  const isFetching = needsAllLeadsFetch ? isAllLeadsFetching : isPaginatedFetching;
+  const refetch = needsAllLeadsFetch ? refetchAllLeads : refetchPaginated;
   const { data: colleges } = useColleges();
   const { data: profiles } = useProfiles();
   const bulkUpdateLeads = useBulkUpdateLeads();
@@ -1217,26 +1228,36 @@ export function LeadsPageClient({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [colleges, filters.collegeId]);
 
-  const expertFilteredLeads = React.useMemo(() => {
-    if (!hasExpertSearchActive) return [];
-    return applyExpertSearchFilter(allLeads ?? [], expertSearch);
-  }, [allLeads, expertSearch, hasExpertSearchActive]);
+  const preStatusFilteredLeads = React.useMemo(() => {
+    if (!needsAllLeadsFetch) return [];
+    let leads = allLeads ?? [];
+    if (hasExpertSearchActive) {
+      leads = applyExpertSearchFilter(leads, expertSearch);
+    }
+    return applyOverdueFollowupsFilter(leads, filters.overdueFollowupsOnly);
+  }, [
+    allLeads,
+    expertSearch,
+    filters.overdueFollowupsOnly,
+    hasExpertSearchActive,
+    needsAllLeadsFetch,
+  ]);
 
   const clientFilteredLeads = React.useMemo(() => {
-    if (!hasExpertSearchActive) return [];
-    return applyStatusFilter(expertFilteredLeads, filters.status ?? "all");
-  }, [expertFilteredLeads, filters.status, hasExpertSearchActive]);
+    if (!needsAllLeadsFetch) return [];
+    return applyStatusFilter(preStatusFilteredLeads, filters.status ?? "all");
+  }, [filters.status, needsAllLeadsFetch, preStatusFilteredLeads]);
 
   const clientSortedLeads = React.useMemo(() => {
-    if (!hasExpertSearchActive) return [];
+    if (!needsAllLeadsFetch) return [];
     return sortLeadsList(clientFilteredLeads, sortKey, sortDir);
-  }, [clientFilteredLeads, hasExpertSearchActive, sortDir, sortKey]);
+  }, [clientFilteredLeads, needsAllLeadsFetch, sortDir, sortKey]);
 
-  const tableTotalCount = hasExpertSearchActive
+  const tableTotalCount = needsAllLeadsFetch
     ? clientSortedLeads.length
     : (paginatedLeadsData?.totalCount ?? 0);
 
-  const sortedLeads = hasExpertSearchActive
+  const sortedLeads = needsAllLeadsFetch
     ? clientSortedLeads
     : (paginatedLeadsData?.leads ?? EMPTY_LEADS);
 
@@ -1255,10 +1276,10 @@ export function LeadsPageClient({
     [pageSize, tableTotalCount],
   );
   const paginatedLeads = React.useMemo(() => {
-    if (!hasExpertSearchActive) return sortedLeads;
+    if (!needsAllLeadsFetch) return sortedLeads;
     const start = (page - 1) * pageSize;
     return sortedLeads.slice(start, start + pageSize);
-  }, [hasExpertSearchActive, page, pageSize, sortedLeads]);
+  }, [needsAllLeadsFetch, page, pageSize, sortedLeads]);
   React.useEffect(() => {
     if (page > totalPages) {
       setPage(totalPages);
@@ -1275,7 +1296,7 @@ export function LeadsPageClient({
 
   const selectedLeadsCount = selectedLeadIds.length;
   const statusCounts = React.useMemo(() => {
-    if (!hasExpertSearchActive) {
+    if (!needsAllLeadsFetch) {
       return (
         serverStatusCounts ??
         (Object.fromEntries(statuses.map((status) => [status, 0])) as Record<LeadStatus, number>)
@@ -1286,13 +1307,13 @@ export function LeadsPageClient({
       LeadStatus,
       number
     >;
-    expertFilteredLeads.forEach((lead) => {
+    preStatusFilteredLeads.forEach((lead) => {
       if (lead.status in counts) {
         counts[lead.status] += 1;
       }
     });
     return counts;
-  }, [expertFilteredLeads, hasExpertSearchActive, serverStatusCounts]);
+  }, [needsAllLeadsFetch, preStatusFilteredLeads, serverStatusCounts]);
   const totalLeadCount = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
   React.useEffect(() => {
     setPage(1);
@@ -1302,6 +1323,7 @@ export function LeadsPageClient({
     expertSearch,
     filters.collegeId,
     filters.course,
+    filters.overdueFollowupsOnly,
     filters.source,
     filters.status,
     sortDir,
@@ -1319,12 +1341,15 @@ export function LeadsPageClient({
 
     void (async () => {
       try {
-        const all = hasExpertSearchActive
+        const all = needsAllLeadsFetch
           ? (allLeads ?? [])
           : await fetchAllLeads({ ...baseLeadFilters, status: "all" });
         if (cancelled) return;
 
-        let leads = applyExpertSearchFilter(all, expertSearch);
+        let leads = hasExpertSearchActive
+          ? applyExpertSearchFilter(all, expertSearch)
+          : all;
+        leads = applyOverdueFollowupsFilter(leads, filters.overdueFollowupsOnly);
         leads = applyStatusFilter(leads, filters.status ?? "all");
         setExportPreviewLeads(sortLeadsList(leads, sortKey, sortDir));
       } catch (error) {
@@ -1347,8 +1372,10 @@ export function LeadsPageClient({
     baseLeadFilters,
     exportDialogOpen,
     expertSearch,
+    filters.overdueFollowupsOnly,
     filters.status,
     hasExpertSearchActive,
+    needsAllLeadsFetch,
     sortDir,
     sortKey,
   ]);
@@ -1421,6 +1448,7 @@ export function LeadsPageClient({
     (filters.source && filters.source !== "all") ||
     (filters.collegeId && filters.collegeId !== "all") ||
     (filters.course && filters.course !== "all") ||
+    filters.overdueFollowupsOnly ||
     !isDefaultCounsellorSelection ||
     sortKey !== "created_at" ||
     sortDir !== "desc" ||
@@ -1712,312 +1740,342 @@ export function LeadsPageClient({
               </span>
             ) : null}
           </div>
-          <div className="grid gap-3 lg:grid-cols-12">
-            <div className="relative md:col-span-2">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search name, phone, email…"
-                className="pl-9"
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sort by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="created_at">Created date</SelectItem>
-                  <SelectItem value="full_name">Lead name</SelectItem>
-                  <SelectItem value="lead_score">Lead score</SelectItem>
-                  <SelectItem value="status">Status</SelectItem>
-                  <SelectItem value="source">Source</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              variant="outline"
-              className="lg:col-span-1"
-              onClick={() => setSortDir((dir) => (dir === "asc" ? "desc" : "asc"))}
-            >
-              <ArrowUpDown className="mr-2 h-4 w-4" />
-              {sortDir === "asc" ? "Asc" : "Desc"}
-            </Button>
-            <Select
-              value={filters.source ?? "all"}
-              onValueChange={(v) =>
-                setFilters((f) => ({ ...f, source: v as LeadSource | "all" }))
-              }
-            >
-              <SelectTrigger className="lg:col-span-2">
-                <SelectValue placeholder="Source" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All sources</SelectItem>
-                {sources.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {LEAD_SOURCE_LABELS[s]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={filters.collegeId ?? "all"}
-              onValueChange={(v) => {
-                const selectedCollege = (colleges ?? []).find((c) => c.id === v);
-                setFilters((f) => {
-                  const courseStillValid =
-                    !f.course ||
-                    f.course === "all" ||
-                    v === "all" ||
-                    (selectedCollege?.courses ?? []).includes(f.course);
-                  return {
-                    ...f,
-                    collegeId: v,
-                    course: courseStillValid ? f.course : "all",
-                  };
-                });
-              }}
-            >
-              <SelectTrigger className="lg:col-span-2">
-                <SelectValue placeholder="College" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All colleges</SelectItem>
-                {(colleges ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Popover open={counsellorPopoverOpen} onOpenChange={setCounsellorPopoverOpen}>
-              <PopoverTrigger asChild>
+          <div className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
+              <div className="relative sm:col-span-2 xl:col-span-3">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search name, phone, email…"
+                  className="pl-9"
+                />
+              </div>
+              <div className="xl:col-span-2">
+                <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="created_at">Created date</SelectItem>
+                    <SelectItem value="full_name">Lead name</SelectItem>
+                    <SelectItem value="lead_score">Lead score</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
+                    <SelectItem value="source">Source</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="xl:col-span-1">
                 <Button
                   variant="outline"
-                  role="combobox"
-                  aria-expanded={counsellorPopoverOpen}
-                  className="lg:col-span-2 w-full justify-between font-normal"
+                  className="w-full"
+                  onClick={() => setSortDir((dir) => (dir === "asc" ? "desc" : "asc"))}
                 >
-                  <span className="truncate">
-                    {counsellorIds.length === 0
-                      ? "All counsellors"
-                      : counsellorIds.length === 1
-                        ? (counsellorIds[0] === UNASSIGNED_COUNSELLOR
-                            ? "Unassigned"
-                            : counsellors.find((p) => p.id === counsellorIds[0])?.full_name ||
-                              counsellors.find((p) => p.id === counsellorIds[0])?.email ||
-                              "1 selected")
-                        : `${counsellorIds.length} selected`}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  <ArrowUpDown className="mr-2 h-4 w-4" />
+                  {sortDir === "asc" ? "Asc" : "Desc"}
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[240px] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search counsellors…" />
-                  <CommandList>
-                    <CommandEmpty>No counsellors found.</CommandEmpty>
-                    <CommandGroup>
-                      {/* Select all / Deselect all toggle */}
-                      <CommandItem
-                        value="__all__"
-                        onSelect={() => {
-                          const hasUnassigned =
-                            counsellorIds.includes(UNASSIGNED_COUNSELLOR);
-                          const realSelectedCount = counsellorIds.filter(
-                            (id) => id !== UNASSIGNED_COUNSELLOR,
-                          ).length;
-                          const allRealSelected =
-                            realSelectedCount === counsellors.length;
-                          if (allRealSelected) {
-                            // Deselect all counsellors, keep Unassigned if it was on.
-                            setCounsellorIds(hasUnassigned ? [UNASSIGNED_COUNSELLOR] : []);
-                          } else {
-                            const allIds = counsellors.map((p) => p.id);
-                            setCounsellorIds(
-                              hasUnassigned ? [...allIds, UNASSIGNED_COUNSELLOR] : allIds,
-                            );
-                          }
-                        }}
-                      >
-                        <Check
-                          className={cn(
-                            "mr-2 h-4 w-4",
-                            (() => {
+              </div>
+              <div className="xl:col-span-2">
+                <Select
+                  value={filters.source ?? "all"}
+                  onValueChange={(v) =>
+                    setFilters((f) => ({ ...f, source: v as LeadSource | "all" }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All sources</SelectItem>
+                    {sources.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {LEAD_SOURCE_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="xl:col-span-2">
+                <Select
+                  value={filters.collegeId ?? "all"}
+                  onValueChange={(v) => {
+                    const selectedCollege = (colleges ?? []).find((c) => c.id === v);
+                    setFilters((f) => {
+                      const courseStillValid =
+                        !f.course ||
+                        f.course === "all" ||
+                        v === "all" ||
+                        (selectedCollege?.courses ?? []).includes(f.course);
+                      return {
+                        ...f,
+                        collegeId: v,
+                        course: courseStillValid ? f.course : "all",
+                      };
+                    });
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="College" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All colleges</SelectItem>
+                    {(colleges ?? []).map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="xl:col-span-2">
+                <Popover open={counsellorPopoverOpen} onOpenChange={setCounsellorPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={counsellorPopoverOpen}
+                      className="w-full justify-between font-normal"
+                    >
+                      <span className="truncate">
+                        {counsellorIds.length === 0
+                          ? "All counsellors"
+                          : counsellorIds.length === 1
+                            ? (counsellorIds[0] === UNASSIGNED_COUNSELLOR
+                                ? "Unassigned"
+                                : counsellors.find((p) => p.id === counsellorIds[0])?.full_name ||
+                                  counsellors.find((p) => p.id === counsellorIds[0])?.email ||
+                                  "1 selected")
+                            : `${counsellorIds.length} selected`}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[240px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search counsellors…" />
+                      <CommandList>
+                        <CommandEmpty>No counsellors found.</CommandEmpty>
+                        <CommandGroup>
+                          {/* Select all / Deselect all toggle */}
+                          <CommandItem
+                            value="__all__"
+                            onSelect={() => {
                               const hasUnassigned =
                                 counsellorIds.includes(UNASSIGNED_COUNSELLOR);
                               const realSelectedCount = counsellorIds.filter(
                                 (id) => id !== UNASSIGNED_COUNSELLOR,
                               ).length;
-                              return (realSelectedCount === 0 && !hasUnassigned) ||
-                                realSelectedCount === counsellors.length
-                                ? "opacity-100"
-                                : "opacity-0";
-                            })(),
-                          )}
-                        />
-                        All counsellors
-                      </CommandItem>
-                      <CommandItem
-                        value="Unassigned"
-                        onSelect={() =>
-                          setCounsellorIds((prev) =>
-                            prev.includes(UNASSIGNED_COUNSELLOR)
-                              ? prev.filter((id) => id !== UNASSIGNED_COUNSELLOR)
-                              : [...prev, UNASSIGNED_COUNSELLOR],
-                          )
-                        }
-                      >
-                        <Check
-                          className={cn(
-                            "mr-2 h-4 w-4",
-                            counsellorIds.includes(UNASSIGNED_COUNSELLOR)
-                              ? "opacity-100"
-                              : "opacity-0",
-                          )}
-                        />
-                        Unassigned
-                      </CommandItem>
-                      {counsellors.map((p) => {
-                        const selected = counsellorIds.includes(p.id);
-                        return (
+                              const allRealSelected =
+                                realSelectedCount === counsellors.length;
+                              if (allRealSelected) {
+                                // Deselect all counsellors, keep Unassigned if it was on.
+                                setCounsellorIds(hasUnassigned ? [UNASSIGNED_COUNSELLOR] : []);
+                              } else {
+                                const allIds = counsellors.map((p) => p.id);
+                                setCounsellorIds(
+                                  hasUnassigned ? [...allIds, UNASSIGNED_COUNSELLOR] : allIds,
+                                );
+                              }
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                (() => {
+                                  const hasUnassigned =
+                                    counsellorIds.includes(UNASSIGNED_COUNSELLOR);
+                                  const realSelectedCount = counsellorIds.filter(
+                                    (id) => id !== UNASSIGNED_COUNSELLOR,
+                                  ).length;
+                                  return (realSelectedCount === 0 && !hasUnassigned) ||
+                                    realSelectedCount === counsellors.length
+                                    ? "opacity-100"
+                                    : "opacity-0";
+                                })(),
+                              )}
+                            />
+                            All counsellors
+                          </CommandItem>
                           <CommandItem
-                            key={p.id}
-                            value={p.full_name || p.email}
+                            value="Unassigned"
                             onSelect={() =>
                               setCounsellorIds((prev) =>
-                                selected
-                                  ? prev.filter((id) => id !== p.id)
-                                  : [...prev, p.id],
+                                prev.includes(UNASSIGNED_COUNSELLOR)
+                                  ? prev.filter((id) => id !== UNASSIGNED_COUNSELLOR)
+                                  : [...prev, UNASSIGNED_COUNSELLOR],
                               )
                             }
                           >
                             <Check
                               className={cn(
                                 "mr-2 h-4 w-4",
-                                selected ? "opacity-100" : "opacity-0",
+                                counsellorIds.includes(UNASSIGNED_COUNSELLOR)
+                                  ? "opacity-100"
+                                  : "opacity-0",
                               )}
                             />
-                            {p.full_name || p.email}
+                            Unassigned
                           </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            <Popover open={coursePopoverOpen} onOpenChange={setCoursePopoverOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={coursePopoverOpen}
-                  className="lg:col-span-2 w-full justify-between font-normal"
-                >
-                  <span className="truncate">
-                    {filters.course && filters.course !== "all"
-                      ? filters.course
-                      : "All courses"}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[260px] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search courses…" />
-                  <CommandList>
-                    <CommandEmpty>No courses found.</CommandEmpty>
-                    <CommandGroup>
-                      <CommandItem
-                        value="__all_courses__"
-                        onSelect={() => {
-                          setFilters((f) => ({ ...f, course: "all" }));
-                          setCoursePopoverOpen(false);
-                        }}
-                      >
-                        <Check
-                          className={cn(
-                            "mr-2 h-4 w-4",
-                            !filters.course || filters.course === "all"
-                              ? "opacity-100"
-                              : "opacity-0",
-                          )}
-                        />
-                        All courses
-                      </CommandItem>
-                      {allCourses.map((course) => (
+                          {counsellors.map((p) => {
+                            const selected = counsellorIds.includes(p.id);
+                            return (
+                              <CommandItem
+                                key={p.id}
+                                value={p.full_name || p.email}
+                                onSelect={() =>
+                                  setCounsellorIds((prev) =>
+                                    selected
+                                      ? prev.filter((id) => id !== p.id)
+                                      : [...prev, p.id],
+                                  )
+                                }
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    selected ? "opacity-100" : "opacity-0",
+                                  )}
+                                />
+                                {p.full_name || p.email}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+              <Popover open={coursePopoverOpen} onOpenChange={setCoursePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={coursePopoverOpen}
+                    className="min-w-[180px] justify-between font-normal"
+                  >
+                    <span className="truncate">
+                      {filters.course && filters.course !== "all"
+                        ? filters.course
+                        : "All courses"}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[260px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search courses…" />
+                    <CommandList>
+                      <CommandEmpty>No courses found.</CommandEmpty>
+                      <CommandGroup>
                         <CommandItem
-                          key={course}
-                          value={course}
+                          value="__all_courses__"
                           onSelect={() => {
-                            setFilters((f) => ({
-                              ...f,
-                              course: f.course === course ? "all" : course,
-                            }));
+                            setFilters((f) => ({ ...f, course: "all" }));
                             setCoursePopoverOpen(false);
                           }}
                         >
                           <Check
                             className={cn(
                               "mr-2 h-4 w-4",
-                              filters.course === course ? "opacity-100" : "opacity-0",
+                              !filters.course || filters.course === "all"
+                                ? "opacity-100"
+                                : "opacity-0",
                             )}
                           />
-                          {course}
+                          All courses
                         </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            <Button
-              variant={expertSearchOpen ? "default" : "outline"}
-              className="lg:col-span-1"
-              onClick={() => setExpertSearchOpen((open) => !open)}
-            >
-              <SlidersHorizontal className="mr-2 h-4 w-4" />
-              Expert
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="lg:col-span-1">
-                  <Filter className="mr-2 h-4 w-4" />
-                  Columns
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {TABLE_COLUMN_ORDER.map((column) => (
-                  <DropdownMenuCheckboxItem
-                    key={column}
-                    checked={columnVisibility[column]}
-                    onCheckedChange={(checked) =>
-                      setColumnVisibility((prev) => ({
-                        ...prev,
-                        [column]: !!checked,
-                      }))
-                    }
-                  >
-                    {TABLE_COLUMN_LABELS[column]}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {isFiltersActive ? (
-              <Button
-                variant="ghost"
-                className="lg:col-span-1 text-muted-foreground hover:text-foreground"
-                onClick={resetAllFilters}
+                        {allCourses.map((course) => (
+                          <CommandItem
+                            key={course}
+                            value={course}
+                            onSelect={() => {
+                              setFilters((f) => ({
+                                ...f,
+                                course: f.course === course ? "all" : course,
+                              }));
+                              setCoursePopoverOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                filters.course === course ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            {course}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+
+              <label
+                className={cn(
+                  "flex h-10 shrink-0 items-center gap-2 rounded-md border bg-background px-3 text-sm whitespace-nowrap",
+                  filters.overdueFollowupsOnly && "border-destructive/40 bg-destructive/5",
+                )}
               >
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reset
-              </Button>
-            ) : null}
+                <Checkbox
+                  checked={filters.overdueFollowupsOnly}
+                  onCheckedChange={(checked) =>
+                    setFilters((f) => ({ ...f, overdueFollowupsOnly: !!checked }))
+                  }
+                />
+                Overdue follow-ups
+              </label>
+
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Button
+                  variant={expertSearchOpen ? "default" : "outline"}
+                  onClick={() => setExpertSearchOpen((open) => !open)}
+                >
+                  <SlidersHorizontal className="mr-2 h-4 w-4" />
+                  Expert
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline">
+                      <Filter className="mr-2 h-4 w-4" />
+                      Columns
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {TABLE_COLUMN_ORDER.map((column) => (
+                      <DropdownMenuCheckboxItem
+                        key={column}
+                        checked={columnVisibility[column]}
+                        onCheckedChange={(checked) =>
+                          setColumnVisibility((prev) => ({
+                            ...prev,
+                            [column]: !!checked,
+                          }))
+                        }
+                      >
+                        {TABLE_COLUMN_LABELS[column]}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {isFiltersActive ? (
+                  <Button
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={resetAllFilters}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Reset
+                  </Button>
+                ) : null}
+              </div>
+            </div>
           </div>
 
           {expertSearchOpen ? (

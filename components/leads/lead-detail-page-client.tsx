@@ -12,6 +12,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Bot,
+  Globe2,
+  Loader2,
   Mail,
   MapPin,
   MessageSquare,
@@ -91,7 +94,9 @@ import {
   useAdmissionGoals,
   useRecordAdmissionGoalEvent,
 } from "@/lib/hooks/use-admission-goals";
+import { useLeadMessages, type LeadConversation } from "@/lib/hooks/use-lead-messages";
 import { differenceInSgtCalendarDays, formatSgtDate, formatSgtDateTime } from "@/lib/timezone";
+import { cn } from "@/lib/utils";
 
 export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const params = useSearchParams();
@@ -124,6 +129,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
     leadNavigation.index >= 0 && leadNavigation.total > 1;
   const { data: lead, isLoading } = useLead(leadId);
   const { data: activities } = useLeadActivities(leadId);
+  const { data: conversations = [], isLoading: messagesLoading } = useLeadMessages(leadId);
   const { data: followUps } = useFollowUps({ leadId });
   const completeFollowUp = useCompleteFollowUpTask();
   const { data: admissionGoals } = useAdmissionGoals({ status: "all" });
@@ -611,6 +617,17 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
       <Tabs defaultValue="timeline">
         <TabsList>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="messages">
+            Messages
+            {conversations.length > 0 ? (
+              <Badge variant="secondary" className="ml-2">
+                {conversations.reduce(
+                  (total, conversation) => total + conversation.messages.length,
+                  0,
+                )}
+              </Badge>
+            ) : null}
+          </TabsTrigger>
           <TabsTrigger value="notes">
             Notes
             {noteActivities.length > 0 ? (
@@ -683,6 +700,38 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                     </li>
                   ))}
                 </ol>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="messages">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <MessageSquare className="h-4 w-4" />
+                Conversation history
+              </CardTitle>
+              <CardDescription>
+                Messages exchanged between the visitor, ESRA AI, and counselors across all linked channels.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {messagesLoading ? (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading messages...
+                </div>
+              ) : conversations.length === 0 ? (
+                <EmptyState text="No conversations are linked to this lead yet." />
+              ) : (
+                <div className="space-y-5">
+                  {conversations.map((conversation) => (
+                    <LeadConversationTranscript
+                      key={conversation.id}
+                      conversation={conversation}
+                    />
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -896,6 +945,106 @@ function FollowUpRow({
         </Badge>
       </div>
     </div>
+  );
+}
+
+function LeadConversationTranscript({
+  conversation,
+}: {
+  conversation: LeadConversation;
+}) {
+  const channelLabel =
+    conversation.channel === "website"
+      ? "Website chat"
+      : conversation.channel === "whatsapp"
+        ? "WhatsApp"
+        : "Messenger";
+
+  return (
+    <section className="overflow-hidden rounded-lg border">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {conversation.channel === "website" ? (
+            <Globe2 className="h-4 w-4 shrink-0 text-blue-600" />
+          ) : (
+            <MessageSquare className="h-4 w-4 shrink-0 text-blue-600" />
+          )}
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{channelLabel}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {conversation.name || conversation.external_user_id}
+            </p>
+          </div>
+        </div>
+        <Badge variant="outline" className="text-[10px]">
+          {conversation.messages.length} messages
+        </Badge>
+      </div>
+      <div className="max-h-[32rem] space-y-3 overflow-y-auto bg-muted/10 p-4">
+        {conversation.messages.map((message) => {
+          const isVisitor = message.role === "user";
+          const isCounselor = !isVisitor && Boolean(message.sent_by_user_id);
+          const sender = isVisitor
+            ? "Visitor"
+            : isCounselor
+              ? message.sender?.full_name || message.sender?.email || "Counselor"
+              : "ESRA AI";
+
+          return (
+            <div
+              key={message.id}
+              className={cn("flex items-end gap-2", isVisitor ? "justify-start" : "justify-end")}
+            >
+              {!isVisitor ? null : (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+                  V
+                </div>
+              )}
+              <div
+                className={cn(
+                  "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm",
+                  isVisitor
+                    ? "rounded-bl-md border bg-background text-foreground"
+                    : isCounselor
+                      ? "rounded-br-md bg-blue-600 text-white"
+                      : "rounded-br-md bg-emerald-600 text-white",
+                )}
+              >
+                <p
+                  className={cn(
+                    "mb-1 text-[10px] font-medium",
+                    isVisitor ? "text-muted-foreground" : "text-white/80",
+                  )}
+                >
+                  {sender}
+                </p>
+                <p className="whitespace-pre-wrap break-words leading-relaxed">
+                  {message.content}
+                </p>
+                <p
+                  className={cn(
+                    "mt-1 text-right text-[10px]",
+                    isVisitor ? "text-muted-foreground" : "text-white/70",
+                  )}
+                >
+                  {formatSgtDateTime(message.created_at)}
+                </p>
+              </div>
+              {isVisitor ? null : (
+                <div
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white",
+                    isCounselor ? "bg-blue-600" : "bg-emerald-600",
+                  )}
+                >
+                  {isCounselor ? sender.charAt(0).toUpperCase() : <Bot className="h-3.5 w-3.5" />}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

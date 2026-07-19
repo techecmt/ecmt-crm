@@ -141,13 +141,27 @@ function extractVisitorData(message: string, existing: VisitorData): VisitorData
   const phone = message.match(/(?<!\w)(?:\+?\d[\s()-]*){7,15}\d(?!\w)/)?.[0];
   if (phone) next.phone = phone.replace(/[^\d+]/g, "");
 
-  const name = message.match(
+  let name = message.match(
     /\b(?:my name is|i am|i'm|this is)\s+([A-Za-z][A-Za-z' -]{1,78})/i,
   )?.[1];
+  // Visitors often answer a contact request with only "Name + phone number".
+  // Treat the remaining text as a name only when it contains no other content.
+  if (!name && (email || phone)) {
+    const contactReply = message
+      .replace(email ?? "", "")
+      .replace(phone ?? "", "")
+      .replace(/\b(?:my\s+name\s+is|name\s*(?:is|:)?)\b/gi, "")
+      .trim();
+    if (/^[A-Za-z][A-Za-z' -]{0,78}$/.test(contactReply)) {
+      name = contactReply;
+    }
+  }
   if (name) next.name = cleanText(name.replace(/[.,!?].*$/, ""));
 
   const course = message.match(
     /\b(?:interested in|interested\s+course\s+is|want to study|looking for|course\s*(?:is|:))\s+([A-Za-z0-9&/(),.' -]{2,100})/i,
+  )?.[1] ?? message.match(
+    /\b((?:advanced\s+)?diploma\s+(?:in\s+)?[A-Za-z0-9&/(),.' -]{2,90})/i,
   )?.[1];
   if (course) {
     const normalizedCourse = cleanText(course.replace(/[.!?].*$/, ""), 100);
