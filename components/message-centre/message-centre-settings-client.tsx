@@ -407,7 +407,10 @@ function AgentSettingsTab() {
             Model Configuration
           </CardTitle>
           <CardDescription>
-            Fine-tune the AI model parameters.
+            Chat model for counsellor replies (OpenRouter model ID). Do not use
+            moderation-only models such as{" "}
+            <code className="text-xs">nemotron-3.5-content-safety</code> — those
+            classify safety, they do not chat.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -417,8 +420,14 @@ function AgentSettingsTab() {
               <Input
                 value={form.model ?? ""}
                 onChange={(e) => patch({ model: e.target.value })}
-                placeholder="openai/gpt-4o-mini"
+                placeholder="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
               />
+              <p className="text-xs text-muted-foreground">
+                Free NVIDIA chat example:{" "}
+                <code className="text-[11px]">
+                  nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+                </code>
+              </p>
             </div>
             <div className="grid gap-2">
               <Label>Temperature ({form.temperature ?? 0.7})</Label>
