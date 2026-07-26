@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import {
   eachDayOfInterval,
   subDays,
@@ -24,8 +23,11 @@ import {
   Zap,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  joinFilterParts,
+  ReportPrintable,
+} from "@/components/reports/report-printable";
 import {
   Card,
   CardContent,
@@ -58,10 +60,9 @@ import {
 } from "@/lib/hooks/use-registration-report";
 import {
   differenceInSgtCalendarDays,
-  formatSgtDate,
   getSgtDateKey,
 } from "@/lib/timezone";
-import { LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS, type LeadSource } from "@/lib/types";
+import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
 
 type GroupSummary = {
   groupId: string;
@@ -608,6 +609,46 @@ export function RegistrationReportsClient() {
     [leads],
   );
 
+  const filterSummary = React.useMemo(() => {
+    const collegeLabels =
+      collegeIds.length > 0
+        ? collegeOptions
+            .filter((college) => collegeIds.includes(college.id))
+            .map((college) => college.name)
+        : [];
+    const counsellorLabels =
+      counsellorIds.length > 0
+        ? counsellorOptions
+            .filter((profile) => counsellorIds.includes(profile.id))
+            .map((profile) => profile.full_name || profile.email)
+        : [];
+    const paymentLabels =
+      paymentStatuses.length > 0
+        ? paymentStatuses.map((status) => (status === "paid" ? "Paid only" : "Unpaid only"))
+        : [];
+
+    return joinFilterParts([
+      `Registration period: ${fromDate} to ${toDate}`,
+      collegeLabels.length > 0 ? `Colleges: ${collegeLabels.join(", ")}` : null,
+      courses.length > 0 ? `Courses: ${courses.join(", ")}` : null,
+      sources.length > 0
+        ? `Sources: ${sources.map((item) => LEAD_SOURCE_LABELS[item]).join(", ")}`
+        : null,
+      counsellorLabels.length > 0 ? `Counsellors: ${counsellorLabels.join(", ")}` : null,
+      paymentLabels.length > 0 ? `Payment: ${paymentLabels.join(", ")}` : null,
+    ]);
+  }, [
+    collegeIds,
+    collegeOptions,
+    counsellorIds,
+    counsellorOptions,
+    courses,
+    fromDate,
+    paymentStatuses,
+    sources,
+    toDate,
+  ]);
+
   if (report.isLoading) {
     return (
       <div className="space-y-4">
@@ -619,8 +660,12 @@ export function RegistrationReportsClient() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1">
+    <ReportPrintable
+      title="Registration Report"
+      documentTitle={`Registration Report ${fromDate} to ${toDate}`}
+      filterSummary={filterSummary}
+    >
+      <div className="no-print space-y-1">
         <h2 className="text-lg font-semibold tracking-tight">Registration Report</h2>
         <p className="text-sm text-muted-foreground">
           Registrations filtered by registration date only. Includes unpaid/paid breakdown,
@@ -628,7 +673,7 @@ export function RegistrationReportsClient() {
         </p>
       </div>
 
-      <Card>
+      <Card className="no-print">
         <CardHeader>
           <CardTitle>Registration Filters</CardTitle>
           <CardDescription>
@@ -946,62 +991,6 @@ export function RegistrationReportsClient() {
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Registration Detail</CardTitle>
-          <CardDescription>
-            Individual leads registered in the selected period with days from inquiry to registration.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {leads.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              No registrations for selected filters.
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Lead</TableHead>
-                  <TableHead>Registered</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Course</TableHead>
-                  <TableHead>Counsellor</TableHead>
-                  <TableHead className="text-right">Days to register</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {leads.map((lead) => (
-                  <TableRow key={lead.id}>
-                    <TableCell className="font-medium">
-                      <Link
-                        href={`/dashboard/leads/${lead.id}`}
-                        className="hover:underline"
-                      >
-                        {lead.full_name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {formatSgtDate(lead.registration_completed_at)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {LEAD_STATUS_LABELS[lead.status] ?? lead.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{LEAD_SOURCE_LABELS[lead.source] ?? lead.source}</TableCell>
-                    <TableCell>{lead.interested_course?.trim() || "—"}</TableCell>
-                    <TableCell>{toUserName(lead.counsellor)}</TableCell>
-                    <TableCell className="text-right">{daysToRegister(lead)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    </ReportPrintable>
   );
 }

@@ -85,3 +85,55 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Report PDF export (A4 via browser print) */
+.report-print-header {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .report-print-header {
+    display: block;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  .report-print-root {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .report-print-root .rounded-xl.border {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none;
+  }
+
+  .report-print-root table {
+    font-size: 10px;
+  }
+
+  .report-print-root thead {
+    display: table-header-group;
+  }
+
+  .report-print-root tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

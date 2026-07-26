@@ -10,6 +10,10 @@ import { Activity, CalendarDays, CheckCircle2, UserCheck, UsersRound } from "luc
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  joinFilterParts,
+  ReportPrintable,
+} from "@/components/reports/report-printable";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -424,6 +428,36 @@ export function UserAuditReportsClient() {
     [],
   );
 
+  const filterSummary = React.useMemo(() => {
+    const counsellor =
+      counsellorId === "all"
+        ? null
+        : counsellorOptions.find((profile) => profile.id === counsellorId);
+
+    return joinFilterParts([
+      `Period: ${fromDate} to ${toDate}`,
+      `Heatmap month: ${month}`,
+      collegeId !== "all" && selectedCollege ? `College: ${selectedCollege.name}` : null,
+      course !== "all" ? `Course: ${course}` : null,
+      source !== "all" ? `Source: ${LEAD_SOURCE_LABELS[source]}` : null,
+      leadCreatedBy !== "all"
+        ? `Lead created by: ${leadCreatedBy === "system" ? "System" : "Users"}`
+        : null,
+      counsellor ? `Counsellor: ${counsellor.full_name || counsellor.email}` : null,
+    ]);
+  }, [
+    collegeId,
+    counsellorId,
+    counsellorOptions,
+    course,
+    fromDate,
+    leadCreatedBy,
+    month,
+    selectedCollege,
+    source,
+    toDate,
+  ]);
+
   if (report.isLoading) {
     return (
       <div className="space-y-4">
@@ -435,15 +469,19 @@ export function UserAuditReportsClient() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold tracking-tight">Admin Reports</h2>
+    <ReportPrintable
+      title="User Audit Report"
+      documentTitle={`User Audit Report ${fromDate} to ${toDate}`}
+      filterSummary={filterSummary}
+    >
+      <div className="no-print space-y-1">
+        <h2 className="text-lg font-semibold tracking-tight">User Audit Report</h2>
         <p className="text-sm text-muted-foreground">
           CRM entry heatmap, user audit breakdown, and recent CRM entries.
         </p>
       </div>
 
-      <Card>
+      <Card className="no-print">
         <CardHeader>
           <CardTitle>User Audit Filters</CardTitle>
           <CardDescription>
@@ -754,6 +792,6 @@ export function UserAuditReportsClient() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </ReportPrintable>
   );
 }

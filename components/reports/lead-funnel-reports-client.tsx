@@ -5,7 +5,10 @@ import {
   differenceInCalendarDays,
   eachDayOfInterval,
   eachMonthOfInterval,
+  eachWeekOfInterval,
+  endOfWeek,
   format,
+  startOfWeek,
   subDays,
 } from "date-fns";
 import {
@@ -14,12 +17,10 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
+  ComposedChart,
   Funnel,
   FunnelChart,
   LabelList,
-  Pie,
-  PieChart,
   XAxis,
   YAxis,
 } from "recharts";
@@ -35,6 +36,8 @@ import {
 } from "@/components/ui/card";
 import {
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -56,6 +59,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  joinFilterParts,
+  ReportPrintable,
+} from "@/components/reports/report-printable";
 import { useColleges } from "@/lib/hooks/use-colleges";
 import { useLeads } from "@/lib/hooks/use-leads";
 import { useProfiles } from "@/lib/hooks/use-profiles";
@@ -98,10 +105,36 @@ const REGISTRATION_STATUSES = new Set<LeadStatus>([
   "registered_dropped_out",
 ]);
 
-const REGISTERED_PAID_STATUSES = new Set<LeadStatus>([
-  "registered_paid_reg_fee",
-  "registered_closed",
-]);
+const SOURCE_PERFORMANCE_CONFIG: ChartConfig = {
+  created: { label: "Leads created", color: "hsl(var(--chart-1))" },
+  registered: { label: "Registrations", color: "hsl(var(--chart-2))" },
+};
+
+function isLeadRegistered(lead: Lead) {
+  return REGISTRATION_STATUSES.has(lead.status) || !!lead.registration_completed_at;
+}
+
+function truncateChartLabel(label: string, max = 16) {
+  return label.length > max ? `${label.slice(0, max)}…` : label;
+}
+
+function sourcePerformanceConversionLabel(
+  label: string,
+  payload: unknown[],
+) {
+  const row = (payload[0] as { payload?: { created?: number; registered?: number; source?: string } })
+    ?.payload;
+  if (!row?.created) return label;
+  const rate = ((row.registered ?? 0) / row.created) * 100;
+  return (
+    <div className="space-y-1">
+      <div className="font-medium">{row.source ?? label}</div>
+      <div className="text-muted-foreground">
+        Conversion: {rate.toFixed(1)}% registered
+      </div>
+    </div>
+  );
+}
 
 /** Cumulative pipeline stages: each stage counts leads that reached at least that point. */
 const FUNNEL_STAGES: FunnelStage[] = [
@@ -123,15 +156,10 @@ const FUNNEL_STAGES: FunnelStage[] = [
       COUNSELLING_COMPLETED_STATUSES.has(lead.status) || !!lead.counselling_completed_at,
   },
   {
-    key: "registration",
-    label: "Registration",
+    key: "registrations",
+    label: "Registrations",
     matches: (lead) =>
       REGISTRATION_STATUSES.has(lead.status) || !!lead.registration_completed_at,
-  },
-  {
-    key: "registered_paid",
-    label: "Registered (Paid)",
-    matches: (lead) => REGISTERED_PAID_STATUSES.has(lead.status),
   },
 ];
 
@@ -146,6 +174,76 @@ const FUNNEL_COLORS = [
 function percent(part: number, whole: number) {
   if (whole === 0) return "0%";
   return `${((part / whole) * 100).toFixed(1)}%`;
+}
+
+function chartCountLabel(value: unknown) {
+  const count = Number(value);
+  if (!Number.isFinite(count) || count <= 0) return "";
+  return String(count);
+}
+
+type TrendGranularity = "daily" | "weekly" | "monthly";
+
+function defaultTrendGranularity(fromDate: string, toDate: string): TrendGranularity {
+  const days = differenceInCalendarDays(new Date(toDate), new Date(fromDate));
+  if (days > 90) return "monthly";
+  if (days > 31) return "weekly";
+  return "daily";
+}
+
+function buildTrendData(
+  leads: Lead[],
+  fromDate: string,
+  toDate: string,
+  granularity: TrendGranularity,
+) {
+  const from = new Date(`${fromDate}T00:00:00`);
+  const to = new Date(`${toDate}T00:00:00`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) return [];
+
+  const counts = new Map<string, number>();
+
+  if (granularity === "daily") {
+    for (const lead of leads) {
+      const key = format(new Date(lead.created_at), "yyyy-MM-dd");
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return eachDayOfInterval({ start: from, end: to }).map((bucket) => {
+      const key = format(bucket, "yyyy-MM-dd");
+      return {
+        label: format(bucket, "d MMM"),
+        count: counts.get(key) ?? 0,
+      };
+    });
+  }
+
+  if (granularity === "weekly") {
+    for (const lead of leads) {
+      const weekStart = startOfWeek(new Date(lead.created_at), { weekStartsOn: 1 });
+      const key = format(weekStart, "yyyy-MM-dd");
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return eachWeekOfInterval({ start: from, end: to }, { weekStartsOn: 1 }).map((bucket) => {
+      const weekEnd = endOfWeek(bucket, { weekStartsOn: 1 });
+      const key = format(bucket, "yyyy-MM-dd");
+      return {
+        label: `${format(bucket, "d MMM")} – ${format(weekEnd, "d MMM")}`,
+        count: counts.get(key) ?? 0,
+      };
+    });
+  }
+
+  for (const lead of leads) {
+    const key = format(new Date(lead.created_at), "yyyy-MM");
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return eachMonthOfInterval({ start: from, end: to }).map((bucket) => {
+    const key = format(bucket, "yyyy-MM");
+    return {
+      label: format(bucket, "MMM yyyy"),
+      count: counts.get(key) ?? 0,
+    };
+  });
 }
 
 function KpiCard({
@@ -239,58 +337,84 @@ export function LeadFunnelReportsClient({
     [leads],
   );
 
-  const sourceData = React.useMemo(
+  const sourcePerformanceData = React.useMemo(
     () =>
       (Object.keys(LEAD_SOURCE_LABELS) as LeadSource[])
-        .map((src, index) => ({
-          key: src,
-          label: LEAD_SOURCE_LABELS[src],
-          value: leads.filter((l) => l.source === src).length,
-          fill: FUNNEL_COLORS[index % FUNNEL_COLORS.length],
-        }))
-        .filter((row) => row.value > 0),
+        .map((src) => {
+          const sourceLeads = leads.filter((l) => l.source === src);
+          const created = sourceLeads.length;
+          const registered = sourceLeads.filter(isLeadRegistered).length;
+          return {
+            key: src,
+            source: LEAD_SOURCE_LABELS[src],
+            created,
+            registered,
+          };
+        })
+        .filter((row) => row.created > 0)
+        .sort((a, b) => b.created - a.created),
     [leads],
   );
 
-  const sourceConfig: ChartConfig = React.useMemo(
-    () =>
-      sourceData.reduce<ChartConfig>(
-        (acc, cur) => ({ ...acc, [cur.key]: { label: cur.label, color: cur.fill } }),
-        {},
-      ),
-    [sourceData],
+  const defaultGranularity = React.useMemo(
+    () => defaultTrendGranularity(fromDate, toDate),
+    [fromDate, toDate],
+  );
+  const [trendGranularity, setTrendGranularity] = React.useState<TrendGranularity>("daily");
+
+  React.useEffect(() => {
+    setTrendGranularity(defaultGranularity);
+  }, [defaultGranularity]);
+
+  const trendData = React.useMemo(
+    () => buildTrendData(leads, fromDate, toDate, trendGranularity),
+    [leads, fromDate, toDate, trendGranularity],
   );
 
-  const trendData = React.useMemo(() => {
-    const from = new Date(`${fromDate}T00:00:00`);
-    const to = new Date(`${toDate}T00:00:00`);
-    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) return [];
-    const byMonth = differenceInCalendarDays(to, from) > 62;
-    const buckets = byMonth
-      ? eachMonthOfInterval({ start: from, end: to })
-      : eachDayOfInterval({ start: from, end: to });
-    const bucketKey = (d: Date) => format(d, byMonth ? "yyyy-MM" : "yyyy-MM-dd");
-    const counts = new Map<string, number>();
-    for (const lead of leads) {
-      const key = bucketKey(new Date(lead.created_at));
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return buckets.map((bucket) => ({
-      label: format(bucket, byMonth ? "MMM yyyy" : "d MMM"),
-      count: counts.get(bucketKey(bucket)) ?? 0,
-    }));
-  }, [leads, fromDate, toDate]);
+  const showTrendLabels = trendData.length <= 31;
 
   const totalLeads = funnelRows[0]?.count ?? 0;
   const counsellingCompleted =
     funnelRows.find((r) => r.key === "counselling_completed")?.count ?? 0;
-  const registeredPaid = funnelRows.find((r) => r.key === "registered_paid")?.count ?? 0;
+  const registrations =
+    funnelRows.find((r) => r.key === "registrations")?.count ?? 0;
 
   const counsellorOptions = (profilesQuery.data ?? []).filter(
     (p) =>
       p.is_active &&
       ["counsellor", "admission_manager", "management", "super_admin"].includes(p.role),
   );
+
+  const filterSummary = React.useMemo(() => {
+    const collegeName =
+      collegeId === "all"
+        ? null
+        : (collegesQuery.data?.find((c) => c.id === collegeId)?.name ?? collegeId);
+    const sourceLabel = source === "all" ? null : LEAD_SOURCE_LABELS[source];
+    const counsellor =
+      isAdmin && counsellorId !== "all"
+        ? counsellorOptions.find((p) => p.id === counsellorId)
+        : !isAdmin
+          ? counsellorOptions.find((p) => p.id === currentUserId)
+          : null;
+
+    return joinFilterParts([
+      `Period: ${fromDate} to ${toDate}`,
+      collegeName ? `College: ${collegeName}` : null,
+      sourceLabel ? `Source: ${sourceLabel}` : null,
+      counsellor ? `Counsellor: ${counsellor.full_name || counsellor.email}` : null,
+    ]);
+  }, [
+    collegeId,
+    collegesQuery.data,
+    counsellorId,
+    counsellorOptions,
+    currentUserId,
+    fromDate,
+    isAdmin,
+    source,
+    toDate,
+  ]);
 
   if (leadsQuery.isLoading) {
     return (
@@ -303,8 +427,12 @@ export function LeadFunnelReportsClient({
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <ReportPrintable
+      title="Lead Funnel Report"
+      documentTitle={`Lead Funnel Report ${fromDate} to ${toDate}`}
+      filterSummary={filterSummary}
+    >
+      <Card className="no-print">
         <CardHeader>
           <CardTitle>Lead Report Filters</CardTitle>
           <CardDescription>
@@ -401,15 +529,15 @@ export function LeadFunnelReportsClient({
           icon={<CheckCircle2 className="h-4 w-4 text-muted-foreground" />}
         />
         <KpiCard
-          label="Registered (Paid)"
-          value={registeredPaid}
-          hint={`${percent(registeredPaid, totalLeads)} of leads`}
+          label="Registrations"
+          value={registrations}
+          hint={`${percent(registrations, totalLeads)} of leads`}
           icon={<GraduationCap className="h-4 w-4 text-muted-foreground" />}
         />
         <KpiCard
           label="Conversion Rate"
-          value={percent(registeredPaid, totalLeads)}
-          hint="Inquiry → paid registration"
+          value={percent(registrations, totalLeads)}
+          hint="Inquiry → registration"
           icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
         />
       </div>
@@ -433,6 +561,14 @@ export function LeadFunnelReportsClient({
                 <FunnelChart margin={{ left: 8, right: 8 }}>
                   <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                   <Funnel dataKey="count" data={funnelRows} isAnimationActive>
+                    <LabelList
+                      position="center"
+                      dataKey="count"
+                      stroke="none"
+                      fill="hsl(var(--primary-foreground))"
+                      fontSize={12}
+                      formatter={chartCountLabel}
+                    />
                     <LabelList
                       position="right"
                       dataKey="name"
@@ -490,78 +626,154 @@ export function LeadFunnelReportsClient({
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Leads by Status</CardTitle>
-            <CardDescription>Current status of leads created in the period.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {statusData.length === 0 ? (
-              <EmptyChart label="No leads in selected period" />
-            ) : (
-              <ChartContainer
-                config={{ count: { label: "Leads", color: "hsl(var(--chart-1))" } }}
-                className="h-[280px] w-full"
-              >
-                <BarChart data={statusData} margin={{ left: 8, right: 8 }}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="status"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
+      <Card>
+        <CardHeader>
+          <CardTitle>Leads by Status</CardTitle>
+          <CardDescription>Current status of leads created in the period.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {statusData.length === 0 ? (
+            <EmptyChart label="No leads in selected period" />
+          ) : (
+            <ChartContainer
+              config={{ count: { label: "Leads", color: "hsl(var(--chart-1))" } }}
+              className="h-[280px] w-full"
+            >
+              <BarChart data={statusData} margin={{ left: 8, right: 8, top: 20 }}>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="status"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  fontSize={11}
+                  interval={0}
+                  angle={-12}
+                  height={50}
+                />
+                <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="count" radius={4} fill="hsl(var(--chart-1))">
+                  <LabelList
+                    dataKey="count"
+                    position="top"
+                    formatter={chartCountLabel}
+                    className="fill-foreground"
                     fontSize={11}
-                    interval={0}
-                    angle={-12}
-                    height={50}
                   />
-                  <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" radius={4} fill="hsl(var(--chart-1))" />
-                </BarChart>
-              </ChartContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Leads by Source</CardTitle>
-            <CardDescription>Where leads in the period came from.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {sourceData.length === 0 ? (
-              <EmptyChart label="No leads in selected period" />
-            ) : (
-              <ChartContainer config={sourceConfig} className="h-[280px] w-full">
-                <PieChart>
-                  <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                  <Pie
-                    data={sourceData}
-                    dataKey="value"
-                    nameKey="label"
-                    innerRadius={50}
-                    outerRadius={90}
-                    strokeWidth={2}
-                  >
-                    {sourceData.map((s) => (
-                      <Cell key={s.key} fill={s.fill} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ChartContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>New Leads Trend</CardTitle>
+          <CardTitle>Leads by Source</CardTitle>
           <CardDescription>
-            Leads created per {differenceInCalendarDays(new Date(toDate), new Date(fromDate)) > 62 ? "month" : "day"} in the selected period.
+            Leads created vs registrations by source. Hover a source to compare conversion.
           </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sourcePerformanceData.length === 0 ? (
+            <EmptyChart label="No leads in selected period" />
+          ) : (
+            <ChartContainer config={SOURCE_PERFORMANCE_CONFIG} className="h-[380px] w-full">
+              <ComposedChart
+                data={sourcePerformanceData}
+                margin={{ top: 24, right: 12, left: 8, bottom: 64 }}
+              >
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="source"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  fontSize={10}
+                  interval={0}
+                  angle={-28}
+                  textAnchor="end"
+                  height={72}
+                  tickFormatter={(value) => truncateChartLabel(String(value))}
+                />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={36} fontSize={11} />
+                <ChartTooltip
+                  cursor={{ fill: "hsl(var(--muted))", opacity: 0.35 }}
+                  content={
+                    <ChartTooltipContent
+                      indicator="line"
+                      labelFormatter={sourcePerformanceConversionLabel}
+                    />
+                  }
+                />
+                <ChartLegend content={<ChartLegendContent />} />
+                <Area
+                  type="monotone"
+                  dataKey="created"
+                  fill="var(--color-created)"
+                  fillOpacity={0.2}
+                  stroke="var(--color-created)"
+                  strokeWidth={2}
+                  isAnimationActive
+                >
+                  <LabelList
+                    dataKey="created"
+                    position="top"
+                    formatter={chartCountLabel}
+                    className="fill-foreground"
+                    fontSize={10}
+                  />
+                </Area>
+                <Bar
+                  dataKey="registered"
+                  fill="var(--color-registered)"
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={40}
+                  isAnimationActive
+                >
+                  <LabelList
+                    dataKey="registered"
+                    position="top"
+                    formatter={chartCountLabel}
+                    className="fill-foreground"
+                    fontSize={10}
+                  />
+                </Bar>
+              </ComposedChart>
+            </ChartContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+          <div className="space-y-1">
+            <CardTitle>New Leads Trend</CardTitle>
+            <CardDescription>
+              Leads created per{" "}
+              {trendGranularity === "daily"
+                ? "day"
+                : trendGranularity === "weekly"
+                  ? "week"
+                  : "month"}{" "}
+              in the selected period.
+            </CardDescription>
+          </div>
+          <div className="no-print flex shrink-0 rounded-lg border p-0.5">
+            {(["daily", "weekly", "monthly"] as const).map((granularity) => (
+              <Button
+                key={granularity}
+                type="button"
+                size="sm"
+                variant={trendGranularity === granularity ? "secondary" : "ghost"}
+                className="h-7 px-3 text-xs capitalize"
+                onClick={() => setTrendGranularity(granularity)}
+              >
+                {granularity}
+              </Button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent>
           {trendData.length === 0 ? (
@@ -569,11 +781,21 @@ export function LeadFunnelReportsClient({
           ) : (
             <ChartContainer
               config={{ count: { label: "New leads", color: "hsl(var(--chart-2))" } }}
-              className="h-[240px] w-full"
+              className="h-[280px] w-full"
             >
-              <AreaChart data={trendData} margin={{ left: 8, right: 8 }}>
+              <AreaChart data={trendData} margin={{ left: 8, right: 8, top: 20, bottom: 8 }}>
                 <CartesianGrid vertical={false} />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                <XAxis
+                  dataKey="label"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  fontSize={11}
+                  interval={trendGranularity === "daily" && trendData.length > 14 ? "preserveStartEnd" : 0}
+                  angle={trendGranularity === "weekly" ? -18 : 0}
+                  height={trendGranularity === "weekly" ? 48 : 30}
+                  textAnchor={trendGranularity === "weekly" ? "end" : "middle"}
+                />
                 <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Area
@@ -583,12 +805,23 @@ export function LeadFunnelReportsClient({
                   fillOpacity={0.2}
                   stroke="hsl(var(--chart-2))"
                   strokeWidth={2}
-                />
+                  isAnimationActive
+                >
+                  {showTrendLabels ? (
+                    <LabelList
+                      dataKey="count"
+                      position="top"
+                      formatter={chartCountLabel}
+                      className="fill-foreground"
+                      fontSize={10}
+                    />
+                  ) : null}
+                </Area>
               </AreaChart>
             </ChartContainer>
           )}
         </CardContent>
       </Card>
-    </div>
+    </ReportPrintable>
   );
 }
