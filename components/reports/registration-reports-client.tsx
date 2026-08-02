@@ -497,19 +497,40 @@ export function RegistrationReportsClient() {
   const [sources, setSources] = React.useState<LeadSource[]>([]);
   const [counsellorIds, setCounsellorIds] = React.useState<string[]>([]);
   const [paymentStatuses, setPaymentStatuses] = React.useState<Array<"unpaid" | "paid">>([]);
+  const [appliedFilters, setAppliedFilters] = React.useState(() => ({
+    fromDate: getSgtDateKey(subDays(now, 29)),
+    toDate: getSgtDateKey(now),
+    collegeIds: [] as string[],
+    courses: [] as string[],
+    sources: [] as LeadSource[],
+    counsellorIds: [] as string[],
+    paymentStatuses: [] as Array<"unpaid" | "paid">,
+  }));
 
   const report = useRegistrationReport({
-    fromDate,
-    toDate,
-    collegeIds: collegeIds.length > 0 ? collegeIds : undefined,
-    courses: courses.length > 0 ? courses : undefined,
-    sources: sources.length > 0 ? sources : undefined,
-    counsellorIds: counsellorIds.length > 0 ? counsellorIds : undefined,
-    paymentStatuses: paymentStatuses.length > 0 ? paymentStatuses : undefined,
+    fromDate: appliedFilters.fromDate,
+    toDate: appliedFilters.toDate,
+    collegeIds:
+      appliedFilters.collegeIds.length > 0
+        ? appliedFilters.collegeIds
+        : undefined,
+    courses: appliedFilters.courses.length > 0 ? appliedFilters.courses : undefined,
+    sources: appliedFilters.sources.length > 0 ? appliedFilters.sources : undefined,
+    counsellorIds:
+      appliedFilters.counsellorIds.length > 0
+        ? appliedFilters.counsellorIds
+        : undefined,
+    paymentStatuses:
+      appliedFilters.paymentStatuses.length > 0
+        ? appliedFilters.paymentStatuses
+        : undefined,
   });
 
-  const leads = report.data?.leads ?? [];
-  const collegeOptions = report.data?.colleges ?? [];
+  const leads = React.useMemo(() => report.data?.leads ?? [], [report.data?.leads]);
+  const collegeOptions = React.useMemo(
+    () => report.data?.colleges ?? [],
+    [report.data?.colleges],
+  );
   const selectedColleges = collegeOptions.filter((college) => collegeIds.includes(college.id));
 
   const courseOptions = React.useMemo(() => {
@@ -598,8 +619,13 @@ export function RegistrationReportsClient() {
   );
 
   const trendData = React.useMemo(
-    () => buildTrendData(leads, fromDate, toDate),
-    [fromDate, leads, toDate],
+    () =>
+      buildTrendData(
+        leads,
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+      ),
+    [appliedFilters.fromDate, appliedFilters.toDate, leads],
   );
 
   const dayBuckets = React.useMemo(() => buildDayBuckets(leads), [leads]);
@@ -611,42 +637,44 @@ export function RegistrationReportsClient() {
 
   const filterSummary = React.useMemo(() => {
     const collegeLabels =
-      collegeIds.length > 0
+      appliedFilters.collegeIds.length > 0
         ? collegeOptions
-            .filter((college) => collegeIds.includes(college.id))
+            .filter((college) => appliedFilters.collegeIds.includes(college.id))
             .map((college) => college.name)
         : [];
     const counsellorLabels =
-      counsellorIds.length > 0
+      appliedFilters.counsellorIds.length > 0
         ? counsellorOptions
-            .filter((profile) => counsellorIds.includes(profile.id))
+            .filter((profile) =>
+              appliedFilters.counsellorIds.includes(profile.id),
+            )
             .map((profile) => profile.full_name || profile.email)
         : [];
     const paymentLabels =
-      paymentStatuses.length > 0
-        ? paymentStatuses.map((status) => (status === "paid" ? "Paid only" : "Unpaid only"))
+      appliedFilters.paymentStatuses.length > 0
+        ? appliedFilters.paymentStatuses.map((status) =>
+            status === "paid" ? "Paid only" : "Unpaid only",
+          )
         : [];
 
     return joinFilterParts([
-      `Registration period: ${fromDate} to ${toDate}`,
+      `Registration period: ${appliedFilters.fromDate} to ${appliedFilters.toDate}`,
       collegeLabels.length > 0 ? `Colleges: ${collegeLabels.join(", ")}` : null,
-      courses.length > 0 ? `Courses: ${courses.join(", ")}` : null,
-      sources.length > 0
-        ? `Sources: ${sources.map((item) => LEAD_SOURCE_LABELS[item]).join(", ")}`
+      appliedFilters.courses.length > 0
+        ? `Courses: ${appliedFilters.courses.join(", ")}`
+        : null,
+      appliedFilters.sources.length > 0
+        ? `Sources: ${appliedFilters.sources
+            .map((item) => LEAD_SOURCE_LABELS[item])
+            .join(", ")}`
         : null,
       counsellorLabels.length > 0 ? `Counsellors: ${counsellorLabels.join(", ")}` : null,
       paymentLabels.length > 0 ? `Payment: ${paymentLabels.join(", ")}` : null,
     ]);
   }, [
-    collegeIds,
+    appliedFilters,
     collegeOptions,
-    counsellorIds,
     counsellorOptions,
-    courses,
-    fromDate,
-    paymentStatuses,
-    sources,
-    toDate,
   ]);
 
   if (report.isLoading) {
@@ -662,7 +690,7 @@ export function RegistrationReportsClient() {
   return (
     <ReportPrintable
       title="Registration Report"
-      documentTitle={`Registration Report ${fromDate} to ${toDate}`}
+      documentTitle={`Registration Report ${appliedFilters.fromDate} to ${appliedFilters.toDate}`}
       filterSummary={filterSummary}
     >
       <div className="no-print space-y-1">
@@ -769,6 +797,22 @@ export function RegistrationReportsClient() {
           </div>
           <Button
             type="button"
+            onClick={() =>
+              setAppliedFilters({
+                fromDate,
+                toDate,
+                collegeIds,
+                courses,
+                sources,
+                counsellorIds,
+                paymentStatuses,
+              })
+            }
+          >
+            Apply filters
+          </Button>
+          <Button
+            type="button"
             variant="outline"
             onClick={() => {
               setFromDate(getSgtDateKey(subDays(now, 29)));
@@ -780,7 +824,7 @@ export function RegistrationReportsClient() {
               setPaymentStatuses([]);
             }}
           >
-            Reset filters
+            Reset selections
           </Button>
         </CardContent>
       </Card>

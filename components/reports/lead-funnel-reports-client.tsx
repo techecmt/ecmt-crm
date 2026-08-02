@@ -294,26 +294,37 @@ export function LeadFunnelReportsClient({
   // Default to the logged-in user's own pipeline. Admins can switch via the
   // Counsellor filter; non-admins stay scoped to themselves.
   const [counsellorId, setCounsellorId] = React.useState(currentUserId);
+  const [appliedFilters, setAppliedFilters] = React.useState(() => ({
+    fromDate: format(subDays(now, 29), "yyyy-MM-dd"),
+    toDate: format(now, "yyyy-MM-dd"),
+    collegeId: "all",
+    source: "all" as LeadSource | "all",
+    counsellorId: currentUserId,
+  }));
 
   const leadsQuery = useLeads({
-    collegeId,
-    source,
-    counsellorId: isAdmin ? counsellorId : currentUserId,
+    collegeId: appliedFilters.collegeId,
+    source: appliedFilters.source,
+    counsellorId: isAdmin ? appliedFilters.counsellorId : currentUserId,
   });
   const collegesQuery = useColleges();
   const profilesQuery = useProfiles();
 
   const leads = React.useMemo(() => {
     const all = leadsQuery.data ?? [];
-    const from = fromDate ? new Date(`${fromDate}T00:00:00`) : null;
-    const to = toDate ? new Date(`${toDate}T23:59:59.999`) : null;
+    const from = appliedFilters.fromDate
+      ? new Date(`${appliedFilters.fromDate}T00:00:00`)
+      : null;
+    const to = appliedFilters.toDate
+      ? new Date(`${appliedFilters.toDate}T23:59:59.999`)
+      : null;
     return all.filter((lead) => {
       const createdAt = new Date(lead.created_at);
       if (from && createdAt < from) return false;
       if (to && createdAt > to) return false;
       return true;
     });
-  }, [leadsQuery.data, fromDate, toDate]);
+  }, [appliedFilters.fromDate, appliedFilters.toDate, leadsQuery.data]);
 
   const funnelRows = React.useMemo(
     () =>
@@ -357,8 +368,12 @@ export function LeadFunnelReportsClient({
   );
 
   const defaultGranularity = React.useMemo(
-    () => defaultTrendGranularity(fromDate, toDate),
-    [fromDate, toDate],
+    () =>
+      defaultTrendGranularity(
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+      ),
+    [appliedFilters.fromDate, appliedFilters.toDate],
   );
   const [trendGranularity, setTrendGranularity] = React.useState<TrendGranularity>("daily");
 
@@ -367,8 +382,14 @@ export function LeadFunnelReportsClient({
   }, [defaultGranularity]);
 
   const trendData = React.useMemo(
-    () => buildTrendData(leads, fromDate, toDate, trendGranularity),
-    [leads, fromDate, toDate, trendGranularity],
+    () =>
+      buildTrendData(
+        leads,
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+        trendGranularity,
+      ),
+    [appliedFilters.fromDate, appliedFilters.toDate, leads, trendGranularity],
   );
 
   const showTrendLabels = trendData.length <= 31;
@@ -387,33 +408,33 @@ export function LeadFunnelReportsClient({
 
   const filterSummary = React.useMemo(() => {
     const collegeName =
-      collegeId === "all"
+      appliedFilters.collegeId === "all"
         ? null
-        : (collegesQuery.data?.find((c) => c.id === collegeId)?.name ?? collegeId);
-    const sourceLabel = source === "all" ? null : LEAD_SOURCE_LABELS[source];
+        : (collegesQuery.data?.find((c) => c.id === appliedFilters.collegeId)?.name ??
+          appliedFilters.collegeId);
+    const sourceLabel =
+      appliedFilters.source === "all"
+        ? null
+        : LEAD_SOURCE_LABELS[appliedFilters.source];
     const counsellor =
-      isAdmin && counsellorId !== "all"
-        ? counsellorOptions.find((p) => p.id === counsellorId)
+      isAdmin && appliedFilters.counsellorId !== "all"
+        ? counsellorOptions.find((p) => p.id === appliedFilters.counsellorId)
         : !isAdmin
           ? counsellorOptions.find((p) => p.id === currentUserId)
           : null;
 
     return joinFilterParts([
-      `Period: ${fromDate} to ${toDate}`,
+      `Period: ${appliedFilters.fromDate} to ${appliedFilters.toDate}`,
       collegeName ? `College: ${collegeName}` : null,
       sourceLabel ? `Source: ${sourceLabel}` : null,
       counsellor ? `Counsellor: ${counsellor.full_name || counsellor.email}` : null,
     ]);
   }, [
-    collegeId,
+    appliedFilters,
     collegesQuery.data,
-    counsellorId,
     counsellorOptions,
     currentUserId,
-    fromDate,
     isAdmin,
-    source,
-    toDate,
   ]);
 
   if (leadsQuery.isLoading) {
@@ -429,7 +450,7 @@ export function LeadFunnelReportsClient({
   return (
     <ReportPrintable
       title="Lead Funnel Report"
-      documentTitle={`Lead Funnel Report ${fromDate} to ${toDate}`}
+      documentTitle={`Lead Funnel Report ${appliedFilters.fromDate} to ${appliedFilters.toDate}`}
       filterSummary={filterSummary}
     >
       <Card className="no-print">
@@ -499,6 +520,20 @@ export function LeadFunnelReportsClient({
               </Select>
             </div>
           ) : null}
+          <Button
+            type="button"
+            onClick={() =>
+              setAppliedFilters({
+                fromDate,
+                toDate,
+                collegeId,
+                source,
+                counsellorId: isAdmin ? counsellorId : currentUserId,
+              })
+            }
+          >
+            Apply filters
+          </Button>
           <Button
             type="button"
             variant="outline"

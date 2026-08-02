@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -200,6 +201,7 @@ export function useLeads(filters: LeadFilters = {}) {
     enabled,
     queryKey: [...LEADS_KEY, queryFilters],
     staleTime: 2 * 60 * 1000, // 2 min — leads don't change mid-session
+    placeholderData: keepPreviousData,
     queryFn: () => fetchAllLeads(queryFilters),
   });
 }

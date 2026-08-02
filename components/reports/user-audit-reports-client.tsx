@@ -351,22 +351,43 @@ export function UserAuditReportsClient() {
     "all" | "system" | "users"
   >("all");
   const [counsellorId, setCounsellorId] = React.useState("all");
+  const [appliedFilters, setAppliedFilters] = React.useState(() => ({
+    fromDate: getSgtDateKey(subDays(now, 29)),
+    toDate: getSgtDateKey(now),
+    month: getSgtMonthKey(now),
+    collegeId: "all",
+    course: "all",
+    source: "all" as LeadSource | "all",
+    leadCreatedBy: "all" as "all" | "system" | "users",
+    counsellorId: "all",
+  }));
 
   const report = useUserAuditReport({
-    fromDate,
-    toDate,
-    month,
-    collegeId: collegeId === "all" ? undefined : collegeId,
-    course: course === "all" ? undefined : course,
-    source: source === "all" ? undefined : source,
-    leadCreatedBy: leadCreatedBy === "all" ? undefined : leadCreatedBy,
-    counsellorId: counsellorId === "all" ? undefined : counsellorId,
+    fromDate: appliedFilters.fromDate,
+    toDate: appliedFilters.toDate,
+    month: appliedFilters.month,
+    collegeId:
+      appliedFilters.collegeId === "all"
+        ? undefined
+        : appliedFilters.collegeId,
+    course: appliedFilters.course === "all" ? undefined : appliedFilters.course,
+    source: appliedFilters.source === "all" ? undefined : appliedFilters.source,
+    leadCreatedBy:
+      appliedFilters.leadCreatedBy === "all"
+        ? undefined
+        : appliedFilters.leadCreatedBy,
+    counsellorId:
+      appliedFilters.counsellorId === "all"
+        ? undefined
+        : appliedFilters.counsellorId,
   });
 
   const monthDate = React.useMemo(() => {
-    const monthRange = getSgtMonthRangeUtc(month);
-    return new Date(monthRange?.startIso ?? `${month}-01T00:00:00Z`);
-  }, [month]);
+    const monthRange = getSgtMonthRangeUtc(appliedFilters.month);
+    return new Date(
+      monthRange?.startIso ?? `${appliedFilters.month}-01T00:00:00Z`,
+    );
+  }, [appliedFilters.month]);
   const heatmap = React.useMemo(
     () => buildHeatmap(report.data?.crmEntriesMonth ?? [], monthDate),
     [monthDate, report.data?.crmEntriesMonth],
@@ -389,16 +410,31 @@ export function UserAuditReportsClient() {
     [report.data?.crmEntriesRange, report.data?.events],
   );
   const counsellorLeadSummaries = React.useMemo(
-    () => summarizeLeadsByCounsellor(report.data?.leads ?? [], fromDate, toDate),
-    [fromDate, toDate, report.data?.leads],
+    () =>
+      summarizeLeadsByCounsellor(
+        report.data?.leads ?? [],
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+      ),
+    [appliedFilters.fromDate, appliedFilters.toDate, report.data?.leads],
   );
   const courseLeadSummaries = React.useMemo(
-    () => summarizeLeadsByCourse(report.data?.leads ?? [], fromDate, toDate),
-    [fromDate, toDate, report.data?.leads],
+    () =>
+      summarizeLeadsByCourse(
+        report.data?.leads ?? [],
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+      ),
+    [appliedFilters.fromDate, appliedFilters.toDate, report.data?.leads],
   );
   const sourceLeadSummaries = React.useMemo(
-    () => summarizeLeadsBySource(report.data?.leads ?? [], fromDate, toDate),
-    [fromDate, toDate, report.data?.leads],
+    () =>
+      summarizeLeadsBySource(
+        report.data?.leads ?? [],
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+      ),
+    [appliedFilters.fromDate, appliedFilters.toDate, report.data?.leads],
   );
 
   const collegeOptions = React.useMemo(
@@ -430,32 +466,36 @@ export function UserAuditReportsClient() {
 
   const filterSummary = React.useMemo(() => {
     const counsellor =
-      counsellorId === "all"
+      appliedFilters.counsellorId === "all"
         ? null
-        : counsellorOptions.find((profile) => profile.id === counsellorId);
+        : counsellorOptions.find(
+            (profile) => profile.id === appliedFilters.counsellorId,
+          );
 
     return joinFilterParts([
-      `Period: ${fromDate} to ${toDate}`,
-      `Heatmap month: ${month}`,
-      collegeId !== "all" && selectedCollege ? `College: ${selectedCollege.name}` : null,
-      course !== "all" ? `Course: ${course}` : null,
-      source !== "all" ? `Source: ${LEAD_SOURCE_LABELS[source]}` : null,
-      leadCreatedBy !== "all"
-        ? `Lead created by: ${leadCreatedBy === "system" ? "System" : "Users"}`
+      `Period: ${appliedFilters.fromDate} to ${appliedFilters.toDate}`,
+      `Heatmap month: ${appliedFilters.month}`,
+      appliedFilters.collegeId !== "all"
+        ? `College: ${
+            collegeOptions.find((college) => college.id === appliedFilters.collegeId)
+              ?.name ?? appliedFilters.collegeId
+          }`
+        : null,
+      appliedFilters.course !== "all" ? `Course: ${appliedFilters.course}` : null,
+      appliedFilters.source !== "all"
+        ? `Source: ${LEAD_SOURCE_LABELS[appliedFilters.source]}`
+        : null,
+      appliedFilters.leadCreatedBy !== "all"
+        ? `Lead created by: ${
+            appliedFilters.leadCreatedBy === "system" ? "System" : "Users"
+          }`
         : null,
       counsellor ? `Counsellor: ${counsellor.full_name || counsellor.email}` : null,
     ]);
   }, [
-    collegeId,
-    counsellorId,
+    appliedFilters,
+    collegeOptions,
     counsellorOptions,
-    course,
-    fromDate,
-    leadCreatedBy,
-    month,
-    selectedCollege,
-    source,
-    toDate,
   ]);
 
   if (report.isLoading) {
@@ -471,7 +511,7 @@ export function UserAuditReportsClient() {
   return (
     <ReportPrintable
       title="User Audit Report"
-      documentTitle={`User Audit Report ${fromDate} to ${toDate}`}
+      documentTitle={`User Audit Report ${appliedFilters.fromDate} to ${appliedFilters.toDate}`}
       filterSummary={filterSummary}
     >
       <div className="no-print space-y-1">
@@ -581,6 +621,23 @@ export function UserAuditReportsClient() {
           </div>
           <Button
             type="button"
+            onClick={() =>
+              setAppliedFilters({
+                fromDate,
+                toDate,
+                month,
+                collegeId,
+                course,
+                source,
+                leadCreatedBy,
+                counsellorId,
+              })
+            }
+          >
+            Apply filters
+          </Button>
+          <Button
+            type="button"
             variant="outline"
             onClick={() => {
               setFromDate(getSgtDateKey(subDays(now, 29)));
@@ -593,7 +650,7 @@ export function UserAuditReportsClient() {
               setCounsellorId("all");
             }}
           >
-            Reset filters
+            Reset selections
           </Button>
         </CardContent>
       </Card>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { createClient } from "@/lib/supabase/client";
 import { getSgtDayEndUtcIso, getSgtDayStartUtcIso } from "@/lib/timezone";
@@ -63,6 +63,7 @@ export function isRegistrationPaid(status: LeadStatus) {
 export function useRegistrationReport(filters: RegistrationReportFilters) {
   return useQuery({
     queryKey: ["reports", "registration", filters],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const supabase = createClient();
       const fromIso = toIsoRangeStart(filters.fromDate);

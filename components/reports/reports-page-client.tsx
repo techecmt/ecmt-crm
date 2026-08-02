@@ -17,7 +17,7 @@ export function ReportsPageClient({
         <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
         <p className="text-sm text-muted-foreground">
           {isAdmin
-            ? "Lead funnel and charts, plus admin-only registration and user audit reports."
+            ? "Lead funnel and charts, plus admin-only comparison, registration, and user audit reports."
             : "Lead funnel and charts for your pipeline."}
         </p>
       </div>

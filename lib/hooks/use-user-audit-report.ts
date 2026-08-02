@@ -1,7 +1,7 @@
 "use client";
 
 import { endOfMonth, startOfMonth } from "date-fns";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -109,6 +109,7 @@ function normalizeCourse(value: string | null | undefined) {
 export function useUserAuditReport(filters: UserAuditFilters) {
   return useQuery({
     queryKey: ["reports", "user-audit", filters],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const supabase = createClient();
       const fromIso = toIsoRangeStart(filters.fromDate);
