@@ -54,6 +54,7 @@ export function parseWhatsAppWebhook(body: unknown): ParsedInboundMessage | null
 
     return {
       channel: "whatsapp",
+      provider: "meta",
       externalUserId: message.from,
       name: contact?.profile?.name || null,
       text: message.text.body,

@@ -25,6 +25,7 @@ import {
   UserCircle2,
   Users,
   X,
+  Upload,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -129,6 +130,7 @@ import {
   type LeadStatus,
 } from "@/lib/types";
 import { LeadFormSheet } from "@/components/leads/lead-form-sheet";
+import { LeadImportDialog } from "@/components/leads/lead-import-dialog";
 import { LeadStatusSelect } from "@/components/leads/status-select";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
 import { formatSgtDate, formatSgtTimestampKey } from "@/lib/timezone";
@@ -1011,6 +1013,7 @@ export function LeadsPageClient({
   const [bulkStatus, setBulkStatus] = React.useState<LeadStatus | "">("");
   const [bulkCounsellor, setBulkCounsellor] = React.useState(NO_BULK_CHANGE);
   const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
+  const [importDialogOpen, setImportDialogOpen] = React.useState(false);
   const [exportPreviewLeads, setExportPreviewLeads] = React.useState<LeadWithRelations[]>([]);
   const [exportPreviewLoading, setExportPreviewLoading] = React.useState(false);
   const [exportColumns, setExportColumns] =
@@ -1648,10 +1651,16 @@ export function LeadsPageClient({
             Refresh
           </Button>
           {isSuperAdmin ? (
-            <Button variant="outline" onClick={() => setExportDialogOpen(true)}>
-              <Download className="mr-2 h-4 w-4" />
-              Advanced export
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Import leads
+              </Button>
+              <Button variant="outline" onClick={() => setExportDialogOpen(true)}>
+                <Download className="mr-2 h-4 w-4" />
+                Advanced export
+              </Button>
+            </>
           ) : null}
           <Button onClick={() => setCreating(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -2489,6 +2498,7 @@ export function LeadsPageClient({
       </Dialog>
 
       <LeadFormSheet open={creating} onOpenChange={setCreating} lead={null} />
+      <LeadImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
       <LeadFormSheet
         open={!!editingLead}
         onOpenChange={(open) => !open && setEditingLead(null)}

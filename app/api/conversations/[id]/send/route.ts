@@ -31,7 +31,7 @@ export async function POST(
   // Get conversation channel target.
   const { data: conversation, error: convError } = await supabase
     .from("conversations")
-    .select("channel, external_user_id, page_id")
+    .select("channel, provider, external_user_id, page_id")
     .eq("id", id)
     .single();
 

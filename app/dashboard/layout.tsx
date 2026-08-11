@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { AppSidebar, SidebarProvider } from "@/components/app-sidebar";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { NavigationProgress } from "@/components/navigation-progress";
 import { CrmEntryTracker } from "@/components/reports/crm-entry-tracker";
 import { getCurrentProfile } from "@/lib/auth";
 
@@ -17,6 +18,7 @@ export default async function DashboardLayout({
 
   return (
     <SidebarProvider>
+      <NavigationProgress />
       <div className="flex min-h-screen w-full bg-muted/20">
         <CrmEntryTracker />
         <AppSidebar profile={profile} />

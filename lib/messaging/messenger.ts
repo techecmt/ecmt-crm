@@ -14,6 +14,7 @@ export function parseMessengerWebhook(body: unknown): ParsedInboundMessage | nul
 
     return {
       channel: "messenger",
+      provider: "meta",
       externalUserId: event.sender.id,
       externalMessageId: event.message.mid,
       text: event.message.text,

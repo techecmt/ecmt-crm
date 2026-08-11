@@ -8,6 +8,8 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import type { ParsedLeadRow } from "@/lib/lead-import";
+import { canonicalizePhoneKey } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/client";
 import { ADMISSION_GOALS_KEY } from "@/lib/hooks/use-admission-goals";
 import { shouldClearPendingFollowUps } from "@/lib/lead-pipeline";
@@ -843,6 +845,122 @@ export function useAddLeadNote() {
     onSuccess: (_, vars) => {
       toast.success("Note added");
       qc.invalidateQueries({ queryKey: [...LEADS_KEY, vars.leadId, "activities"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export type BulkImportDefaults = {
+  college_id: string;
+  interested_course: string;
+  source: LeadSource;
+  assigned_counsellor?: string | null;
+};
+
+export type BulkImportResult = {
+  imported: number;
+  failed: { rowNumber: number; full_name: string; error: string }[];
+};
+
+export function useBulkImportLeads() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      rows,
+      defaults,
+    }: {
+      rows: ParsedLeadRow[];
+      defaults: BulkImportDefaults;
+    }): Promise<BulkImportResult> => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const failed: BulkImportResult["failed"] = [];
+      const importedLeadIds: string[] = [];
+
+      for (const row of rows) {
+        if (row.error) {
+          failed.push({
+            rowNumber: row.rowNumber,
+            full_name: row.full_name || `Row ${row.rowNumber}`,
+            error: row.error,
+          });
+          continue;
+        }
+
+        const phoneKey = canonicalizePhoneKey(row.phone);
+        const { data, error } = await supabase
+          .from("leads")
+          .insert({
+            full_name: row.full_name,
+            phone: row.phone,
+            phone_key: phoneKey || null,
+            email: row.email,
+            highest_qualification: row.highest_qualification,
+            highest_qualification_other: row.highest_qualification_other,
+            description: row.description,
+            college_id: defaults.college_id,
+            interested_course: defaults.interested_course,
+            source: defaults.source,
+            status: "inquiry_received",
+            assigned_counsellor: defaults.assigned_counsellor ?? null,
+            lead_score: 0,
+            created_by: user?.id ?? null,
+          })
+          .select("id")
+          .single();
+
+        if (error || !data) {
+          failed.push({
+            rowNumber: row.rowNumber,
+            full_name: row.full_name,
+            error: error?.message ?? "Insert failed",
+          });
+          continue;
+        }
+
+        importedLeadIds.push(data.id);
+      }
+
+      if (user && importedLeadIds.length > 0) {
+        await supabase.from("lead_activities").insert(
+          importedLeadIds.map((leadId) => ({
+            lead_id: leadId,
+            user_id: user.id,
+            type: "system",
+            title: "Lead imported",
+          })),
+        );
+        await supabase.from("user_audit_events").insert(
+          importedLeadIds.map((leadId) => ({
+            user_id: user.id,
+            event_type: "lead_created",
+            lead_id: leadId,
+            metadata: {
+              college_id: defaults.college_id,
+              interested_course: defaults.interested_course,
+              imported: true,
+            },
+          })),
+        );
+      }
+
+      return { imported: importedLeadIds.length, failed };
+    },
+    onSuccess: (result) => {
+      if (result.imported > 0) {
+        toast.success(`Imported ${result.imported} lead${result.imported === 1 ? "" : "s"}`);
+      }
+      if (result.failed.length > 0) {
+        toast.error(
+          `${result.failed.length} row${result.failed.length === 1 ? "" : "s"} could not be imported`,
+        );
+      }
+      qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ["follow_ups"] });
+      qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
     onError: (err: Error) => toast.error(err.message),
   });

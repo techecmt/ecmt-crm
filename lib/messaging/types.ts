@@ -1,7 +1,9 @@
 export type Channel = "whatsapp" | "messenger" | "website";
+export type MessagingProvider = "meta" | "twilio";
 
 export interface ParsedInboundMessage {
   channel: Channel;
+  provider: MessagingProvider;
   externalUserId: string;
   externalMessageId: string;
   text: string;
@@ -12,6 +14,7 @@ export interface ParsedInboundMessage {
 
 export interface OutboundMessage {
   channel: Channel;
+  provider?: MessagingProvider | null;
   text: string;
   externalUserId: string;
   pageId?: string | null;

@@ -1,10 +1,13 @@
 import "server-only";
 
 import { sendMessengerMessage } from "@/lib/messaging/messenger";
+import { sendTwilioWhatsAppMessage } from "@/lib/messaging/twilio";
+import type { MessagingProvider } from "@/lib/messaging/types";
 import { sendWhatsAppMessage } from "@/lib/messaging/whatsapp";
 
 type ConversationSendTarget = {
   channel: "whatsapp" | "messenger" | "website";
+  provider?: MessagingProvider | null;
   external_user_id: string;
   page_id: string | null;
 };
@@ -16,6 +19,11 @@ export async function sendMessage(conversation: ConversationSendTarget, text: st
   }
 
   if (conversation.channel === "whatsapp") {
+    if (conversation.provider === "twilio") {
+      await sendTwilioWhatsAppMessage(conversation.external_user_id, text);
+      return;
+    }
+
     await sendWhatsAppMessage(conversation.external_user_id, text);
     return;
   }
