@@ -35,9 +35,10 @@ export function parseTwilioWhatsAppWebhook(
     externalMessageId: messageSid,
     text: body,
     timestamp: String(Date.now()),
-    // A sender can have multiple Twilio WhatsApp numbers. Keep their
-    // conversations separate while still sharing the Message Centre UI.
-    pageId: form.get("To") || null,
+    // `conversations.page_id` is a foreign key to Meta's messaging_pages
+    // table. Twilio is configured via server environment variables, so it
+    // has no matching messaging_pages record.
+    pageId: null,
     name: form.get("ProfileName") || null,
   };
 }
