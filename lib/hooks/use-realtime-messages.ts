@@ -10,24 +10,16 @@ export function useRealtimeMessages(conversationId: string | null) {
   useEffect(() => {
     const supabase = createClient();
 
-    const channel = supabase
-      .channel("messages-realtime")
+    const inboxChannel = supabase
+      .channel("message-centre-inbox-realtime")
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          ...(conversationId
-            ? { filter: `conversation_id=eq.${conversationId}` }
-            : {}),
         },
         () => {
-          if (conversationId) {
-            queryClient.invalidateQueries({
-              queryKey: ["messages", conversationId],
-            });
-          }
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
         }
       )
@@ -44,8 +36,29 @@ export function useRealtimeMessages(conversationId: string | null) {
       )
       .subscribe();
 
+    const threadChannel = conversationId
+      ? supabase
+          .channel(`message-centre-thread-${conversationId}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "messages",
+              filter: `conversation_id=eq.${conversationId}`,
+            },
+            () => {
+              queryClient.invalidateQueries({
+                queryKey: ["messages", conversationId],
+              });
+            },
+          )
+          .subscribe()
+      : null;
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(inboxChannel);
+      if (threadChannel) supabase.removeChannel(threadChannel);
     };
   }, [conversationId, queryClient]);
 }

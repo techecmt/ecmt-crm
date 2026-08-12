@@ -42,6 +42,12 @@ export async function PATCH(
     updates.phone = body.phone || null;
   }
 
+  if (body.read_state === "read") {
+    updates.unread_count = 0;
+  } else if (body.read_state === "unread") {
+    updates.unread_count = 1;
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, hasModuleAccess } from "@/lib/auth";
 import { sendMessage } from "@/lib/messaging/send";
+import { sendTwilioWhatsAppTemplate } from "@/lib/messaging/twilio";
 
 export async function POST(
   request: NextRequest,
@@ -9,10 +10,21 @@ export async function POST(
 ) {
   const { id } = await params;
   const body = await request.json();
-  const { message } = body;
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const template = body.template as
+    | {
+        content_sid?: unknown;
+        variables?: unknown;
+      }
+    | undefined;
+  const contentSid =
+    typeof template?.content_sid === "string" ? template.content_sid.trim() : "";
 
-  if (!message || typeof message !== "string" || !message.trim()) {
-    return NextResponse.json({ error: "Message is required" }, { status: 400 });
+  if (!message && !contentSid) {
+    return NextResponse.json(
+      { error: "Message or template is required" },
+      { status: 400 },
+    );
   }
 
   const supabase = await createClient();
@@ -39,14 +51,50 @@ export async function POST(
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
 
-  // Send via channel router.
   try {
-    await sendMessage(conversation, message.trim());
+    if (contentSid) {
+      if (
+        conversation.channel !== "whatsapp" ||
+        conversation.provider !== "twilio"
+      ) {
+        return NextResponse.json(
+          { error: "Twilio templates can only be sent to Twilio WhatsApp conversations" },
+          { status: 400 },
+        );
+      }
+      if (!/^HX[a-fA-F0-9]{32}$/.test(contentSid)) {
+        return NextResponse.json({ error: "Invalid Twilio Content SID" }, { status: 400 });
+      }
+
+      const variables =
+        template?.variables && typeof template.variables === "object"
+          ? Object.entries(template.variables as Record<string, unknown>).reduce(
+              (result, [key, value]) => {
+                if (typeof value === "string" && value.trim()) {
+                  result[key] = value.trim();
+                }
+                return result;
+              },
+              {} as Record<string, string>,
+            )
+          : undefined;
+
+      await sendTwilioWhatsAppTemplate({
+        to: conversation.external_user_id,
+        contentSid,
+        variables,
+      });
+    } else {
+      await sendMessage(conversation, message);
+    }
   } catch (err) {
     console.error("[API] Failed to send message:", err);
     return NextResponse.json(
-      { error: "Failed to send message" },
-      { status: 502 }
+      {
+        error:
+          err instanceof Error ? err.message : "Failed to send message",
+      },
+      { status: 502 },
     );
   }
 
@@ -54,7 +102,7 @@ export async function POST(
   const { error: insertError } = await supabase.from("messages").insert({
     conversation_id: id,
     role: "assistant",
-    content: message.trim(),
+    content: contentSid ? `Twilio template sent (${contentSid})` : message,
     sent_by_user_id: user?.id ?? null,
   });
 

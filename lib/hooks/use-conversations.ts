@@ -1,10 +1,16 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 export interface Conversation {
   id: string;
   channel: "whatsapp" | "messenger" | "website";
+  provider: "meta" | "twilio";
   page_id: string | null;
   external_user_id: string;
   phone: string | null;
@@ -31,6 +37,10 @@ export interface Conversation {
   source_url: string | null;
   updated_at: string;
   created_at: string;
+  unread_count: number;
+  last_message_at: string | null;
+  last_message_preview: string | null;
+  last_message_role: "user" | "assistant" | null;
   last_message: {
     content: string;
     role: string;
@@ -48,12 +58,24 @@ export interface Message {
   created_at: string;
 }
 
+export interface TwilioWhatsAppTemplate {
+  sid: string;
+  friendlyName: string;
+  language: string;
+  body: string | null;
+  variables: string[];
+}
+
 export type ConversationFilters = {
   channel?: "all" | "whatsapp" | "messenger" | "website";
   page_id?: string | "all";
-  status?: "all" | "open" | "pending" | "resolved" | "spam";
+  status?: "active" | "all" | "open" | "pending" | "resolved" | "spam";
   assigned_user_id?: string | "all" | "unassigned";
   mode?: "all" | "agent" | "human";
+  provider?: "all" | "meta" | "twilio";
+  unread?: "all" | "unread";
+  needs_attention?: boolean;
+  sort?: "latest" | "oldest_waiting" | "priority";
 };
 
 function toQueryString(filters: ConversationFilters) {
@@ -73,6 +95,18 @@ function toQueryString(filters: ConversationFilters) {
   if (filters.assigned_user_id && filters.assigned_user_id !== "all") {
     params.set("assigned_user_id", filters.assigned_user_id);
   }
+  if (filters.provider && filters.provider !== "all") {
+    params.set("provider", filters.provider);
+  }
+  if (filters.unread === "unread") {
+    params.set("unread", "true");
+  }
+  if (filters.needs_attention) {
+    params.set("needs_attention", "true");
+  }
+  if (filters.sort && filters.sort !== "latest") {
+    params.set("sort", filters.sort);
+  }
   return params.toString();
 }
 
@@ -83,17 +117,16 @@ export function useConversations(filters: ConversationFilters = {}) {
       const qs = toQueryString(filters);
       const res = await fetch(`/api/conversations${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new Error("Failed to fetch conversations");
-      const conversations = (await res.json()) as Conversation[];
-      return conversations.sort((a, b) => {
-        const aPriority = a.lifecycle_status === "escalation_requested" ? 0 : 1;
-        const bPriority = b.lifecycle_status === "escalation_requested" ? 0 : 1;
-        if (aPriority !== bPriority) return aPriority - bPriority;
-        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-      });
+      return (await res.json()) as Conversation[];
     },
-    refetchInterval: 10000,
+    refetchInterval: 30000,
   });
 }
+
+type MessagePage = {
+  messages: Message[];
+  nextCursor: string | null;
+};
 
 export function useMessages(conversationId: string | null) {
   return useQuery<Message[]>({
@@ -102,10 +135,29 @@ export function useMessages(conversationId: string | null) {
       if (!conversationId) return [];
       const res = await fetch(`/api/conversations/${conversationId}/messages`);
       if (!res.ok) throw new Error("Failed to fetch messages");
-      return res.json();
+      const page = (await res.json()) as MessagePage;
+      return page.messages;
     },
     enabled: !!conversationId,
-    refetchInterval: 5000,
+    refetchInterval: 15000,
+  });
+}
+
+export function useInfiniteMessages(conversationId: string | null) {
+  return useInfiniteQuery({
+    queryKey: ["messages", conversationId, "infinite"],
+    queryFn: async ({ pageParam }) => {
+      if (!conversationId) return { messages: [], nextCursor: null } as MessagePage;
+      const params = new URLSearchParams({ limit: "50" });
+      if (pageParam) params.set("before", pageParam);
+      const res = await fetch(`/api/conversations/${conversationId}/messages?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch messages");
+      return (await res.json()) as MessagePage;
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled: !!conversationId,
+    refetchInterval: 15000,
   });
 }
 
@@ -165,6 +217,59 @@ export function useSendMessage() {
   });
 }
 
+export function useTwilioWhatsAppTemplates(enabled = true) {
+  return useQuery<TwilioWhatsAppTemplate[]>({
+    queryKey: ["twilio-whatsapp-templates"],
+    queryFn: async () => {
+      const res = await fetch("/api/messaging/templates");
+      const data = (await res.json()) as {
+        templates?: TwilioWhatsAppTemplate[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error || "Failed to load Twilio templates");
+      return data.templates ?? [];
+    },
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useSendTwilioTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      conversationId,
+      contentSid,
+      variables,
+    }: {
+      conversationId: string;
+      contentSid: string;
+      variables: Record<string, string>;
+    }) => {
+      const res = await fetch(`/api/conversations/${conversationId}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template: {
+            content_sid: contentSid,
+            variables,
+          },
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to send template");
+      return data;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["messages", variables.conversationId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+}
+
 export function useLinkLead() {
   const queryClient = useQueryClient();
 
@@ -203,6 +308,7 @@ export function useUpdateConversationMeta() {
         status: Conversation["status"];
         assigned_user_id: string | null;
         phone: string | null;
+        read_state: "read" | "unread";
       }>;
     }) => {
       const res = await fetch(`/api/conversations/${conversationId}`, {
@@ -219,6 +325,34 @@ export function useUpdateConversationMeta() {
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["conversations", vars.conversationId] });
+    },
+  });
+}
+
+export function useSetConversationReadState() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      conversationId,
+      state,
+    }: {
+      conversationId: string;
+      state: "read" | "unread";
+    }) => {
+      const res = await fetch(`/api/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ read_state: state }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error || "Failed to update read state");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 }

@@ -5,6 +5,24 @@ import type { ParsedInboundMessage } from "./types";
 
 const WHATSAPP_PREFIX = "whatsapp:";
 
+export type TwilioWhatsAppTemplate = {
+  sid: string;
+  friendlyName: string;
+  language: string;
+  body: string | null;
+  variables: string[];
+};
+
+type TwilioContentRecord = {
+  sid?: string;
+  friendly_name?: string;
+  language?: string;
+  variables?: Record<string, string> | null;
+  types?: Record<string, { body?: string }>;
+  approvals?: Record<string, unknown>;
+  approval_requests?: Record<string, unknown>;
+};
+
 function normalizeWhatsAppAddress(address: string) {
   return address.startsWith(WHATSAPP_PREFIX)
     ? address.slice(WHATSAPP_PREFIX.length)
@@ -68,7 +86,7 @@ export function isValidTwilioSignature(input: {
   );
 }
 
-export async function sendTwilioWhatsAppMessage(to: string, body: string) {
+function getTwilioCredentials() {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_WHATSAPP_FROM;
@@ -80,23 +98,52 @@ export async function sendTwilioWhatsAppMessage(to: string, body: string) {
     );
   }
 
+  return { accountSid, authToken, from, messagingServiceSid };
+}
+
+function twilioAuthorization(accountSid: string, authToken: string) {
+  return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`;
+}
+
+function addTwilioSender(
+  requestBody: URLSearchParams,
+  credentials: ReturnType<typeof getTwilioCredentials>,
+) {
+  if (credentials.messagingServiceSid) {
+    requestBody.set("MessagingServiceSid", credentials.messagingServiceSid);
+  } else if (credentials.from) {
+    requestBody.set("From", asTwilioWhatsAppAddress(credentials.from));
+  }
+}
+
+async function readTwilioError(response: Response) {
+  const rawError = await response.text();
+  try {
+    const parsed = JSON.parse(rawError) as { code?: number; message?: string };
+    if (parsed.code && parsed.message) {
+      return `Twilio error ${parsed.code}: ${parsed.message}`;
+    }
+    if (parsed.message) return `Twilio: ${parsed.message}`;
+  } catch {
+    // Fall through to the HTTP status when Twilio did not return JSON.
+  }
+  return `Twilio API error: ${response.status}`;
+}
+
+export async function sendTwilioWhatsAppMessage(to: string, body: string) {
+  const credentials = getTwilioCredentials();
   const requestBody = new URLSearchParams({
     To: asTwilioWhatsAppAddress(to),
     Body: body,
   });
-  if (messagingServiceSid) {
-    requestBody.set("MessagingServiceSid", messagingServiceSid);
-  } else if (from) {
-    requestBody.set("From", asTwilioWhatsAppAddress(from));
-  }
+  addTwilioSender(requestBody, credentials);
 
-  const basicAuth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   const response = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    `https://api.twilio.com/2010-04-01/Accounts/${credentials.accountSid}/Messages.json`,
     {
       method: "POST",
       headers: {
-        Authorization: `Basic ${basicAuth}`,
+        Authorization: twilioAuthorization(credentials.accountSid, credentials.authToken),
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: requestBody.toString(),
@@ -104,9 +151,109 @@ export async function sendTwilioWhatsAppMessage(to: string, body: string) {
   );
 
   if (!response.ok) {
-    const error = await response.text();
+    const error = await readTwilioError(response);
     console.error("[Twilio] WhatsApp send failed:", error);
-    throw new Error(`Twilio API error: ${response.status}`);
+    throw new Error(error);
+  }
+
+  return response.json();
+}
+
+function approvalStatus(value: unknown): string | null {
+  if (typeof value === "string") return value.toLowerCase();
+  if (Array.isArray(value)) {
+    return value.map(approvalStatus).find(Boolean) ?? null;
+  }
+  if (value && typeof value === "object") {
+    const record = value as { status?: unknown };
+    if (typeof record.status === "string") return record.status.toLowerCase();
+  }
+  return null;
+}
+
+function extractTemplateBody(types: TwilioContentRecord["types"]) {
+  if (!types) return null;
+  return Object.values(types).find((content) => content?.body)?.body || null;
+}
+
+export async function listApprovedTwilioWhatsAppTemplates() {
+  const credentials = getTwilioCredentials();
+  const response = await fetch(
+    "https://content.twilio.com/v1/ContentAndApprovals?PageSize=100",
+    {
+      headers: {
+        Authorization: twilioAuthorization(credentials.accountSid, credentials.authToken),
+      },
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const error = await readTwilioError(response);
+    console.error("[Twilio] Template list failed:", error);
+    throw new Error(error);
+  }
+
+  const payload = (await response.json()) as { contents?: TwilioContentRecord[] };
+  return (payload.contents ?? []).flatMap((content): TwilioWhatsAppTemplate[] => {
+    const whatsappApproval =
+      content.approvals?.whatsapp ?? content.approval_requests?.whatsapp;
+    if (approvalStatus(whatsappApproval) !== "approved" || !content.sid) {
+      return [];
+    }
+
+    const body = extractTemplateBody(content.types);
+    const variables = Object.keys(content.variables ?? {});
+    const inferredVariables =
+      variables.length > 0
+        ? variables
+        : [...(body?.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g) ?? [])].map(
+            (match) => match[1].trim(),
+          );
+
+    return [
+      {
+        sid: content.sid,
+        friendlyName: content.friendly_name || content.sid,
+        language: content.language || "en",
+        body,
+        variables: [...new Set(inferredVariables)],
+      },
+    ];
+  });
+}
+
+export async function sendTwilioWhatsAppTemplate(input: {
+  to: string;
+  contentSid: string;
+  variables?: Record<string, string>;
+}) {
+  const credentials = getTwilioCredentials();
+  const requestBody = new URLSearchParams({
+    To: asTwilioWhatsAppAddress(input.to),
+    ContentSid: input.contentSid,
+  });
+  if (input.variables && Object.keys(input.variables).length > 0) {
+    requestBody.set("ContentVariables", JSON.stringify(input.variables));
+  }
+  addTwilioSender(requestBody, credentials);
+
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${credentials.accountSid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: twilioAuthorization(credentials.accountSid, credentials.authToken),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: requestBody.toString(),
+    },
+  );
+
+  if (!response.ok) {
+    const error = await readTwilioError(response);
+    console.error("[Twilio] WhatsApp template send failed:", error);
+    throw new Error(error);
   }
 
   return response.json();

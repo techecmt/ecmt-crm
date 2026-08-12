@@ -2,19 +2,32 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { format } from "date-fns";
 import {
   Bot,
   ChevronLeft,
+  CircleCheck,
+  FileText,
   Link2,
   Loader2,
+  MessageSquareMore,
   Phone,
   Send,
   UserCheck,
+  UserRoundPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -29,15 +42,20 @@ import { formatSgtTime24 } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import {
   useConvertConversationToLead,
-  useMessages,
+  useInfiniteMessages,
   useSendMessage,
+  useSendTwilioTemplate,
+  useSetConversationReadState,
+  useTwilioWhatsAppTemplates,
   useUpdateConversationMeta,
   useUpdateMode,
   type Conversation,
   type Message,
+  type TwilioWhatsAppTemplate,
 } from "@/lib/hooks/use-conversations";
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import { useMessagingPages } from "@/lib/hooks/use-message-centre-settings";
+import { useCurrentProfile } from "@/lib/hooks/use-current-profile";
 
 export function ConversationDetail({
   conversation,
@@ -48,18 +66,48 @@ export function ConversationDetail({
 }) {
   const [inputValue, setInputValue] = React.useState("");
   const [phoneValue, setPhoneValue] = React.useState(conversation.phone || "");
+  const [templateDialogOpen, setTemplateDialogOpen] = React.useState(false);
+  const [selectedTemplateSid, setSelectedTemplateSid] = React.useState("");
+  const [templateVariables, setTemplateVariables] = React.useState<Record<string, string>>(
+    {},
+  );
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  const { data: messages = [], isLoading: messagesLoading } = useMessages(
-    conversation.id,
-  );
+  const {
+    data: messagePages,
+    isLoading: messagesLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useInfiniteMessages(conversation.id);
   const { data: profiles = [] } = useProfiles();
   const { data: pages = [] } = useMessagingPages();
+  const { data: currentProfile } = useCurrentProfile();
   const updateMode = useUpdateMode();
   const sendMessage = useSendMessage();
   const updateMeta = useUpdateConversationMeta();
+  const setReadState = useSetConversationReadState();
+  const sendTemplate = useSendTwilioTemplate();
   const convertLead = useConvertConversationToLead();
+  const isTwilioWhatsApp =
+    conversation.channel === "whatsapp" && conversation.provider === "twilio";
+  const {
+    data: templates = [],
+    isLoading: templatesLoading,
+    error: templatesError,
+  } = useTwilioWhatsAppTemplates(templateDialogOpen && isTwilioWhatsApp);
+  const messages = React.useMemo(
+    () =>
+      (messagePages?.pages ?? [])
+        .slice()
+        .reverse()
+        .flatMap((page) => page.messages),
+    [messagePages],
+  );
+  const hasInitialScrolled = React.useRef(false);
+  const isNearBottom = React.useRef(true);
+  const previousScroll = React.useRef<{ top: number; height: number } | null>(null);
 
   const assignees = profiles.filter(
     (p) =>
@@ -74,19 +122,139 @@ export function ConversationDetail({
   }, [conversation.phone]);
 
   React.useEffect(() => {
-    if (scrollRef.current) {
-      const viewport = scrollRef.current.querySelector(
-        "[data-radix-scroll-area-viewport]",
-      );
-      if (viewport) {
-        viewport.scrollTop = viewport.scrollHeight;
-      }
+    hasInitialScrolled.current = false;
+    isNearBottom.current = true;
+  }, [conversation.id]);
+
+  React.useEffect(() => {
+    const viewport = scrollRef.current?.querySelector<HTMLElement>(
+      "[data-radix-scroll-area-viewport]",
+    );
+    if (!viewport) return;
+
+    const updateScrollPosition = () => {
+      isNearBottom.current =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 96;
+    };
+    viewport.addEventListener("scroll", updateScrollPosition, { passive: true });
+    updateScrollPosition();
+
+    return () => viewport.removeEventListener("scroll", updateScrollPosition);
+  }, []);
+
+  React.useEffect(() => {
+    const viewport = scrollRef.current?.querySelector<HTMLElement>(
+      "[data-radix-scroll-area-viewport]",
+    );
+    if (!viewport || messagesLoading) return;
+
+    if (previousScroll.current) {
+      const { top, height } = previousScroll.current;
+      viewport.scrollTop = top + (viewport.scrollHeight - height);
+      previousScroll.current = null;
+      return;
     }
-  }, [messages]);
+
+    if (!hasInitialScrolled.current || isNearBottom.current) {
+      viewport.scrollTop = viewport.scrollHeight;
+      hasInitialScrolled.current = true;
+    }
+  }, [messages, messagesLoading]);
+
+  React.useEffect(() => {
+    if (conversation.unread_count > 0) {
+      setReadState.mutate({ conversationId: conversation.id, state: "read" });
+    }
+  }, [conversation.id, conversation.unread_count, setReadState]);
 
   const pageName =
     pages.find((p) => p.page_id === conversation.page_id)?.name || "Unknown page";
   const isPhoneValid = /^\+?[0-9]{7,15}$/.test(phoneValue.replace(/\s+/g, ""));
+
+  const loadOlderMessages = () => {
+    const viewport = scrollRef.current?.querySelector<HTMLElement>(
+      "[data-radix-scroll-area-viewport]",
+    );
+    if (viewport) {
+      previousScroll.current = {
+        top: viewport.scrollTop,
+        height: viewport.scrollHeight,
+      };
+    }
+    fetchNextPage();
+  };
+
+  const selectedTemplate = templates.find((template) => template.sid === selectedTemplateSid);
+
+  const selectTemplate = (template: TwilioWhatsAppTemplate) => {
+    setSelectedTemplateSid(template.sid);
+    setTemplateVariables(
+      Object.fromEntries(template.variables.map((variable) => [variable, ""])),
+    );
+  };
+
+  const sendSelectedTemplate = () => {
+    if (!selectedTemplate) return;
+    const missingVariable = selectedTemplate.variables.find(
+      (variable) => !templateVariables[variable]?.trim(),
+    );
+    if (missingVariable) {
+      toast.error(`Enter a value for ${missingVariable}`);
+      return;
+    }
+
+    sendTemplate.mutate(
+      {
+        conversationId: conversation.id,
+        contentSid: selectedTemplate.sid,
+        variables: templateVariables,
+      },
+      {
+        onSuccess: () => {
+          setTemplateDialogOpen(false);
+          setSelectedTemplateSid("");
+          setTemplateVariables({});
+          toast.success("Template sent");
+        },
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  };
+
+  const assignToMe = () => {
+    if (!currentProfile) return;
+    updateMeta.mutate(
+      {
+        conversationId: conversation.id,
+        payload: { assigned_user_id: currentProfile.id },
+      },
+      {
+        onSuccess: () => toast.success("Conversation assigned to you"),
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  };
+
+  const takeOverConversation = () => {
+    if (!currentProfile) return;
+    updateMeta.mutate(
+      {
+        conversationId: conversation.id,
+        payload: { assigned_user_id: currentProfile.id },
+      },
+      {
+        onSuccess: () =>
+          updateMode.mutate(
+            { conversationId: conversation.id, mode: "human" },
+            {
+              onSuccess: () => toast.success("You are now handling this conversation"),
+              onError: (error) => toast.error(error.message),
+            },
+          ),
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  };
 
   return (
     <>
@@ -116,6 +284,11 @@ export function ConversationDetail({
                     ? "Messenger"
                     : "Website chat"}
               </Badge>
+              {conversation.channel === "whatsapp" ? (
+                <Badge variant="outline">
+                  {conversation.provider === "twilio" ? "Twilio" : "Meta"}
+                </Badge>
+              ) : null}
               {conversation.page_id ? <Badge variant="outline">{pageName}</Badge> : null}
               <span>{conversation.external_user_id}</span>
             </div>
@@ -166,6 +339,56 @@ export function ConversationDetail({
               }
             />
           </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            onClick={assignToMe}
+            disabled={!currentProfile || updateMeta.isPending}
+          >
+            <UserRoundPlus className="mr-1.5 h-3.5 w-3.5" />
+            Assign to me
+          </Button>
+          {conversation.lifecycle_status === "escalation_requested" ? (
+            <Button
+              size="sm"
+              className="h-8"
+              onClick={takeOverConversation}
+              disabled={!currentProfile || updateMeta.isPending || updateMode.isPending}
+            >
+              <CircleCheck className="mr-1.5 h-3.5 w-3.5" />
+              Take over
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8"
+            onClick={() =>
+              setReadState.mutate(
+                {
+                  conversationId: conversation.id,
+                  state: conversation.unread_count > 0 ? "read" : "unread",
+                },
+                {
+                  onSuccess: () =>
+                    toast.success(
+                      conversation.unread_count > 0
+                        ? "Conversation marked read"
+                        : "Conversation marked unread",
+                    ),
+                  onError: (error) => toast.error(error.message),
+                },
+              )
+            }
+            disabled={setReadState.isPending}
+          >
+            <MessageSquareMore className="mr-1.5 h-3.5 w-3.5" />
+            {conversation.unread_count > 0 ? "Mark read" : "Mark unread"}
+          </Button>
         </div>
 
         <div className="mt-3 grid gap-2 md:grid-cols-4">
@@ -291,8 +514,28 @@ export function ConversationDetail({
           </div>
         ) : (
           <div className="space-y-3">
-            {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+            {hasNextPage ? (
+              <div className="flex justify-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={loadOlderMessages}
+                  disabled={isFetchingNextPage}
+                >
+                  {isFetchingNextPage ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Load older messages
+                </Button>
+              </div>
+            ) : null}
+            {messages.map((message, index) => (
+              <React.Fragment key={message.id}>
+                {shouldShowDateDivider(messages[index - 1], message) ? (
+                  <DateDivider date={message.created_at} />
+                ) : null}
+                <MessageBubble message={message} />
+              </React.Fragment>
             ))}
           </div>
         )}
@@ -300,6 +543,18 @@ export function ConversationDetail({
 
       <div className="border-t p-3">
         <div className="flex items-center gap-2">
+          {isTwilioWhatsApp ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 shrink-0 px-2.5"
+              onClick={() => setTemplateDialogOpen(true)}
+              title="Send approved WhatsApp template"
+            >
+              <FileText className="mr-1.5 h-4 w-4" />
+              Template
+            </Button>
+          ) : null}
           <Input
             ref={inputRef}
             placeholder={
@@ -317,7 +572,10 @@ export function ConversationDetail({
                 sendMessage.mutate(
                   { conversationId: conversation.id, message },
                   {
-                    onSuccess: () => setInputValue(""),
+                    onSuccess: () => {
+                      setInputValue("");
+                      toast.success("Message sent");
+                    },
                     onError: (error) => toast.error(error.message),
                   },
                 );
@@ -334,7 +592,10 @@ export function ConversationDetail({
               sendMessage.mutate(
                 { conversationId: conversation.id, message },
                 {
-                  onSuccess: () => setInputValue(""),
+                  onSuccess: () => {
+                    setInputValue("");
+                    toast.success("Message sent");
+                  },
                   onError: (error) => toast.error(error.message),
                 },
               );
@@ -349,7 +610,132 @@ export function ConversationDetail({
           </Button>
         </div>
       </div>
+
+      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send WhatsApp template</DialogTitle>
+            <DialogDescription>
+              Only templates approved for your Twilio WhatsApp sender are shown.
+            </DialogDescription>
+          </DialogHeader>
+
+          {templatesLoading ? (
+            <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading approved templates...
+            </div>
+          ) : templatesError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              {templatesError.message}
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground">
+              No approved Twilio WhatsApp templates were found. Create or submit one in
+              Twilio Content Template Builder, then reopen this dialog.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="twilio-template">
+                  Approved template
+                </label>
+                <Select
+                  value={selectedTemplateSid}
+                  onValueChange={(sid) => {
+                    const template = templates.find((item) => item.sid === sid);
+                    if (template) selectTemplate(template);
+                  }}
+                >
+                  <SelectTrigger id="twilio-template">
+                    <SelectValue placeholder="Select an approved template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((template) => (
+                      <SelectItem key={template.sid} value={template.sid}>
+                        {template.friendlyName} ({template.language})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedTemplate?.body ? (
+                <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">
+                  {selectedTemplate.body}
+                </div>
+              ) : null}
+
+              {selectedTemplate?.variables.map((variable) => (
+                <div className="space-y-2" key={variable}>
+                  <label className="text-sm font-medium" htmlFor={`template-variable-${variable}`}>
+                    Variable {variable}
+                  </label>
+                  <Input
+                    id={`template-variable-${variable}`}
+                    value={templateVariables[variable] || ""}
+                    onChange={(event) =>
+                      setTemplateVariables((previous) => ({
+                        ...previous,
+                        [variable]: event.target.value,
+                      }))
+                    }
+                    placeholder={`Value for {{${variable}}}`}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTemplateDialogOpen(false)}
+              disabled={sendTemplate.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={sendSelectedTemplate}
+              disabled={!selectedTemplate || sendTemplate.isPending}
+            >
+              {sendTemplate.isPending ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-1.5 h-4 w-4" />
+              )}
+              Send template
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+function shouldShowDateDivider(previous: Message | undefined, message: Message) {
+  if (!previous) return true;
+  return new Date(previous.created_at).toDateString() !== new Date(message.created_at).toDateString();
+}
+
+function DateDivider({ date }: { date: string }) {
+  const day = new Date(date);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const label =
+    day.toDateString() === today.toDateString()
+      ? "Today"
+      : day.toDateString() === yesterday.toDateString()
+        ? "Yesterday"
+        : format(day, "EEEE, MMMM d");
+
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <div className="h-px flex-1 bg-border" />
+      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+      <div className="h-px flex-1 bg-border" />
+    </div>
   );
 }
 
@@ -382,7 +768,14 @@ function MessageBubble({ message }: { message: Message }) {
           )}
         </div>
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
-        <p className="mt-1 text-right text-[10px] text-white/70">{time}</p>
+        <p
+          className={cn(
+            "mt-1 text-right text-[10px]",
+            isUser ? "text-muted-foreground" : "text-white/70",
+          )}
+        >
+          {time}
+        </p>
       </div>
     </div>
   );

@@ -18,6 +18,10 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status");
   const assignedUserId = searchParams.get("assigned_user_id");
   const mode = searchParams.get("mode");
+  const provider = searchParams.get("provider");
+  const unreadOnly = searchParams.get("unread") === "true";
+  const needsAttention = searchParams.get("needs_attention") === "true";
+  const sort = searchParams.get("sort") || "latest";
 
   let query = supabase
     .from("conversations")
@@ -25,6 +29,7 @@ export async function GET(request: NextRequest) {
       `
       id,
       channel,
+      provider,
       page_id,
       external_user_id,
       phone,
@@ -39,24 +44,26 @@ export async function GET(request: NextRequest) {
       source_url,
       updated_at,
       created_at,
-      messages (
-        content,
-        role,
-        created_at
-      )
+      unread_count,
+      last_message_at,
+      last_message_preview,
+      last_message_role
     `
-    )
-    .order("updated_at", { ascending: false })
-    .order("created_at", {
-      referencedTable: "messages",
-      ascending: false,
-    })
-    .limit(1, { referencedTable: "messages" });
+    );
 
   if (channel && channel !== "all") query = query.eq("channel", channel);
-  if (status && status !== "all") query = query.eq("status", status);
+  if (!status || status === "active") {
+    query = query.in("status", ["open", "pending"]);
+  } else if (status !== "all") {
+    query = query.eq("status", status);
+  }
   if (mode && mode !== "all") query = query.eq("mode", mode);
   if (pageId && pageId !== "all") query = query.eq("page_id", pageId);
+  if (provider && provider !== "all") query = query.eq("provider", provider);
+  if (unreadOnly) query = query.gt("unread_count", 0);
+  if (needsAttention) {
+    query = query.eq("lifecycle_status", "escalation_requested");
+  }
 
   if (assignedUserId === "unassigned") {
     query = query.is("assigned_user_id", null);
@@ -69,6 +76,22 @@ export async function GET(request: NextRequest) {
     query = query.or(`assigned_user_id.eq.${profile.id},assigned_user_id.is.null`);
   }
 
+  if (sort === "oldest_waiting") {
+    query = query.order("last_message_at", {
+      ascending: true,
+      nullsFirst: false,
+    });
+  } else if (sort === "priority") {
+    query = query
+      .order("unread_count", { ascending: false })
+      .order("last_message_at", { ascending: false, nullsFirst: false });
+  } else {
+    query = query.order("last_message_at", {
+      ascending: false,
+      nullsFirst: false,
+    });
+  }
+
   const { data: conversations, error } = await query;
 
   if (error) {
@@ -79,6 +102,7 @@ export async function GET(request: NextRequest) {
   const formatted = (conversations || []).map((c) => ({
     id: c.id,
     channel: c.channel,
+    provider: c.provider,
     page_id: c.page_id,
     external_user_id: c.external_user_id,
     phone: c.phone,
@@ -93,7 +117,17 @@ export async function GET(request: NextRequest) {
     source_url: c.source_url ?? null,
     updated_at: c.updated_at,
     created_at: c.created_at,
-    last_message: c.messages?.[0] || null,
+    unread_count: c.unread_count ?? 0,
+    last_message_at: c.last_message_at ?? null,
+    last_message_preview: c.last_message_preview ?? null,
+    last_message_role: c.last_message_role ?? null,
+    last_message: c.last_message_at
+      ? {
+          content: c.last_message_preview ?? "",
+          role: c.last_message_role ?? "assistant",
+          created_at: c.last_message_at,
+        }
+      : null,
   }));
 
   return NextResponse.json(formatted);
