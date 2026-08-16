@@ -90,6 +90,7 @@ export async function updateSession(request: NextRequest) {
   if (
     pathname.startsWith("/api/webhook") ||
     pathname.startsWith("/api/public/widget") ||
+    pathname.startsWith("/api/public/callback-requests") ||
     pathname === "/widget" ||
     pathname === "/widget.js"
   ) {

@@ -13,6 +13,7 @@ import {
   ListChecks,
   Megaphone,
   MessageCircle,
+  PhoneCall,
   Settings2,
   Users,
   UsersRound,
@@ -68,6 +69,12 @@ const NAV_ITEMS: NavItem[] = [
     module: "leads",
     children: [
       { href: "/dashboard/leads", label: "All leads", icon: UsersRound, module: "leads" },
+      {
+        href: "/dashboard/callback-requests",
+        label: "Callback requests",
+        icon: PhoneCall,
+        module: "leads",
+      },
       { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks, module: "follow_ups" },
     ],
   },

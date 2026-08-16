@@ -128,6 +128,38 @@ Messenger page credentials are configured from the app in `Message Centre Settin
 
 The widget stores visitor name, email, phone, interested courses, qualification evidence, transcript, and source page on the conversation. It does not create or modify lead records; agents continue to use the existing manual lead workflow.
 
+## Website callback requests
+
+After applying `20260816000100_add_callback_requests.sql` and deploying the CRM, the public EduSphere website can submit its existing course selection through:
+
+```text
+POST https://YOUR-CRM-DOMAIN/api/public/callback-requests
+```
+
+Use the same allowed website origin and website key configured for the chat widget. The form must submit `fullName`, `email`, `phone`, `course`, `preferredDate` (`YYYY-MM-DD`), `preferredTime` (`HH:MM`), `sourceUrl`, and `publicKey`. `preferredTimezone`, `referrer`, `utm`, and a hidden `website` honeypot field are optional.
+
+```ts
+await fetch("https://YOUR-CRM-DOMAIN/api/public/callback-requests", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    publicKey: "YOUR-WEBSITE-KEY",
+    sourceUrl: window.location.href,
+    referrer: document.referrer,
+    fullName: values.name,
+    email: values.email,
+    phone: values.phone,
+    course: values.course, // selected from the EduSphere website course list
+    preferredDate: values.callbackDate,
+    preferredTime: values.callbackTime,
+    preferredTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    website: values.website, // hidden honeypot; leave blank
+  }),
+});
+```
+
+The API matches by normalized phone first, then email. It creates a new website lead only when neither matches, then links the callback request and records it in the lead timeline. CRM users can manage requests from **Leads → Callback requests** or on the lead’s **Callback requests** tab.
+
 ## More Supabase examples
 
 - [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)

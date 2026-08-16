@@ -89,12 +89,15 @@ import {
 } from "@/lib/hooks/use-follow-ups";
 import { FollowUpFormDialog } from "@/components/follow-ups/follow-up-form-dialog";
 import { CompleteFollowUpDialog } from "@/components/follow-ups/complete-follow-up-dialog";
+import { CallbackRequestCard } from "@/components/callback-requests/callback-request-card";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
 import {
   useAdmissionGoals,
   useRecordAdmissionGoalEvent,
 } from "@/lib/hooks/use-admission-goals";
 import { useLeadMessages, type LeadConversation } from "@/lib/hooks/use-lead-messages";
+import { useCallbackRequests } from "@/lib/hooks/use-callback-requests";
+import { useProfiles } from "@/lib/hooks/use-profiles";
 import { differenceInSgtCalendarDays, formatSgtDate, formatSgtDateTime } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 
@@ -131,6 +134,9 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
   const { data: activities } = useLeadActivities(leadId);
   const { data: conversations = [], isLoading: messagesLoading } = useLeadMessages(leadId);
   const { data: followUps } = useFollowUps({ leadId });
+  const { data: callbackRequests = [], isLoading: callbackRequestsLoading } =
+    useCallbackRequests({ leadId });
+  const { data: profiles = [] } = useProfiles();
   const completeFollowUp = useCompleteFollowUpTask();
   const { data: admissionGoals } = useAdmissionGoals({ status: "all" });
   const addNote = useAddLeadNote();
@@ -648,6 +654,14 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
               </Badge>
             ) : null}
           </TabsTrigger>
+          <TabsTrigger value="callback-requests">
+            Callback requests
+            {callbackRequests.length > 0 ? (
+              <Badge variant="secondary" className="ml-2">
+                {callbackRequests.length}
+              </Badge>
+            ) : null}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="timeline">
           <Card>
@@ -825,6 +839,35 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                   </ul>
                 )}
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="callback-requests">
+          <Card>
+            <CardHeader>
+              <CardTitle>Callback requests</CardTitle>
+              <CardDescription>
+                Website callback requests linked to this lead.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {callbackRequestsLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-40 w-full" />
+                </div>
+              ) : callbackRequests.length === 0 ? (
+                <EmptyState text="No callback requests are linked to this lead." />
+              ) : (
+                <div className="grid gap-4 xl:grid-cols-2">
+                  {callbackRequests.map((request) => (
+                    <CallbackRequestCard
+                      key={request.id}
+                      request={request}
+                      profiles={profiles}
+                    />
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

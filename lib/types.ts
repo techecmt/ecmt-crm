@@ -247,6 +247,35 @@ export interface LeadActivity {
   created_at: string;
 }
 
+export type CallbackRequestStatus = "new" | "contacted" | "completed" | "cancelled";
+
+export interface CallbackRequest {
+  id: string;
+  lead_id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  course: string;
+  preferred_date: string;
+  preferred_time: string;
+  preferred_timezone: string;
+  status: CallbackRequestStatus;
+  assigned_counsellor: string | null;
+  notes: string | null;
+  source_url: string | null;
+  referrer: string | null;
+  utm: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export const CALLBACK_REQUEST_STATUS_LABELS: Record<CallbackRequestStatus, string> = {
+  new: "New",
+  contacted: "Contacted",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
 export interface AdmissionGoal {
   id: string;
   title: string;
