@@ -20,6 +20,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = (await request.json()) as {
+    agent_id?: string;
     title?: string;
     content?: string;
     is_active?: boolean;
@@ -33,6 +34,7 @@ export async function PATCH(
   if (typeof body.is_active === "boolean") updates.is_active = body.is_active;
   if (typeof body.sort_order === "number") updates.sort_order = body.sort_order;
   if (typeof body.category === "string") updates.category = body.category;
+  if (typeof body.agent_id === "string") updates.agent_id = body.agent_id;
 
   if (!Object.keys(updates).length) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });

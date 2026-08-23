@@ -15,6 +15,8 @@ export function parseMessengerWebhook(body: unknown): ParsedInboundMessage | nul
     return {
       channel: "messenger",
       provider: "meta",
+      aiAgentId: null,
+      twilioConnectionId: null,
       externalUserId: event.sender.id,
       externalMessageId: event.message.mid,
       text: event.message.text,

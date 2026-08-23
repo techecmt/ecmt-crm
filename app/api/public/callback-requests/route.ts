@@ -50,6 +50,42 @@ function parseTime(value: unknown) {
   return time;
 }
 
+function parseRequestType(value: unknown, body: Record<string, unknown>) {
+  const hasAppointmentSignal =
+    body.appointmentMode === "phone" ||
+    body.appointmentMode === "video" ||
+    body.appointmentMode === "campus" ||
+    body.durationMinutes != null;
+
+  if ((value == null || value === "") && hasAppointmentSignal) return "appointment";
+  if (value === "callback" && hasAppointmentSignal) return "appointment";
+  if (value == null || value === "") return "callback";
+  if (value !== "callback" && value !== "appointment") {
+    throw new WidgetRequestError("Request type must be callback or appointment", 400);
+  }
+  return value;
+}
+
+function parseAppointmentMode(value: unknown) {
+  if (value !== "phone" && value !== "video" && value !== "campus") {
+    throw new WidgetRequestError("Appointment mode must be phone, video, or campus", 400);
+  }
+  return value;
+}
+
+function parseDurationMinutes(value: unknown) {
+  const minutes =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : 30;
+  if (!Number.isInteger(minutes) || minutes < 15 || minutes > 180) {
+    throw new WidgetRequestError("Duration must be between 15 and 180 minutes", 400);
+  }
+  return minutes;
+}
+
 function parseUtm(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(
@@ -109,6 +145,20 @@ export async function POST(request: Request) {
       throw new WidgetRequestError("Phone is invalid", 400);
     }
 
+    const requestType = parseRequestType(body.requestType, body);
+    const appointmentMode =
+      requestType === "appointment" ? parseAppointmentMode(body.appointmentMode) : null;
+    const durationMinutes =
+      requestType === "appointment" ? parseDurationMinutes(body.durationMinutes) : null;
+
+    const preferredTime = parseTime(body.preferredTime);
+    if (appointmentMode === "campus" && preferredTime > "17:30") {
+      throw new WidgetRequestError(
+        "Campus visits must be booked between 09:00 and 17:30",
+        400,
+      );
+    }
+
     const supabase = createAdminClient();
     const { data, error } = await supabase.rpc("submit_callback_request", {
       p_full_name: fullName,
@@ -116,7 +166,7 @@ export async function POST(request: Request) {
       p_phone: phone,
       p_course: requiredText(body.course, "Course", 200),
       p_preferred_date: parseDate(body.preferredDate),
-      p_preferred_time: parseTime(body.preferredTime),
+      p_preferred_time: preferredTime,
       p_preferred_timezone:
         typeof body.preferredTimezone === "string"
           ? requiredText(body.preferredTimezone, "Preferred timezone", 100)
@@ -125,6 +175,9 @@ export async function POST(request: Request) {
       p_referrer:
         typeof body.referrer === "string" ? body.referrer.slice(0, 2_000) : null,
       p_utm: parseUtm(body.utm),
+      p_request_type: requestType,
+      p_appointment_mode: appointmentMode,
+      p_duration_minutes: durationMinutes,
     });
     if (error || !data?.[0]) {
       throw new Error(error?.message || "Unable to save callback request");

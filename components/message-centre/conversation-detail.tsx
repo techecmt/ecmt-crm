@@ -96,7 +96,10 @@ export function ConversationDetail({
     data: templates = [],
     isLoading: templatesLoading,
     error: templatesError,
-  } = useTwilioWhatsAppTemplates(templateDialogOpen && isTwilioWhatsApp);
+  } = useTwilioWhatsAppTemplates(
+    conversation.id,
+    templateDialogOpen && isTwilioWhatsApp,
+  );
   const messages = React.useMemo(
     () =>
       (messagePages?.pages ?? [])

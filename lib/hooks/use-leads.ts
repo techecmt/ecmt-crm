@@ -11,7 +11,9 @@ import { toast } from "sonner";
 import type { ParsedLeadRow } from "@/lib/lead-import";
 import { canonicalizePhoneKey } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/client";
+import { syncOpenCallbackRequestsCounsellor } from "@/lib/callback-request-assignment";
 import { ADMISSION_GOALS_KEY } from "@/lib/hooks/use-admission-goals";
+import { CALLBACK_REQUESTS_KEY } from "@/lib/hooks/use-callback-requests";
 import { shouldClearPendingFollowUps } from "@/lib/lead-pipeline";
 import type { DuplicateCheckLead } from "@/lib/lead-duplicates";
 import { getSgtDayEndUtcIso, getSgtDayStartUtcIso } from "@/lib/timezone";
@@ -427,6 +429,13 @@ export function useUpsertLead() {
           .select("*")
           .single();
         if (error) throw new Error(error.message);
+        if (Object.prototype.hasOwnProperty.call(leadInput, "assigned_counsellor")) {
+          await syncOpenCallbackRequestsCounsellor(
+            supabase,
+            input.id,
+            data.assigned_counsellor ?? null,
+          );
+        }
         if (initial_follow_up_priority || initial_follow_up_remarks) {
           await supabase
             .from("follow_ups")
@@ -480,6 +489,7 @@ export function useUpsertLead() {
     onSuccess: () => {
       toast.success("Lead saved");
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: CALLBACK_REQUESTS_KEY });
       qc.invalidateQueries({ queryKey: ["follow_ups"] });
       qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
@@ -541,6 +551,9 @@ export function useUpdateLeadStatus() {
         .select("*")
         .single();
       if (error) throw new Error(error.message);
+      if (assigned_user_id) {
+        await syncOpenCallbackRequestsCounsellor(supabase, id, assigned_user_id);
+      }
 
       if (
         status === "counselling_in_progress" &&
@@ -595,6 +608,7 @@ export function useUpdateLeadStatus() {
     onSuccess: () => {
       toast.success("Status updated");
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: CALLBACK_REQUESTS_KEY });
       qc.invalidateQueries({ queryKey: ["follow_ups"] });
       qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
@@ -826,6 +840,13 @@ export function useBulkUpdateLeads() {
 
       const { error } = await supabase.from("leads").update(updates).in("id", ids);
       if (error) throw new Error(error.message);
+      if (assignedCounsellor !== undefined) {
+        await syncOpenCallbackRequestsCounsellor(
+          supabase,
+          ids,
+          assignedCounsellor === "unassigned" ? null : assignedCounsellor,
+        );
+      }
 
       if (status && shouldClearPendingFollowUps(status)) {
         const { error: clearError } = await supabase
@@ -850,6 +871,7 @@ export function useBulkUpdateLeads() {
     onSuccess: () => {
       toast.success("Leads updated");
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: CALLBACK_REQUESTS_KEY });
       qc.invalidateQueries({ queryKey: ADMISSION_GOALS_KEY });
     },
     onError: (err: Error) => toast.error(err.message),

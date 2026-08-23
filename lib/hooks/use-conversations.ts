@@ -12,12 +12,14 @@ export interface Conversation {
   channel: "whatsapp" | "messenger" | "website";
   provider: "meta" | "twilio";
   page_id: string | null;
+  twilio_connection_id: string | null;
   external_user_id: string;
   phone: string | null;
   name: string | null;
   status: "open" | "pending" | "resolved" | "spam";
   assigned_user_id: string | null;
   mode: "agent" | "human";
+  ai_agent_id: string | null;
   lead_id: string | null;
   lifecycle_status:
     | "new"
@@ -217,11 +219,17 @@ export function useSendMessage() {
   });
 }
 
-export function useTwilioWhatsAppTemplates(enabled = true) {
+export function useTwilioWhatsAppTemplates(
+  conversationId: string | null,
+  enabled = true,
+) {
   return useQuery<TwilioWhatsAppTemplate[]>({
-    queryKey: ["twilio-whatsapp-templates"],
+    queryKey: ["twilio-whatsapp-templates", conversationId],
     queryFn: async () => {
-      const res = await fetch("/api/messaging/templates");
+      const params = new URLSearchParams();
+      if (conversationId) params.set("conversation_id", conversationId);
+      const query = params.toString();
+      const res = await fetch(`/api/messaging/templates${query ? `?${query}` : ""}`);
       const data = (await res.json()) as {
         templates?: TwilioWhatsAppTemplate[];
         error?: string;
@@ -229,7 +237,7 @@ export function useTwilioWhatsAppTemplates(enabled = true) {
       if (!res.ok) throw new Error(data.error || "Failed to load Twilio templates");
       return data.templates ?? [];
     },
-    enabled,
+    enabled: enabled && !!conversationId,
     staleTime: 60_000,
   });
 }

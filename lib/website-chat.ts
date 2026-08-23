@@ -26,6 +26,7 @@ export type VisitorData = {
 type WebsiteConversation = {
   id: string;
   channel: "website";
+  ai_agent_id: string | null;
   external_user_id: string;
   name: string | null;
   phone: string | null;
@@ -209,19 +210,29 @@ export async function createWebsiteConversation(input: {
   const token = randomBytes(TOKEN_BYTES).toString("base64url");
   const externalUserId = `web_${randomBytes(12).toString("hex")}`;
 
-  const { data: settings } = await supabase
-    .from("ai_settings")
-    .select("greeting_message")
-    .eq("id", true)
+  let { data: agent } = await supabase
+    .from("ai_agents")
+    .select("id, greeting_message")
+    .eq("is_default", true)
     .maybeSingle();
+  if (!agent) {
+    const fallback = await supabase
+      .from("ai_agents")
+      .select("id, greeting_message")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    agent = fallback.data ?? null;
+  }
   const greeting =
-    settings?.greeting_message?.trim() ||
+    agent?.greeting_message?.trim() ||
     "Hi! How can I help you with courses or admissions today?";
 
   const { data: conversation, error } = await supabase
     .from("conversations")
     .insert({
       channel: "website",
+      ai_agent_id: agent?.id ?? null,
       external_user_id: externalUserId,
       status: "open",
       lifecycle_status: "new",
@@ -259,7 +270,7 @@ export async function requireVisitorConversation(
   const { data, error } = await supabase
     .from("conversations")
     .select(
-      "id, channel, external_user_id, name, phone, lifecycle_status, bot_enabled, visitor_data",
+      "id, channel, ai_agent_id, external_user_id, name, phone, lifecycle_status, bot_enabled, visitor_data",
     )
     .eq("id", conversationId)
     .eq("channel", "website")
@@ -293,11 +304,13 @@ export async function submitWebsiteMessage(
   };
 
   if (isExplicitHumanHandoffRequest(content)) {
-    const { data: settings } = await supabase
-      .from("ai_settings")
-      .select("escalation_message")
-      .eq("id", true)
-      .maybeSingle();
+    const { data: settings } = conversation.ai_agent_id
+      ? await supabase
+          .from("ai_agents")
+          .select("escalation_message")
+          .eq("id", conversation.ai_agent_id)
+          .maybeSingle()
+      : { data: null };
     const acknowledgement =
       settings?.escalation_message?.trim() ||
       "I've let our admissions team know. Someone will follow up with you.";
@@ -337,6 +350,7 @@ export async function submitWebsiteMessage(
   if (historyError) throw new Error(historyError.message);
 
   const aiResult = await getAIResponse({
+    agentId: conversation.ai_agent_id,
     channel: "website",
     conversationHistory: (history ?? []) as ChatMessage[],
     leadCaptureContext: visitorDataContext(visitorData),

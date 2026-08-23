@@ -655,7 +655,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
             ) : null}
           </TabsTrigger>
           <TabsTrigger value="callback-requests">
-            Callback requests
+            Callbacks & appointments
             {callbackRequests.length > 0 ? (
               <Badge variant="secondary" className="ml-2">
                 {callbackRequests.length}
@@ -845,9 +845,9 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
         <TabsContent value="callback-requests">
           <Card>
             <CardHeader>
-              <CardTitle>Callback requests</CardTitle>
+              <CardTitle>Callbacks & appointments</CardTitle>
               <CardDescription>
-                Website callback requests linked to this lead.
+                Website callback and appointment requests linked to this lead.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -856,7 +856,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                   <Skeleton className="h-40 w-full" />
                 </div>
               ) : callbackRequests.length === 0 ? (
-                <EmptyState text="No callback requests are linked to this lead." />
+                <EmptyState text="No callback or appointment requests are linked to this lead." />
               ) : (
                 <div className="grid gap-4 xl:grid-cols-2">
                   {callbackRequests.map((request) => (

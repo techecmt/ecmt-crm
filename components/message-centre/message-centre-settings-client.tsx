@@ -50,16 +50,24 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  type AIKnowledge,
   type AISettings,
+  useAIAgents,
+  useCreateAIAgent,
+  useCreateTwilioConnection,
   useAIKnowledge,
   useAISettings,
+  useDeleteAIAgent,
   useCreateMessagingPage,
   useDeleteKnowledge,
   useDeleteMessagingPage,
+  useDeleteTwilioConnection,
   useMessagingPages,
   useSaveKnowledge,
+  useTwilioConnections,
   useUpdateAISettings,
   useUpdateMessagingPage,
+  useUpdateTwilioConnection,
 } from "@/lib/hooks/use-message-centre-settings";
 import { WebsiteWidgetSettings } from "@/components/message-centre/website-widget-settings";
 
@@ -80,9 +88,142 @@ const KNOWLEDGE_CATEGORIES = [
   { value: "custom", label: "Custom" },
 ] as const;
 
+const EMPTY_KNOWLEDGE: AIKnowledge[] = [];
+
+type KnowledgeEditorState = {
+  id: string | null;
+  title: string;
+  content: string;
+  is_active: boolean;
+  sort_order: number;
+  category: string;
+};
+
+function createKnowledgeEditorState(
+  knowledgeCount: number,
+  categoryFilter: string,
+): KnowledgeEditorState {
+  return {
+    id: null,
+    title: "",
+    content: "",
+    is_active: true,
+    sort_order: Math.max(1, knowledgeCount + 1),
+    category:
+      categoryFilter !== "all"
+        ? categoryFilter
+        : KNOWLEDGE_CATEGORIES[0]?.value ?? "general",
+  };
+}
+
 export function MessageCentreSettingsClient() {
+  const { data: agents = [] } = useAIAgents();
+  const createAgent = useCreateAIAgent();
+  const deleteAgent = useDeleteAIAgent();
+  const [selectedAgentId, setSelectedAgentId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!agents.length) {
+      setSelectedAgentId(null);
+      return;
+    }
+    if (!selectedAgentId || !agents.some((agent) => agent.id === selectedAgentId)) {
+      const preferred = agents.find((agent) => agent.is_default) ?? agents[0];
+      setSelectedAgentId(preferred?.id ?? null);
+    }
+  }, [agents, selectedAgentId]);
+
+  const selectedAgent =
+    agents.find((agent) => agent.id === selectedAgentId) ?? null;
+
+  const createNewAgent = () => {
+    const newName = `AI Agent ${agents.length + 1}`;
+    createAgent.mutate(
+      {
+        name: newName,
+        tone: "professional_friendly",
+      },
+      {
+        onSuccess: (agent) => {
+          const id =
+            typeof agent === "object" && agent && "id" in agent
+              ? String(agent.id)
+              : null;
+          if (id) setSelectedAgentId(id);
+          toast.success("AI agent created");
+        },
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  };
+
+  const removeSelectedAgent = () => {
+    if (!selectedAgent) return;
+    deleteAgent.mutate(selectedAgent.id, {
+      onSuccess: () => {
+        toast.success("AI agent removed");
+        setSelectedAgentId(null);
+      },
+      onError: (error) => toast.error(error.message),
+    });
+  };
+
   return (
-    <Tabs defaultValue="agent" className="space-y-6">
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Agents Workspace</CardTitle>
+          <CardDescription>
+            Each AI agent has its own persona, prompts, knowledge, and connections.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="grid flex-1 gap-2">
+            <Label>Active agent workspace</Label>
+            <Select
+              value={selectedAgentId ?? ""}
+              onValueChange={(value) => setSelectedAgentId(value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select an AI agent" />
+              </SelectTrigger>
+              <SelectContent>
+                {agents.map((agent) => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    {agent.name}
+                    {agent.is_default ? " (default)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={createNewAgent}
+              disabled={createAgent.isPending}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New Agent
+            </Button>
+            <Button
+              variant="outline"
+              onClick={removeSelectedAgent}
+              disabled={
+                !selectedAgent ||
+                selectedAgent.is_default ||
+                deleteAgent.isPending
+              }
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {selectedAgent ? (
+        <Tabs defaultValue="agent" className="space-y-6">
       <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger value="agent" className="gap-1.5 px-1 sm:gap-2 sm:px-3">
           <Bot className="h-4 w-4 shrink-0" />
@@ -108,32 +249,38 @@ export function MessageCentreSettingsClient() {
       </TabsList>
 
       <TabsContent value="agent">
-        <AgentSettingsTab />
+        <AgentSettingsTab agentId={selectedAgent.id} />
       </TabsContent>
       <TabsContent value="knowledge">
-        <KnowledgeBaseTab />
+        <KnowledgeBaseTab agentId={selectedAgent.id} />
       </TabsContent>
       <TabsContent value="connections">
-        <ConnectionsTab />
+        <ConnectionsTab agentId={selectedAgent.id} />
       </TabsContent>
-    </Tabs>
+        </Tabs>
+      ) : (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            Create your first AI agent to configure Message Centre settings.
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 
 /* ─── AI Agent Settings ────────────────────────────────────── */
 
-function AgentSettingsTab() {
-  const { data: settings } = useAISettings();
+function AgentSettingsTab({ agentId }: { agentId: string }) {
+  const { data: settings } = useAISettings(agentId);
   const updateSettings = useUpdateAISettings();
 
   const [form, setForm] = React.useState<Partial<AISettings>>({});
-  const initialized = React.useRef(false);
 
   React.useEffect(() => {
-    if (!settings || initialized.current) return;
-    initialized.current = true;
+    if (!settings) return;
     setForm({
-      agent_name: settings.agent_name ?? "Admissions Assistant",
+      name: settings.name ?? "Admissions Assistant",
       persona: settings.persona ?? "",
       system_prompt: settings.system_prompt ?? "",
       tone: settings.tone ?? "professional_friendly",
@@ -152,14 +299,15 @@ function AgentSettingsTab() {
       business_hours_enabled: settings.business_hours_enabled ?? false,
       offline_message: settings.offline_message ?? "",
       is_active: settings.is_active ?? true,
+      is_default: settings.is_default ?? false,
     });
-  }, [settings]);
+  }, [agentId, settings]);
 
   const patch = (updates: Partial<AISettings>) =>
     setForm((prev) => ({ ...prev, ...updates }));
 
   const save = () =>
-    updateSettings.mutate(form, {
+    updateSettings.mutate({ ...form, agent_id: agentId }, {
       onSuccess: () => toast.success("AI agent settings saved"),
       onError: (err) => toast.error(err.message),
     });
@@ -170,22 +318,39 @@ function AgentSettingsTab() {
     <div className="space-y-6">
       {/* Master toggle */}
       <Card>
-        <CardContent className="flex items-center justify-between py-4">
-          <div className="flex items-center gap-3">
-            <div className={`rounded-full p-2 ${form.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-              <Bot className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="font-medium">AI Agent</div>
-              <div className="text-sm text-muted-foreground">
-                {form.is_active ? "Active — auto-replies to incoming messages" : "Paused — messages won't receive AI replies"}
+        <CardContent className="space-y-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`rounded-full p-2 ${form.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                <Bot className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="font-medium">AI Agent</div>
+                <div className="text-sm text-muted-foreground">
+                  {form.is_active ? "Active — auto-replies to incoming messages" : "Paused — messages won't receive AI replies"}
+                </div>
               </div>
             </div>
+            <Switch
+              checked={form.is_active ?? true}
+              onCheckedChange={(checked) => patch({ is_active: checked })}
+            />
           </div>
-          <Switch
-            checked={form.is_active ?? true}
-            onCheckedChange={(checked) => patch({ is_active: checked })}
-          />
+          <Separator />
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium">Default website agent</div>
+              <div className="text-sm text-muted-foreground">
+                Used when a new website chat starts or no channel mapping is found.
+              </div>
+            </div>
+            <Switch
+              checked={form.is_default ?? false}
+              onCheckedChange={(checked) => {
+                if (checked) patch({ is_default: true });
+              }}
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -205,8 +370,8 @@ function AgentSettingsTab() {
             <div className="grid gap-2">
               <Label>Agent Name</Label>
               <Input
-                value={form.agent_name ?? ""}
-                onChange={(e) => patch({ agent_name: e.target.value })}
+                value={form.name ?? ""}
+                onChange={(e) => patch({ name: e.target.value })}
                 placeholder="e.g. Admissions Assistant"
               />
             </div>
@@ -480,198 +645,444 @@ function AgentSettingsTab() {
 
 /* ─── Knowledge Base ────────────────────────────────────── */
 
-function KnowledgeBaseTab() {
-  const { data: knowledge = [] } = useAIKnowledge();
+function KnowledgeBaseTab({ agentId }: { agentId: string }) {
+  const { data } = useAIKnowledge(agentId);
+  const knowledge = data ?? EMPTY_KNOWLEDGE;
   const saveKnowledge = useSaveKnowledge();
+  const deleteKnowledge = useDeleteKnowledge();
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const [categoryFilter, setCategoryFilter] = React.useState<string>("all");
+  const [selectedKnowledgeId, setSelectedKnowledgeId] = React.useState<string | "new" | null>(
+    null,
+  );
+  const [editorState, setEditorState] = React.useState<KnowledgeEditorState | null>(null);
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
 
-  const grouped = React.useMemo(() => {
-    const groups: Record<string, typeof knowledge> = {};
-    knowledge.forEach((item) => {
-      const cat = item.category || "general";
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(item);
+  const filteredKnowledge = React.useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    return knowledge
+      .filter((item) => {
+        if (categoryFilter !== "all" && item.category !== categoryFilter) return false;
+        if (!q) return true;
+        return (
+          item.title.toLowerCase().includes(q) ||
+          item.content.toLowerCase().includes(q) ||
+          item.category.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+        return a.title.localeCompare(b.title);
+      });
+  }, [categoryFilter, knowledge, searchTerm]);
+
+  const activeCount = React.useMemo(
+    () => knowledge.filter((item) => item.is_active).length,
+    [knowledge],
+  );
+
+  const selectedKnowledge = React.useMemo(() => {
+    if (!selectedKnowledgeId || selectedKnowledgeId === "new") return null;
+    return knowledge.find((item) => item.id === selectedKnowledgeId) ?? null;
+  }, [knowledge, selectedKnowledgeId]);
+
+  React.useEffect(() => {
+    if (selectedKnowledgeId === "new") {
+      setEditorState((current) =>
+        current?.id === null
+          ? current
+          : createKnowledgeEditorState(knowledge.length, categoryFilter),
+      );
+      return;
+    }
+
+    if (selectedKnowledge) {
+      setEditorState({
+        id: selectedKnowledge.id,
+        title: selectedKnowledge.title,
+        content: selectedKnowledge.content,
+        is_active: selectedKnowledge.is_active,
+        sort_order: selectedKnowledge.sort_order,
+        category: selectedKnowledge.category || "general",
+      });
+      return;
+    }
+
+    const firstMatch = filteredKnowledge[0];
+    if (firstMatch) {
+      setSelectedKnowledgeId(firstMatch.id);
+      return;
+    }
+
+    setSelectedKnowledgeId("new");
+  }, [categoryFilter, filteredKnowledge, knowledge.length, selectedKnowledge, selectedKnowledgeId]);
+
+  const isEditorDirty = React.useMemo(() => {
+    if (!editorState) return false;
+    if (!editorState.id) {
+      const baseline = createKnowledgeEditorState(knowledge.length, categoryFilter);
+      return (
+        editorState.title.trim().length > 0 ||
+        editorState.content.trim().length > 0 ||
+        editorState.category !== baseline.category ||
+        editorState.sort_order !== baseline.sort_order ||
+        editorState.is_active !== baseline.is_active
+      );
+    }
+    if (!selectedKnowledge) return false;
+    return (
+      editorState.title !== selectedKnowledge.title ||
+      editorState.content !== selectedKnowledge.content ||
+      editorState.is_active !== selectedKnowledge.is_active ||
+      editorState.sort_order !== selectedKnowledge.sort_order ||
+      editorState.category !== selectedKnowledge.category
+    );
+  }, [categoryFilter, editorState, knowledge.length, selectedKnowledge]);
+
+  const saveEditor = () => {
+    if (!editorState) return;
+    const title = editorState.title.trim();
+    const content = editorState.content.trim();
+    if (!title || !content) {
+      toast.error("Title and content are required");
+      return;
+    }
+
+    const payload = {
+      agent_id: agentId,
+      title,
+      content,
+      is_active: editorState.is_active,
+      sort_order: Math.max(1, Number(editorState.sort_order) || 1),
+      category: editorState.category || "general",
+    };
+
+    saveKnowledge.mutate(
+      editorState.id
+        ? {
+            id: editorState.id,
+            payload,
+          }
+        : { payload },
+      {
+        onSuccess: (result) => {
+          if (!editorState.id && result && typeof result === "object" && "id" in result) {
+            setSelectedKnowledgeId(String(result.id));
+          }
+          toast.success(editorState.id ? "Knowledge updated" : "Knowledge item created");
+        },
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  };
+
+  const deleteEditor = () => {
+    if (!editorState?.id) {
+      setSelectedKnowledgeId(filteredKnowledge[0]?.id ?? "new");
+      return;
+    }
+    deleteKnowledge.mutate(editorState.id, {
+      onSuccess: () => {
+        toast.success("Knowledge removed");
+        setConfirmDelete(false);
+        setSelectedKnowledgeId(null);
+      },
+      onError: (error) => toast.error(error.message),
     });
-    return groups;
-  }, [knowledge]);
+  };
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Brain className="h-4 w-4" />
-            Knowledge Base
-          </CardTitle>
-          <CardDescription>
-            Train your AI agent with domain-specific knowledge. Organize by category
-            for better retrieval.
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Brain className="h-4 w-4" />
+                Knowledge Base
+              </CardTitle>
+              <CardDescription>
+                Maintain a clean, structured knowledge workspace for this AI agent.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline">{knowledge.length} total</Badge>
+              <Badge variant="outline">{activeCount} active</Badge>
+              <Button
+                onClick={() => {
+                  setSelectedKnowledgeId("new");
+                  setEditorState(
+                    createKnowledgeEditorState(knowledge.length, categoryFilter),
+                  );
+                }}
+                className="gap-1.5"
+                size="sm"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New Block
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {knowledge.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No knowledge items yet. Add your first knowledge block to train the AI.
-            </div>
-          ) : (
-            Object.entries(grouped).map(([category, items]) => (
-              <div key={category} className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="capitalize">
-                    {category}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {items.length} {items.length === 1 ? "item" : "items"}
-                  </span>
-                </div>
-                {items.map((item) => (
-                  <KnowledgeItem key={item.id} item={item} />
+          <div className="grid gap-2 md:grid-cols-3">
+            <Input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search title, content, category..."
+              className="md:col-span-2"
+            />
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {KNOWLEDGE_CATEGORIES.map((category) => (
+                  <SelectItem key={category.value} value={category.value}>
+                    {category.label}
+                  </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[360px,1fr]">
+            <div className="space-y-2 rounded-lg border">
+              <div className="border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Knowledge records
               </div>
-            ))
-          )}
-          <Separator />
-          <Button
-            variant="outline"
-            onClick={() =>
-              saveKnowledge.mutate(
-                {
-                  payload: {
-                    title: "New knowledge block",
-                    content: "Add contextual guidance here.",
-                    is_active: true,
-                    sort_order: knowledge.length + 1,
-                    category: "general",
-                  },
-                },
-                {
-                  onSuccess: () => toast.success("Knowledge item created"),
-                  onError: (error) => toast.error(error.message),
-                },
-              )
-            }
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Knowledge Block
-          </Button>
+              <div className="max-h-[560px] overflow-y-auto p-2">
+                {filteredKnowledge.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    No knowledge records match your filters.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {filteredKnowledge.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedKnowledgeId(item.id)}
+                        className={`w-full rounded-md border px-3 py-2 text-left transition ${
+                          selectedKnowledgeId === item.id
+                            ? "border-primary bg-primary/5"
+                            : "hover:bg-muted/40"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium">{item.title}</span>
+                          <Badge variant="outline" className="ml-auto shrink-0 capitalize">
+                            {item.category}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {item.content}
+                        </p>
+                        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <span>Order: {item.sort_order}</span>
+                          <span>•</span>
+                          <span>{item.is_active ? "Active" : "Inactive"}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              {editorState ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold">
+                        {editorState.id ? "Edit knowledge block" : "Create knowledge block"}
+                      </h4>
+                      <p className="text-xs text-muted-foreground">
+                        {editorState.id
+                          ? "Update details and save when ready."
+                          : "Draft your new block before creating it."}
+                      </p>
+                    </div>
+                    <Badge variant={isEditorDirty ? "default" : "secondary"}>
+                      {isEditorDirty ? "Unsaved changes" : "Saved"}
+                    </Badge>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Title</Label>
+                      <Input
+                        value={editorState.title}
+                        onChange={(event) =>
+                          setEditorState((prev) =>
+                            prev ? { ...prev, title: event.target.value } : prev,
+                          )
+                        }
+                        placeholder="Knowledge block title"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Category</Label>
+                      <Select
+                        value={editorState.category}
+                        onValueChange={(value) =>
+                          setEditorState((prev) => (prev ? { ...prev, category: value } : prev))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {KNOWLEDGE_CATEGORIES.map((cat) => (
+                            <SelectItem key={cat.value} value={cat.value}>
+                              {cat.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Sort Order</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={editorState.sort_order}
+                        onChange={(event) =>
+                          setEditorState((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  sort_order: Math.max(
+                                    1,
+                                    Number(event.target.value) || 1,
+                                  ),
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <div className="flex items-center gap-2 rounded-md border px-3 py-2">
+                        <Switch
+                          checked={editorState.is_active}
+                          onCheckedChange={(checked) =>
+                            setEditorState((prev) =>
+                              prev ? { ...prev, is_active: checked } : prev,
+                            )
+                          }
+                        />
+                        <Label className="text-sm">Active in retrieval</Label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Knowledge Content</Label>
+                    <Textarea
+                      rows={12}
+                      value={editorState.content}
+                      onChange={(event) =>
+                        setEditorState((prev) =>
+                          prev ? { ...prev, content: event.target.value } : prev,
+                        )
+                      }
+                      placeholder="Write clear, factual guidance the AI should use while replying."
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (editorState.id && selectedKnowledge) {
+                          setEditorState({
+                            id: selectedKnowledge.id,
+                            title: selectedKnowledge.title,
+                            content: selectedKnowledge.content,
+                            is_active: selectedKnowledge.is_active,
+                            sort_order: selectedKnowledge.sort_order,
+                            category: selectedKnowledge.category || "general",
+                          });
+                          return;
+                        }
+                        setEditorState(
+                          createKnowledgeEditorState(knowledge.length, categoryFilter),
+                        );
+                      }}
+                      disabled={!isEditorDirty}
+                    >
+                      Reset
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (!editorState.id) {
+                          setEditorState(
+                            createKnowledgeEditorState(knowledge.length, categoryFilter),
+                          );
+                          return;
+                        }
+                        setConfirmDelete(true);
+                      }}
+                      disabled={deleteKnowledge.isPending}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {editorState.id ? "Delete" : "Clear"}
+                    </Button>
+                    <Button
+                      onClick={saveEditor}
+                      disabled={!isEditorDirty || saveKnowledge.isPending}
+                    >
+                      <Save className="mr-2 h-4 w-4" />
+                      {saveKnowledge.isPending ? "Saving…" : editorState.id ? "Save Changes" : "Create Block"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+                  Select a knowledge block to start editing.
+                </div>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
-    </div>
-  );
-}
 
-function KnowledgeItem({
-  item,
-}: {
-  item: {
-    id: string;
-    title: string;
-    content: string;
-    is_active: boolean;
-    sort_order: number;
-    category: string;
-  };
-}) {
-  const saveKnowledge = useSaveKnowledge();
-  const deleteKnowledge = useDeleteKnowledge();
-  const [title, setTitle] = React.useState(item.title);
-  const [content, setContent] = React.useState(item.content);
-  const [isActive, setIsActive] = React.useState(item.is_active);
-  const [category, setCategory] = React.useState(item.category || "general");
-  const [sortOrder, setSortOrder] = React.useState(String(item.sort_order));
-
-  return (
-    <div className="space-y-3 rounded-lg border p-4">
-      <div className="grid gap-3 md:grid-cols-2">
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
-        />
-        <div className="flex gap-2">
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {KNOWLEDGE_CATEGORIES.map((cat) => (
-                <SelectItem key={cat.value} value={cat.value}>
-                  {cat.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            className="w-20"
-            type="number"
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value)}
-            title="Sort order"
-          />
-        </div>
-      </div>
-      <Textarea
-        rows={4}
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        placeholder="Knowledge content..."
-      />
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Switch checked={isActive} onCheckedChange={setIsActive} />
-          <Label className="text-sm">Active</Label>
-        </div>
-        <div className="ml-auto flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              saveKnowledge.mutate(
-                {
-                  id: item.id,
-                  payload: {
-                    title,
-                    content,
-                    is_active: isActive,
-                    sort_order: Number(sortOrder),
-                    category,
-                  },
-                },
-                {
-                  onSuccess: () => toast.success("Knowledge updated"),
-                  onError: (error) => toast.error(error.message),
-                },
-              )
-            }
-          >
-            <Save className="mr-1 h-3.5 w-3.5" />
-            Save
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              deleteKnowledge.mutate(item.id, {
-                onSuccess: () => toast.success("Knowledge removed"),
-                onError: (error) => toast.error(error.message),
-              })
-            }
-          >
-            <Trash2 className="mr-1 h-3.5 w-3.5" />
-            Delete
-          </Button>
-        </div>
-      </div>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete knowledge block?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the selected block from this AI agent. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteEditor}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
 /* ─── Connections (Messenger + WhatsApp) ───────────────── */
 
-function ConnectionsTab() {
-  const { data: pages = [] } = useMessagingPages();
+function ConnectionsTab({ agentId }: { agentId: string }) {
+  const { data: pages = [] } = useMessagingPages(agentId);
+  const { data: twilioConnections = [] } = useTwilioConnections(agentId);
   const createPage = useCreateMessagingPage();
   const updatePage = useUpdateMessagingPage();
   const deletePage = useDeleteMessagingPage();
+  const createTwilioConnection = useCreateTwilioConnection();
+  const updateTwilioConnection = useUpdateTwilioConnection();
+  const deleteTwilioConnection = useDeleteTwilioConnection();
 
   const [showForm, setShowForm] = React.useState(false);
   const [channel, setChannel] = React.useState<"messenger" | "whatsapp">("messenger");
@@ -683,6 +1094,15 @@ function ConnectionsTab() {
     description: "",
   });
   const [confirmDelete, setConfirmDelete] = React.useState<string | null>(null);
+  const [confirmTwilioDelete, setConfirmTwilioDelete] = React.useState<string | null>(null);
+  const [twilioForm, setTwilioForm] = React.useState({
+    name: "",
+    account_sid: "",
+    auth_token: "",
+    whatsapp_from: "",
+    messaging_service_sid: "",
+    description: "",
+  });
 
   const messengerPages = pages.filter((p) => p.channel === "messenger");
   const whatsappPages = pages.filter((p) => p.channel === "whatsapp");
@@ -701,6 +1121,7 @@ function ConnectionsTab() {
   const handleCreate = () => {
     createPage.mutate(
       {
+        agent_id: agentId,
         ...formData,
         channel,
         phone_number_id: channel === "whatsapp" ? formData.phone_number_id : undefined,
@@ -711,6 +1132,34 @@ function ConnectionsTab() {
           resetForm();
         },
         onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const handleCreateTwilioConnection = () => {
+    createTwilioConnection.mutate(
+      {
+        agent_id: agentId,
+        name: twilioForm.name,
+        account_sid: twilioForm.account_sid,
+        auth_token: twilioForm.auth_token,
+        whatsapp_from: twilioForm.whatsapp_from || undefined,
+        messaging_service_sid: twilioForm.messaging_service_sid || undefined,
+        description: twilioForm.description,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Twilio connection added");
+          setTwilioForm({
+            name: "",
+            account_sid: "",
+            auth_token: "",
+            whatsapp_from: "",
+            messaging_service_sid: "",
+            description: "",
+          });
+        },
+        onError: (error) => toast.error(error.message),
       },
     );
   };
@@ -804,6 +1253,183 @@ function ConnectionsTab() {
               />
             ))
           )}
+        </CardContent>
+      </Card>
+
+      {/* Twilio WhatsApp */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Phone className="h-4 w-4 text-emerald-600" />
+                Twilio WhatsApp
+              </CardTitle>
+              <CardDescription>
+                Connect multiple Twilio WhatsApp credential sets for this AI agent.
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="gap-1">
+              {twilioConnections.length} connected
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {twilioConnections.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              No Twilio connections for this agent yet.
+            </div>
+          ) : (
+            twilioConnections.map((connection) => (
+              <div key={connection.id} className="space-y-3 rounded-lg border p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{connection.name}</span>
+                      <Badge variant={connection.is_active ? "outline" : "secondary"}>
+                        {connection.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Account SID: {connection.account_sid}
+                    </p>
+                    {connection.whatsapp_from ? (
+                      <p className="text-xs text-muted-foreground">
+                        Sender: {connection.whatsapp_from}
+                      </p>
+                    ) : null}
+                    {connection.messaging_service_sid ? (
+                      <p className="text-xs text-muted-foreground">
+                        Messaging Service: {connection.messaging_service_sid}
+                      </p>
+                    ) : null}
+                    {connection.description ? (
+                      <p className="text-xs text-muted-foreground">{connection.description}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={connection.is_active}
+                      onCheckedChange={(active) =>
+                        updateTwilioConnection.mutate(
+                          { id: connection.id, is_active: active },
+                          {
+                            onSuccess: () => toast.success("Twilio connection updated"),
+                            onError: (error) => toast.error(error.message),
+                          },
+                        )
+                      }
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setConfirmTwilioDelete(connection.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+
+          <Separator />
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Connection Name</Label>
+                <Input
+                  value={twilioForm.name}
+                  onChange={(event) =>
+                    setTwilioForm((previous) => ({
+                      ...previous,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="e.g. Admissions WA Line 1"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Account SID</Label>
+                <Input
+                  value={twilioForm.account_sid}
+                  onChange={(event) =>
+                    setTwilioForm((previous) => ({
+                      ...previous,
+                      account_sid: event.target.value,
+                    }))
+                  }
+                  placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                />
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Auth Token</Label>
+                <Input
+                  type="password"
+                  value={twilioForm.auth_token}
+                  onChange={(event) =>
+                    setTwilioForm((previous) => ({
+                      ...previous,
+                      auth_token: event.target.value,
+                    }))
+                  }
+                  placeholder="Twilio auth token"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>WhatsApp Sender (optional)</Label>
+                <Input
+                  value={twilioForm.whatsapp_from}
+                  onChange={(event) =>
+                    setTwilioForm((previous) => ({
+                      ...previous,
+                      whatsapp_from: event.target.value,
+                    }))
+                  }
+                  placeholder="+14155238886"
+                />
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Messaging Service SID (optional)</Label>
+                <Input
+                  value={twilioForm.messaging_service_sid}
+                  onChange={(event) =>
+                    setTwilioForm((previous) => ({
+                      ...previous,
+                      messaging_service_sid: event.target.value,
+                    }))
+                  }
+                  placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Description (optional)</Label>
+                <Input
+                  value={twilioForm.description}
+                  onChange={(event) =>
+                    setTwilioForm((previous) => ({
+                      ...previous,
+                      description: event.target.value,
+                    }))
+                  }
+                  placeholder="Internal notes"
+                />
+              </div>
+            </div>
+            <Button
+              onClick={handleCreateTwilioConnection}
+              disabled={createTwilioConnection.isPending}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {createTwilioConnection.isPending
+                ? "Adding Twilio connection…"
+                : "Add Twilio Connection"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -956,6 +1582,38 @@ function ConnectionsTab() {
                     setConfirmDelete(null);
                   },
                   onError: (err) => toast.error(err.message),
+                });
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!confirmTwilioDelete}
+        onOpenChange={(open) => !open && setConfirmTwilioDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Twilio connection?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Existing conversations will stay, but new sends and incoming routing for this
+              Twilio connection will stop.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!confirmTwilioDelete) return;
+                deleteTwilioConnection.mutate(confirmTwilioDelete, {
+                  onSuccess: () => {
+                    toast.success("Twilio connection removed");
+                    setConfirmTwilioDelete(null);
+                  },
+                  onError: (error) => toast.error(error.message),
                 });
               }}
             >

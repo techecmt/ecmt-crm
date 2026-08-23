@@ -112,9 +112,13 @@ AI_MODEL=openai/gpt-4o-mini
 META_VERIFY_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_ACCESS_TOKEN=
+TWILIO_ACCOUNT_SID= # optional fallback when DB Twilio connections are not configured
+TWILIO_AUTH_TOKEN=
+TWILIO_WHATSAPP_FROM=
+TWILIO_MESSAGING_SERVICE_SID=
 ```
 
-Messenger page credentials are configured from the app in `Message Centre Settings` and stored in the `messaging_pages` table.
+Messenger page credentials are configured from the app in `Message Centre Settings` and stored in the `messaging_pages` table. Twilio credentials can now be configured per AI agent in the same settings screen (`twilio_connections` table), with env vars used only as fallback.
 
 ## Website chat widget
 
@@ -128,15 +132,17 @@ Messenger page credentials are configured from the app in `Message Centre Settin
 
 The widget stores visitor name, email, phone, interested courses, qualification evidence, transcript, and source page on the conversation. It does not create or modify lead records; agents continue to use the existing manual lead workflow.
 
-## Website callback requests
+## Website callback and appointment requests
 
-After applying `20260816000100_add_callback_requests.sql` and deploying the CRM, the public EduSphere website can submit its existing course selection through:
+After applying `20260816000100_add_callback_requests.sql` and `20260823000200_add_appointment_booking.sql`, the public EduSphere website can submit callbacks and counselling appointments through:
 
 ```text
 POST https://YOUR-CRM-DOMAIN/api/public/callback-requests
 ```
 
-Use the same allowed website origin and website key configured for the chat widget. The form must submit `fullName`, `email`, `phone`, `course`, `preferredDate` (`YYYY-MM-DD`), `preferredTime` (`HH:MM`), `sourceUrl`, and `publicKey`. `preferredTimezone`, `referrer`, `utm`, and a hidden `website` honeypot field are optional.
+Use the same allowed website origin and website key configured for the chat widget. The form must submit `fullName`, `email`, `phone`, `course`, `preferredDate` (`YYYY-MM-DD`), `preferredTime` (`HH:MM`), `sourceUrl`, and `publicKey`. `requestType` defaults to `callback`. For appointments, also send `appointmentMode` (`phone`, `video`, or `campus`) and optional `durationMinutes` (defaults to 30). `preferredTimezone`, `referrer`, `utm`, and a hidden `website` honeypot field are optional.
+
+Staff manage both types under **Leads → Callbacks & appointments**.
 
 ```ts
 await fetch("https://YOUR-CRM-DOMAIN/api/public/callback-requests", {
@@ -146,6 +152,9 @@ await fetch("https://YOUR-CRM-DOMAIN/api/public/callback-requests", {
     publicKey: "YOUR-WEBSITE-KEY",
     sourceUrl: window.location.href,
     referrer: document.referrer,
+    requestType: values.requestType, // "callback" | "appointment"
+    appointmentMode: values.appointmentMode, // required for appointments
+    durationMinutes: 30,
     fullName: values.name,
     email: values.email,
     phone: values.phone,

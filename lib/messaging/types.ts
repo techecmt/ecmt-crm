@@ -4,6 +4,8 @@ export type MessagingProvider = "meta" | "twilio";
 export interface ParsedInboundMessage {
   channel: Channel;
   provider: MessagingProvider;
+  aiAgentId?: string | null;
+  twilioConnectionId?: string | null;
   externalUserId: string;
   externalMessageId: string;
   text: string;

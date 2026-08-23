@@ -8,6 +8,31 @@ import { fetchMessengerProfileName } from "./messenger";
 import { sendMessage } from "./send";
 import type { ParsedInboundMessage } from "./types";
 
+async function resolveInboundAgentId(
+  supabase: ReturnType<typeof createAdminClient>,
+  parsed: ParsedInboundMessage,
+) {
+  if (parsed.aiAgentId) return parsed.aiAgentId;
+
+  if (parsed.provider === "meta" && parsed.pageId) {
+    const { data: page } = await supabase
+      .from("messaging_pages")
+      .select("agent_id")
+      .eq("channel", parsed.channel)
+      .eq("page_id", parsed.pageId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (page?.agent_id) return page.agent_id as string;
+  }
+
+  const { data: defaultAgent } = await supabase
+    .from("ai_agents")
+    .select("id")
+    .eq("is_default", true)
+    .maybeSingle();
+  return (defaultAgent?.id as string | undefined) ?? null;
+}
+
 export async function processInboundMessage(parsed: ParsedInboundMessage) {
   const supabase = createAdminClient();
 
@@ -29,7 +54,13 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     .eq("provider", parsed.provider)
     .eq("external_user_id", parsed.externalUserId);
 
-  if (parsed.pageId) {
+  if (parsed.provider === "twilio") {
+    if (parsed.twilioConnectionId) {
+      conversationMatch.eq("twilio_connection_id", parsed.twilioConnectionId);
+    } else {
+      conversationMatch.is("twilio_connection_id", null);
+    }
+  } else if (parsed.pageId) {
     conversationMatch.eq("page_id", parsed.pageId);
   } else {
     conversationMatch.is("page_id", null);
@@ -45,6 +76,30 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
 
   const { data: existingConversation } = await conversationMatch.single();
   let conversation = existingConversation;
+  if (
+    !conversation &&
+    parsed.provider === "meta" &&
+    parsed.channel === "whatsapp" &&
+    parsed.pageId
+  ) {
+    const { data: legacyConversation } = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("channel", parsed.channel)
+      .eq("provider", parsed.provider)
+      .eq("external_user_id", parsed.externalUserId)
+      .is("page_id", null)
+      .maybeSingle();
+    conversation = legacyConversation;
+    if (conversation) {
+      await supabase
+        .from("conversations")
+        .update({ page_id: parsed.pageId })
+        .eq("id", conversation.id);
+      conversation = { ...conversation, page_id: parsed.pageId };
+    }
+  }
+  const inboundAgentId = await resolveInboundAgentId(supabase, parsed);
 
   if (!conversation) {
     const inferredPhone =
@@ -71,10 +126,12 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
         channel: parsed.channel,
         provider: parsed.provider,
         page_id: parsed.pageId,
+        twilio_connection_id: parsed.twilioConnectionId ?? null,
         external_user_id: parsed.externalUserId,
         phone: inferredPhone,
         name: incomingName,
         lead_id: leadId,
+        ai_agent_id: inboundAgentId,
         status: "open",
       })
       .select()
@@ -87,11 +144,25 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     conversation = newConv;
 
     await autoAssignConversation(conversation.id);
-  } else if (incomingName && !conversation.name) {
-    await supabase
-      .from("conversations")
-      .update({ name: incomingName })
-      .eq("id", conversation.id);
+  } else {
+    const updates: Record<string, unknown> = {};
+    if (incomingName && !conversation.name) {
+      updates.name = incomingName;
+    }
+    if (!conversation.ai_agent_id && inboundAgentId) {
+      updates.ai_agent_id = inboundAgentId;
+    }
+    if (
+      parsed.provider === "twilio" &&
+      !conversation.twilio_connection_id &&
+      parsed.twilioConnectionId
+    ) {
+      updates.twilio_connection_id = parsed.twilioConnectionId;
+    }
+    if (Object.keys(updates).length > 0) {
+      await supabase.from("conversations").update(updates).eq("id", conversation.id);
+      conversation = { ...conversation, ...updates };
+    }
   }
 
   await supabase.from("messages").insert({
@@ -175,6 +246,7 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
   }
 
   const aiResult: AIResult = await getAIResponse({
+    agentId: conversation.ai_agent_id ?? inboundAgentId,
     conversationHistory: chatHistory,
     channel: parsed.channel,
     leadContext,
@@ -187,6 +259,7 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
       provider: conversation.provider,
       external_user_id: conversation.external_user_id,
       page_id: conversation.page_id,
+      twilio_connection_id: conversation.twilio_connection_id ?? null,
     },
     aiResult.reply,
   );

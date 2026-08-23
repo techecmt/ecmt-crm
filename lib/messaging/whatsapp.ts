@@ -55,12 +55,14 @@ export function parseWhatsAppWebhook(body: unknown): ParsedInboundMessage | null
     return {
       channel: "whatsapp",
       provider: "meta",
+      aiAgentId: null,
+      twilioConnectionId: null,
       externalUserId: message.from,
       name: contact?.profile?.name || null,
       text: message.text.body,
       timestamp: message.timestamp,
       externalMessageId: message.id,
-      pageId: null,
+      pageId: value.metadata?.phone_number_id || null,
     };
   } catch {
     return null;

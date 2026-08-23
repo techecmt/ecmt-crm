@@ -33,6 +33,7 @@ function createAIClient() {
 }
 
 export type AIInput = {
+  agentId?: string | null;
   conversationHistory: ChatMessage[];
   channel: Channel;
   leadContext?: string | null;
@@ -107,11 +108,22 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
   }
 
   const supabase = createAdminClient();
-  const { data: settings } = await supabase
-    .from("ai_settings")
-    .select("*")
-    .eq("id", true)
-    .single();
+  let settingsQuery = supabase.from("ai_agents").select("*");
+  if (input.agentId) {
+    settingsQuery = settingsQuery.eq("id", input.agentId);
+  } else {
+    settingsQuery = settingsQuery.eq("is_default", true);
+  }
+  let { data: settings } = await settingsQuery.maybeSingle();
+  if (!settings) {
+    const fallback = await supabase
+      .from("ai_agents")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    settings = fallback.data ?? null;
+  }
 
   if (settings && !settings.is_active) {
     return {
@@ -122,11 +134,14 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
     };
   }
 
-  const { data: knowledgeRows } = await supabase
-    .from("ai_knowledge")
-    .select("title, content, category")
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
+  const { data: knowledgeRows } = settings?.id
+    ? await supabase
+        .from("ai_knowledge")
+        .select("title, content, category")
+        .eq("agent_id", settings.id)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+    : { data: [] as Array<{ title: string; content: string; category: string | null }> };
 
   const model = settings?.model || process.env.AI_MODEL || "openai/gpt-4o-mini";
   const maxTokens = settings?.max_tokens || 500;
@@ -160,7 +175,7 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
 
   const systemSections = [
     settings?.persona?.trim()
-      ? `Your name is ${settings.agent_name || "Assistant"}. ${settings.persona}`
+      ? `Your name is ${settings.name || "Assistant"}. ${settings.persona}`
       : settings?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT,
     `Tone: ${toneInstruction}`,
     channelInstruction(input.channel),

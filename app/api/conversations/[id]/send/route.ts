@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, hasModuleAccess } from "@/lib/auth";
 import { sendMessage } from "@/lib/messaging/send";
 import { sendTwilioWhatsAppTemplate } from "@/lib/messaging/twilio";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(
   request: NextRequest,
@@ -43,7 +44,7 @@ export async function POST(
   // Get conversation channel target.
   const { data: conversation, error: convError } = await supabase
     .from("conversations")
-    .select("channel, provider, external_user_id, page_id")
+    .select("channel, provider, external_user_id, page_id, twilio_connection_id")
     .eq("id", id)
     .single();
 
@@ -79,10 +80,36 @@ export async function POST(
             )
           : undefined;
 
+      let credentials:
+        | {
+            account_sid: string;
+            auth_token: string;
+            whatsapp_from: string | null;
+            messaging_service_sid: string | null;
+          }
+        | undefined;
+      if (conversation.twilio_connection_id) {
+        const admin = createAdminClient();
+        const { data: connection, error: connectionError } = await admin
+          .from("twilio_connections")
+          .select("account_sid, auth_token, whatsapp_from, messaging_service_sid")
+          .eq("id", conversation.twilio_connection_id)
+          .eq("is_active", true)
+          .single();
+        if (connectionError || !connection) {
+          return NextResponse.json(
+            { error: "Twilio connection is missing or inactive" },
+            { status: 400 },
+          );
+        }
+        credentials = connection;
+      }
+
       await sendTwilioWhatsAppTemplate({
         to: conversation.external_user_id,
         contentSid,
         variables,
+        credentials,
       });
     } else {
       await sendMessage(conversation, message);

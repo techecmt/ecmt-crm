@@ -71,7 +71,7 @@ const NAV_ITEMS: NavItem[] = [
       { href: "/dashboard/leads", label: "All leads", icon: UsersRound, module: "leads" },
       {
         href: "/dashboard/callback-requests",
-        label: "Callback requests",
+        label: "Callbacks & appointments",
         icon: PhoneCall,
         module: "leads",
       },

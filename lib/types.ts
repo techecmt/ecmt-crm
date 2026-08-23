@@ -247,7 +247,16 @@ export interface LeadActivity {
   created_at: string;
 }
 
-export type CallbackRequestStatus = "new" | "contacted" | "completed" | "cancelled";
+export type CallbackRequestStatus =
+  | "new"
+  | "contacted"
+  | "confirmed"
+  | "completed"
+  | "cancelled";
+
+export type CallbackRequestType = "callback" | "appointment";
+
+export type AppointmentMode = "phone" | "video" | "campus";
 
 export interface CallbackRequest {
   id: string;
@@ -265,6 +274,9 @@ export interface CallbackRequest {
   source_url: string | null;
   referrer: string | null;
   utm: Record<string, string>;
+  request_type: CallbackRequestType;
+  appointment_mode: AppointmentMode | null;
+  duration_minutes: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -272,8 +284,20 @@ export interface CallbackRequest {
 export const CALLBACK_REQUEST_STATUS_LABELS: Record<CallbackRequestStatus, string> = {
   new: "New",
   contacted: "Contacted",
+  confirmed: "Confirmed",
   completed: "Completed",
   cancelled: "Cancelled",
+};
+
+export const CALLBACK_REQUEST_TYPE_LABELS: Record<CallbackRequestType, string> = {
+  callback: "Callback",
+  appointment: "Appointment",
+};
+
+export const APPOINTMENT_MODE_LABELS: Record<AppointmentMode, string> = {
+  phone: "Phone counselling",
+  video: "Video call",
+  campus: "Campus visit",
 };
 
 export interface AdmissionGoal {
@@ -317,6 +341,24 @@ export const ADMIN_ROLES: UserRole[] = [
   "management",
   "admission_manager",
 ];
+
+export const ASSIGNABLE_COUNSELLOR_ROLES: UserRole[] = [
+  "counsellor",
+  "admission_manager",
+  "management",
+  "super_admin",
+];
+
+export function isAssignableCounsellor(profile: {
+  is_active?: boolean | null;
+  role?: UserRole | null;
+}) {
+  return Boolean(
+    profile.is_active &&
+      profile.role &&
+      ASSIGNABLE_COUNSELLOR_ROLES.includes(profile.role),
+  );
+}
 
 export function isAdminRole(role: UserRole | null | undefined) {
   if (!role) return false;

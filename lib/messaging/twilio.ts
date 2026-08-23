@@ -5,6 +5,13 @@ import type { ParsedInboundMessage } from "./types";
 
 const WHATSAPP_PREFIX = "whatsapp:";
 
+export type TwilioConnectionCredentials = {
+  account_sid: string;
+  auth_token: string;
+  whatsapp_from?: string | null;
+  messaging_service_sid?: string | null;
+};
+
 export type TwilioWhatsAppTemplate = {
   sid: string;
   friendlyName: string;
@@ -29,6 +36,18 @@ function normalizeWhatsAppAddress(address: string) {
     : address;
 }
 
+function senderMatchesWebhookRecipient(input: {
+  webhookTo: string | null;
+  connectionFrom: string | null | undefined;
+}) {
+  if (!input.connectionFrom) return true;
+  if (!input.webhookTo) return false;
+  return (
+    normalizeWhatsAppAddress(input.webhookTo) ===
+    normalizeWhatsAppAddress(input.connectionFrom)
+  );
+}
+
 function asTwilioWhatsAppAddress(address: string) {
   return address.startsWith(WHATSAPP_PREFIX)
     ? address
@@ -37,6 +56,10 @@ function asTwilioWhatsAppAddress(address: string) {
 
 export function parseTwilioWhatsAppWebhook(
   form: URLSearchParams,
+  options?: {
+    twilioConnectionId?: string | null;
+    aiAgentId?: string | null;
+  },
 ): ParsedInboundMessage | null {
   const from = form.get("From");
   const body = form.get("Body")?.trim();
@@ -53,28 +76,27 @@ export function parseTwilioWhatsAppWebhook(
     externalMessageId: messageSid,
     text: body,
     timestamp: String(Date.now()),
-    // `conversations.page_id` is a foreign key to Meta's messaging_pages
-    // table. Twilio is configured via server environment variables, so it
-    // has no matching messaging_pages record.
+    twilioConnectionId: options?.twilioConnectionId ?? null,
+    aiAgentId: options?.aiAgentId ?? null,
     pageId: null,
     name: form.get("ProfileName") || null,
   };
 }
 
-export function isValidTwilioSignature(input: {
+export function isValidTwilioSignatureForToken(input: {
   signature: string | null;
   webhookUrl: string;
   form: URLSearchParams;
+  authToken: string;
 }) {
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (!authToken || !input.signature) return false;
+  if (!input.authToken || !input.signature) return false;
 
   const signedPayload = [...input.form.entries()]
     .sort(([keyA, valueA], [keyB, valueB]) =>
       keyA === keyB ? valueA.localeCompare(valueB) : keyA.localeCompare(keyB),
     )
     .reduce((payload, [key, value]) => `${payload}${key}${value}`, input.webhookUrl);
-  const expected = createHmac("sha1", authToken)
+  const expected = createHmac("sha1", input.authToken)
     .update(signedPayload, "utf8")
     .digest("base64");
 
@@ -86,19 +108,67 @@ export function isValidTwilioSignature(input: {
   );
 }
 
-function getTwilioCredentials() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+export function isValidTwilioSignature(input: {
+  signature: string | null;
+  webhookUrl: string;
+  form: URLSearchParams;
+}) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_WHATSAPP_FROM;
-  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+  if (!authToken) return false;
+  return isValidTwilioSignatureForToken({ ...input, authToken });
+}
 
-  if (!accountSid || !authToken || (!from && !messagingServiceSid)) {
+function normalizeCredentials(input: {
+  accountSid: string;
+  authToken: string;
+  from?: string | null;
+  messagingServiceSid?: string | null;
+}) {
+  if (!input.accountSid || !input.authToken || (!input.from && !input.messagingServiceSid)) {
     throw new Error(
       "Twilio WhatsApp credentials are not configured. Set account SID, auth token, and a sender or Messaging Service SID.",
     );
   }
 
-  return { accountSid, authToken, from, messagingServiceSid };
+  return {
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    from: input.from ?? null,
+    messagingServiceSid: input.messagingServiceSid ?? null,
+  };
+}
+
+function credentialsFromEnv() {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_WHATSAPP_FROM;
+  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+  if (!accountSid || !authToken) return null;
+  try {
+    return normalizeCredentials({ accountSid, authToken, from, messagingServiceSid });
+  } catch {
+    return null;
+  }
+}
+
+function getTwilioCredentials(override?: TwilioConnectionCredentials) {
+  if (override) {
+    return normalizeCredentials({
+      accountSid: override.account_sid.trim(),
+      authToken: override.auth_token.trim(),
+      from: override.whatsapp_from?.trim() || null,
+      messagingServiceSid: override.messaging_service_sid?.trim() || null,
+    });
+  }
+
+  const envCredentials = credentialsFromEnv();
+  if (envCredentials) return envCredentials;
+  return normalizeCredentials({
+    accountSid: "",
+    authToken: "",
+    from: null,
+    messagingServiceSid: null,
+  });
 }
 
 function twilioAuthorization(accountSid: string, authToken: string) {
@@ -130,8 +200,12 @@ async function readTwilioError(response: Response) {
   return `Twilio API error: ${response.status}`;
 }
 
-export async function sendTwilioWhatsAppMessage(to: string, body: string) {
-  const credentials = getTwilioCredentials();
+export async function sendTwilioWhatsAppMessage(
+  to: string,
+  body: string,
+  override?: TwilioConnectionCredentials,
+) {
+  const credentials = getTwilioCredentials(override);
   const requestBody = new URLSearchParams({
     To: asTwilioWhatsAppAddress(to),
     Body: body,
@@ -176,8 +250,10 @@ function extractTemplateBody(types: TwilioContentRecord["types"]) {
   return Object.values(types).find((content) => content?.body)?.body || null;
 }
 
-export async function listApprovedTwilioWhatsAppTemplates() {
-  const credentials = getTwilioCredentials();
+export async function listApprovedTwilioWhatsAppTemplates(
+  override?: TwilioConnectionCredentials,
+) {
+  const credentials = getTwilioCredentials(override);
   const response = await fetch(
     "https://content.twilio.com/v1/ContentAndApprovals?PageSize=100",
     {
@@ -227,8 +303,9 @@ export async function sendTwilioWhatsAppTemplate(input: {
   to: string;
   contentSid: string;
   variables?: Record<string, string>;
+  credentials?: TwilioConnectionCredentials;
 }) {
-  const credentials = getTwilioCredentials();
+  const credentials = getTwilioCredentials(input.credentials);
   const requestBody = new URLSearchParams({
     To: asTwilioWhatsAppAddress(input.to),
     ContentSid: input.contentSid,
@@ -257,4 +334,38 @@ export async function sendTwilioWhatsAppTemplate(input: {
   }
 
   return response.json();
+}
+
+export function resolveTwilioConnectionFromWebhook(input: {
+  form: URLSearchParams;
+  signature: string | null;
+  webhookUrl: string;
+  connections: Array<{
+    id: string;
+    agent_id: string | null;
+    account_sid: string;
+    auth_token: string;
+    whatsapp_from: string | null;
+  }>;
+}) {
+  const webhookTo = input.form.get("To");
+  const webhookAccountSid = input.form.get("AccountSid");
+  return input.connections.find((connection) => {
+    if (
+      webhookAccountSid &&
+      connection.account_sid &&
+      webhookAccountSid !== connection.account_sid
+    ) {
+      return false;
+    }
+    if (!senderMatchesWebhookRecipient({ webhookTo, connectionFrom: connection.whatsapp_from })) {
+      return false;
+    }
+    return isValidTwilioSignatureForToken({
+      signature: input.signature,
+      webhookUrl: input.webhookUrl,
+      form: input.form,
+      authToken: connection.auth_token,
+    });
+  });
 }
