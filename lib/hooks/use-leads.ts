@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ADMISSION_GOALS_KEY } from "@/lib/hooks/use-admission-goals";
 import { shouldClearPendingFollowUps } from "@/lib/lead-pipeline";
 import type { DuplicateCheckLead } from "@/lib/lead-duplicates";
+import { getSgtDayEndUtcIso, getSgtDayStartUtcIso } from "@/lib/timezone";
 import type {
   AdmissionStage,
   CounsellingChecks,
@@ -38,15 +39,32 @@ export const LEADS_FETCH_BATCH_SIZE = 1000;
 
 export type LeadFilters = {
   search?: string;
+  /** Single-value fallback — prefer statuses for multi-select. */
   status?: LeadStatus | "all";
+  /** Multi-select: empty array or undefined means all statuses. */
+  statuses?: LeadStatus[];
+  /** Single-value fallback — prefer sources for multi-select. */
   source?: LeadSource | "all";
+  /** Multi-select: empty array or undefined means all sources. */
+  sources?: LeadSource[];
+  /** Single-value fallback — prefer collegeIds for multi-select. */
   collegeId?: string | "all";
-  /** Exact-match on interested_course. "all" or undefined = no filter. */
+  /** Multi-select: empty array or undefined means all colleges. */
+  collegeIds?: string[];
+  /** Exact-match fallback — prefer courses for multi-select. */
   course?: string | "all";
+  /** Multi-select: empty array or undefined means all courses. */
+  courses?: string[];
   /** Single-value fallback — prefer counsellorIds for multi-select. */
   counsellorId?: string | "all";
   /** Multi-select: empty array or undefined means all counsellors. */
   counsellorIds?: string[];
+  /** Inclusive SGT date key (`yyyy-MM-dd`) for lead created_at. */
+  createdFrom?: string;
+  createdTo?: string;
+  /** Inclusive SGT date key (`yyyy-MM-dd`) for registration_completed_at. */
+  registeredFrom?: string;
+  registeredTo?: string;
   enabled?: boolean;
 };
 
@@ -80,16 +98,24 @@ type LeadStatusRow = { status: LeadStatus };
 function applyLeadFilters(query: any, filters: LeadFilters) {
   let q = query;
 
-  if (filters.status && filters.status !== "all") {
+  if (filters.statuses && filters.statuses.length > 0) {
+    q = q.in("status", filters.statuses);
+  } else if (filters.status && filters.status !== "all") {
     q = q.eq("status", filters.status);
   }
-  if (filters.source && filters.source !== "all") {
+  if (filters.sources && filters.sources.length > 0) {
+    q = q.in("source", filters.sources);
+  } else if (filters.source && filters.source !== "all") {
     q = q.eq("source", filters.source);
   }
-  if (filters.collegeId && filters.collegeId !== "all") {
+  if (filters.collegeIds && filters.collegeIds.length > 0) {
+    q = q.in("college_id", filters.collegeIds);
+  } else if (filters.collegeId && filters.collegeId !== "all") {
     q = q.eq("college_id", filters.collegeId);
   }
-  if (filters.course && filters.course !== "all") {
+  if (filters.courses && filters.courses.length > 0) {
+    q = q.in("interested_course", filters.courses);
+  } else if (filters.course && filters.course !== "all") {
     q = q.eq("interested_course", filters.course);
   }
   if (filters.counsellorIds && filters.counsellorIds.length > 0) {
@@ -106,6 +132,22 @@ function applyLeadFilters(query: any, filters: LeadFilters) {
     }
   } else if (filters.counsellorId && filters.counsellorId !== "all") {
     q = q.eq("assigned_counsellor", filters.counsellorId);
+  }
+  if (filters.createdFrom) {
+    const iso = getSgtDayStartUtcIso(filters.createdFrom);
+    if (iso) q = q.gte("created_at", iso);
+  }
+  if (filters.createdTo) {
+    const iso = getSgtDayEndUtcIso(filters.createdTo);
+    if (iso) q = q.lte("created_at", iso);
+  }
+  if (filters.registeredFrom) {
+    const iso = getSgtDayStartUtcIso(filters.registeredFrom);
+    if (iso) q = q.gte("registration_completed_at", iso);
+  }
+  if (filters.registeredTo) {
+    const iso = getSgtDayEndUtcIso(filters.registeredTo);
+    if (iso) q = q.lte("registration_completed_at", iso);
   }
   if (filters.search) {
     const escaped = filters.search.replace(/[\\"]/g, (match) => `\\${match}`);

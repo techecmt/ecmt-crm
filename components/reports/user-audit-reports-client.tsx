@@ -38,8 +38,15 @@ import {
   useUserAuditReport,
 } from "@/lib/hooks/use-user-audit-report";
 import {
+  downloadExcel,
+  excelFilename,
+  excelSheet,
+  type ExcelRow,
+} from "@/lib/reports/excel-export";
+import {
   formatSgtDate,
   formatSgtDateTime,
+  formatSgtDateTimeExport,
   formatSgtMonthYear,
   getSgtDateKey,
   getSgtDayEndUtcIso,
@@ -339,6 +346,159 @@ function LeadRegistrationSummaryTable({
   );
 }
 
+const AUDIT_EVENT_LABELS: Record<UserAuditEventRow["event_type"], string> = {
+  lead_created: "Lead created",
+  follow_up_completed: "Follow-up completed",
+  registration: "Registration",
+  counselling_completed: "Counselling completed",
+  counselling_started: "Counselling started",
+};
+
+const LEAD_SUMMARY_HEADERS = [
+  "Group",
+  "Leads created",
+  "Registered unpaid",
+  "Reg fee paid",
+];
+
+function leadSummaryExcelRows(rows: LeadRegistrationSummary[]): ExcelRow[] {
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.leadsCreated += row.leadsCreated;
+      acc.registeredUnpaid += row.registeredUnpaid;
+      acc.regFeePaid += row.regFeePaid;
+      return acc;
+    },
+    { leadsCreated: 0, registeredUnpaid: 0, regFeePaid: 0 },
+  );
+  return [
+    ...rows.map((row) => [
+      row.groupName,
+      row.leadsCreated,
+      row.registeredUnpaid,
+      row.regFeePaid,
+    ]),
+    rows.length > 0
+      ? ["Grand Total", totals.leadsCreated, totals.registeredUnpaid, totals.regFeePaid]
+      : [],
+  ].filter((row) => row.length > 0);
+}
+
+async function exportUserAuditExcel({
+  fromDate,
+  toDate,
+  monthLabel,
+  filterSummary,
+  metricTotals,
+  userSummaries,
+  counsellorLeadSummaries,
+  courseLeadSummaries,
+  sourceLeadSummaries,
+  heatmap,
+  crmEntriesRange,
+  events,
+}: {
+  fromDate: string;
+  toDate: string;
+  monthLabel: string;
+  filterSummary: string;
+  metricTotals: {
+    crmEntries: number;
+    leadsCreated: number;
+    followUpsCompleted: number;
+    registrations: number;
+    counsellingCompleted: number;
+    counsellingStarted: number;
+  };
+  userSummaries: UserSummary[];
+  counsellorLeadSummaries: LeadRegistrationSummary[];
+  courseLeadSummaries: LeadRegistrationSummary[];
+  sourceLeadSummaries: LeadRegistrationSummary[];
+  heatmap: {
+    days: Date[];
+    hours: number[];
+    counts: Map<string, number>;
+  };
+  crmEntriesRange: CrmEntryRow[];
+  events: UserAuditEventRow[];
+}) {
+  const heatmapHeaders = [
+    "Hour",
+    ...heatmap.days.map((day) => formatSgtDate(day)),
+  ];
+  const heatmapRows: ExcelRow[] = heatmap.hours.map((hour) => [
+    `${String(hour).padStart(2, "0")}:00`,
+    ...heatmap.days.map((day) => {
+      const key = `${getSgtDateKey(day)}-${hour}`;
+      return heatmap.counts.get(key) ?? 0;
+    }),
+  ]);
+
+  await downloadExcel(
+    excelFilename(["User_Audit_Report", fromDate, "to", toDate]),
+    [
+      excelSheet("Summary", ["Metric", "Value"], [
+        ["Period from", fromDate],
+        ["Period to", toDate],
+        ["CRM month", monthLabel],
+        ["Filters", filterSummary],
+        ["CRM entries", metricTotals.crmEntries],
+        ["Leads created", metricTotals.leadsCreated],
+        ["Follow-ups completed", metricTotals.followUpsCompleted],
+        ["Registrations", metricTotals.registrations],
+        ["Counselling completed", metricTotals.counsellingCompleted],
+        ["Counselling started", metricTotals.counsellingStarted],
+      ]),
+      excelSheet(
+        "User breakdown",
+        [
+          "User",
+          "CRM entries",
+          "Leads created",
+          "Follow-ups completed",
+          "Registrations",
+          "Counselling completed",
+          "Counselling started",
+        ],
+        userSummaries.map((row) => [
+          row.name,
+          row.crmEntries,
+          row.leadsCreated,
+          row.followUpsCompleted,
+          row.registrations,
+          row.counsellingCompleted,
+          row.counsellingStarted,
+        ]),
+      ),
+      excelSheet(
+        "By Counsellor",
+        LEAD_SUMMARY_HEADERS,
+        leadSummaryExcelRows(counsellorLeadSummaries),
+      ),
+      excelSheet("By Course", LEAD_SUMMARY_HEADERS, leadSummaryExcelRows(courseLeadSummaries)),
+      excelSheet("By Source", LEAD_SUMMARY_HEADERS, leadSummaryExcelRows(sourceLeadSummaries)),
+      excelSheet("CRM heatmap", heatmapHeaders, heatmapRows, { minWidth: 12 }),
+      excelSheet(
+        "CRM entries",
+        ["User", "Entered at"],
+        crmEntriesRange.map((entry) => [
+          toUserName(entry.user),
+          formatSgtDateTimeExport(entry.created_at),
+        ]),
+      ),
+      excelSheet(
+        "Audit events",
+        ["User", "Event", "Occurred at"],
+        events.map((event) => [
+          toUserName(event.user),
+          AUDIT_EVENT_LABELS[event.event_type] ?? event.event_type,
+          formatSgtDateTimeExport(event.created_at),
+        ]),
+      ),
+    ],
+  );
+}
+
 export function UserAuditReportsClient() {
   const now = React.useMemo(() => new Date(), []);
   const [fromDate, setFromDate] = React.useState(getSgtDateKey(subDays(now, 29)));
@@ -498,6 +658,22 @@ export function UserAuditReportsClient() {
     counsellorOptions,
   ]);
 
+  const handleExportExcel = () =>
+    exportUserAuditExcel({
+      fromDate: appliedFilters.fromDate,
+      toDate: appliedFilters.toDate,
+      monthLabel: formatSgtMonthYear(monthDate),
+      filterSummary,
+      metricTotals,
+      userSummaries,
+      counsellorLeadSummaries,
+      courseLeadSummaries,
+      sourceLeadSummaries,
+      heatmap,
+      crmEntriesRange: report.data?.crmEntriesRange ?? [],
+      events: report.data?.events ?? [],
+    });
+
   if (report.isLoading) {
     return (
       <div className="space-y-4">
@@ -513,6 +689,7 @@ export function UserAuditReportsClient() {
       title="User Audit Report"
       documentTitle={`User Audit Report ${appliedFilters.fromDate} to ${appliedFilters.toDate}`}
       filterSummary={filterSummary}
+      onExportExcel={handleExportExcel}
     >
       <div className="no-print space-y-1">
         <h2 className="text-lg font-semibold tracking-tight">User Audit Report</h2>

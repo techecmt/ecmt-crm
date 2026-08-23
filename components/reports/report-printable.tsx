@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { format } from "date-fns";
-import { FileDown } from "lucide-react";
+import { FileDown, FileSpreadsheet } from "lucide-react";
 import { useReactToPrint } from "react-to-print";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 
@@ -17,6 +18,8 @@ type ReportPrintableProps = {
   title: string;
   documentTitle?: string;
   filterSummary?: string;
+  onExportExcel?: () => void | Promise<void>;
+  excelDisabled?: boolean;
   children: React.ReactNode;
 };
 
@@ -24,12 +27,15 @@ export function ReportPrintable({
   title,
   documentTitle,
   filterSummary,
+  onExportExcel,
+  excelDisabled = false,
   children,
 }: ReportPrintableProps) {
   const contentRef = React.useRef<HTMLDivElement>(null);
   const [generatedAt] = React.useState(() =>
     format(new Date(), "d MMM yyyy, h:mm a"),
   );
+  const [exportingExcel, setExportingExcel] = React.useState(false);
 
   const handlePrint = useReactToPrint({
     contentRef,
@@ -48,9 +54,35 @@ export function ReportPrintable({
     `,
   });
 
+  const handleExcel = async () => {
+    if (!onExportExcel || exportingExcel || excelDisabled) return;
+    setExportingExcel(true);
+    try {
+      await onExportExcel();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not export Excel.",
+      );
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="no-print flex justify-end">
+      <div className="no-print flex justify-end gap-2">
+        {onExportExcel ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={excelDisabled || exportingExcel}
+            onClick={() => void handleExcel()}
+          >
+            <FileSpreadsheet className="mr-2 h-4 w-4" />
+            {exportingExcel ? "Exporting…" : "Export Excel"}
+          </Button>
+        ) : null}
         <Button type="button" variant="outline" size="sm" onClick={() => handlePrint()}>
           <FileDown className="mr-2 h-4 w-4" />
           Export PDF

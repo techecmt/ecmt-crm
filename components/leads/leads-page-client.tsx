@@ -54,6 +54,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
 import {
   Select,
   SelectContent,
@@ -111,7 +112,6 @@ import {
   useLeadsStatusCounts,
   fetchAllLeads,
   UNASSIGNED_COUNSELLOR,
-  type LeadFilters,
   type LeadWithRelations,
 } from "@/lib/hooks/use-leads";
 import {
@@ -149,20 +149,68 @@ const LEADS_STATE_STORAGE_KEY = "leads.tableState.v1";
 const LEADS_CUSTOM_VIEWS_STORAGE_KEY = "leads.customViews.v1";
 const LEADS_SELECTED_VIEW_STORAGE_KEY = "leads.selectedViewId.v1";
 type PersistedFilterState = {
-  status: LeadStatus | "all";
-  source: LeadSource | "all";
-  collegeId: string | "all";
-  course: string | "all";
+  statuses: LeadStatus[];
+  sources: LeadSource[];
+  collegeIds: string[];
+  courses: string[];
   overdueFollowupsOnly: boolean;
+  createdFrom: string;
+  createdTo: string;
+  registeredFrom: string;
+  registeredTo: string;
 };
 
 const DEFAULT_FILTERS: PersistedFilterState = {
-  status: "all",
-  source: "all",
-  collegeId: "all",
-  course: "all",
+  statuses: [],
+  sources: [],
+  collegeIds: [],
+  courses: [],
   overdueFollowupsOnly: false,
+  createdFrom: "",
+  createdTo: "",
+  registeredFrom: "",
+  registeredTo: "",
 };
+
+function isDateKey(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function parseCsvList(value: string | null | undefined): string[] {
+  if (!value || value === "all") return [];
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function asStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  if (!value.every((item) => typeof item === "string")) return null;
+  return value;
+}
+
+function migrateStringList(multi: unknown, single: unknown): string[] {
+  const fromMulti = asStringArray(multi);
+  if (fromMulti) return fromMulti.filter((item) => item && item !== "all");
+  if (typeof single === "string" && single && single !== "all") return [single];
+  return [];
+}
+
+function migrateStatuses(rawFilters: {
+  statuses?: unknown;
+  status?: unknown;
+} | undefined): LeadStatus[] {
+  return migrateStringList(rawFilters?.statuses, rawFilters?.status).filter(
+    (item): item is LeadStatus => item in LEAD_STATUS_LABELS,
+  );
+}
+
+function migrateSources(rawFilters: {
+  sources?: unknown;
+  source?: unknown;
+} | undefined): LeadSource[] {
+  return migrateStringList(rawFilters?.sources, rawFilters?.source).filter(
+    (item): item is LeadSource => item in LEAD_SOURCE_LABELS,
+  );
+}
 
 function getFollowUpCounts(lead: LeadWithRelations) {
   const list = lead.follow_ups ?? [];
@@ -278,6 +326,10 @@ const LEADS_STATE_QUERY_KEYS = [
   "ex_email",
   "ex_dup",
   "overdue_fu",
+  "created_from",
+  "created_to",
+  "registered_from",
+  "registered_to",
   "view",
 ] as const;
 
@@ -327,19 +379,25 @@ function sanitizePersistedState(
   if (!raw) return fallback;
   const page = Number(raw.page);
   const pageSize = Number(raw.pageSize);
+  const rawFilters = raw.filters as
+    | (Partial<PersistedFilterState> & {
+        status?: unknown;
+        source?: unknown;
+        collegeId?: unknown;
+        course?: unknown;
+      })
+    | undefined;
   return {
     filters: {
-      status: raw.filters?.status ?? fallback.filters.status,
-      source: raw.filters?.source ?? fallback.filters.source,
-      collegeId:
-        typeof raw.filters?.collegeId === "string" && raw.filters.collegeId.length > 0
-          ? raw.filters.collegeId
-          : fallback.filters.collegeId,
-      course:
-        typeof raw.filters?.course === "string" && raw.filters.course.length > 0
-          ? raw.filters.course
-          : fallback.filters.course,
-      overdueFollowupsOnly: !!raw.filters?.overdueFollowupsOnly,
+      statuses: migrateStatuses(rawFilters),
+      sources: migrateSources(rawFilters),
+      collegeIds: migrateStringList(rawFilters?.collegeIds, rawFilters?.collegeId),
+      courses: migrateStringList(rawFilters?.courses, rawFilters?.course),
+      overdueFollowupsOnly: !!rawFilters?.overdueFollowupsOnly,
+      createdFrom: isDateKey(rawFilters?.createdFrom) ? rawFilters.createdFrom : "",
+      createdTo: isDateKey(rawFilters?.createdTo) ? rawFilters.createdTo : "",
+      registeredFrom: isDateKey(rawFilters?.registeredFrom) ? rawFilters.registeredFrom : "",
+      registeredTo: isDateKey(rawFilters?.registeredTo) ? rawFilters.registeredTo : "",
     },
     counsellorIds:
       Array.isArray(raw.counsellorIds) && raw.counsellorIds.every((id) => typeof id === "string")
@@ -400,11 +458,21 @@ function getStateFromQueryString(
   const parsed = sanitizePersistedState(
     {
       filters: {
-        status: (query.get("status") as LeadStatus | "all") || fallback.filters.status,
-        source: (query.get("source") as LeadSource | "all") || fallback.filters.source,
-        collegeId: query.get("college") || fallback.filters.collegeId,
-        course: query.get("course") || fallback.filters.course,
+        statuses: migrateStatuses({
+          statuses: parseCsvList(query.get("status")),
+          status: query.get("status"),
+        }),
+        sources: migrateSources({
+          sources: parseCsvList(query.get("source")),
+          source: query.get("source"),
+        }),
+        collegeIds: parseCsvList(query.get("college")),
+        courses: parseCsvList(query.get("course")),
         overdueFollowupsOnly: query.get("overdue_fu") === "1",
+        createdFrom: query.get("created_from") ?? "",
+        createdTo: query.get("created_to") ?? "",
+        registeredFrom: query.get("registered_from") ?? "",
+        registeredTo: query.get("registered_to") ?? "",
       },
       counsellorIds: (query.get("counsellors") ?? "")
         .split(",")
@@ -442,13 +510,25 @@ function buildQueryFromState(
   selectedViewId: string | null,
 ): URLSearchParams {
   const query = new URLSearchParams();
-  query.set("status", state.filters.status);
-  query.set("source", state.filters.source);
-  query.set("college", state.filters.collegeId);
-  query.set("course", state.filters.course);
+  if (state.filters.statuses.length) {
+    query.set("status", state.filters.statuses.join(","));
+  }
+  if (state.filters.sources.length) {
+    query.set("source", state.filters.sources.join(","));
+  }
+  if (state.filters.collegeIds.length) {
+    query.set("college", state.filters.collegeIds.join(","));
+  }
+  if (state.filters.courses.length) {
+    query.set("course", state.filters.courses.join(","));
+  }
   if (state.filters.overdueFollowupsOnly) {
     query.set("overdue_fu", "1");
   }
+  if (state.filters.createdFrom) query.set("created_from", state.filters.createdFrom);
+  if (state.filters.createdTo) query.set("created_to", state.filters.createdTo);
+  if (state.filters.registeredFrom) query.set("registered_from", state.filters.registeredFrom);
+  if (state.filters.registeredTo) query.set("registered_to", state.filters.registeredTo);
   query.set("sort", state.sortKey);
   query.set("dir", state.sortDir);
   query.set("page", String(state.page));
@@ -991,7 +1071,6 @@ export function LeadsPageClient({
   // Default to the logged-in user's own leads; multi-selectable.
   const [counsellorIds, setCounsellorIds] = React.useState<string[]>([currentUserId]);
   const [counsellorPopoverOpen, setCounsellorPopoverOpen] = React.useState(false);
-  const [coursePopoverOpen, setCoursePopoverOpen] = React.useState(false);
   const [viewDialogOpen, setViewDialogOpen] = React.useState(false);
   const [newViewName, setNewViewName] = React.useState("");
   const [savedViews, setSavedViews] = React.useState<SavedLeadsView[]>([]);
@@ -1037,11 +1116,15 @@ export function LeadsPageClient({
   const currentPersistedState = React.useMemo<PersistedLeadsState>(
     () => ({
       filters: {
-        status: filters.status ?? "all",
-        source: filters.source ?? "all",
-        collegeId: filters.collegeId ?? "all",
-        course: filters.course ?? "all",
+        statuses: filters.statuses,
+        sources: filters.sources,
+        collegeIds: filters.collegeIds,
+        courses: filters.courses,
         overdueFollowupsOnly: filters.overdueFollowupsOnly,
+        createdFrom: filters.createdFrom ?? "",
+        createdTo: filters.createdTo ?? "",
+        registeredFrom: filters.registeredFrom ?? "",
+        registeredTo: filters.registeredTo ?? "",
       },
       counsellorIds,
       search,
@@ -1061,13 +1144,27 @@ export function LeadsPageClient({
   const needsAllLeadsFetch = hasExpertSearchActive || filters.overdueFollowupsOnly;
   const baseLeadFilters = React.useMemo(
     () => ({
-      source: filters.source,
-      collegeId: filters.collegeId,
-      course: filters.course,
+      sources: filters.sources.length ? filters.sources : undefined,
+      collegeIds: filters.collegeIds.length ? filters.collegeIds : undefined,
+      courses: filters.courses.length ? filters.courses : undefined,
       counsellorIds,
       search: debouncedSearch || undefined,
+      createdFrom: filters.createdFrom || undefined,
+      createdTo: filters.createdTo || undefined,
+      registeredFrom: filters.registeredFrom || undefined,
+      registeredTo: filters.registeredTo || undefined,
     }),
-    [counsellorIds, debouncedSearch, filters.collegeId, filters.course, filters.source],
+    [
+      counsellorIds,
+      debouncedSearch,
+      filters.collegeIds,
+      filters.courses,
+      filters.createdFrom,
+      filters.createdTo,
+      filters.registeredFrom,
+      filters.registeredTo,
+      filters.sources,
+    ],
   );
   const {
     data: paginatedLeadsData,
@@ -1076,7 +1173,7 @@ export function LeadsPageClient({
     refetch: refetchPaginated,
   } = useLeadsPaginated({
     ...baseLeadFilters,
-    status: filters.status ?? "all",
+    statuses: filters.statuses.length ? filters.statuses : undefined,
     page,
     pageSize,
     sortKey,
@@ -1223,13 +1320,22 @@ export function LeadsPageClient({
   const allCourses = React.useMemo(() => {
     const collegeList = colleges ?? [];
     const source =
-      filters.collegeId && filters.collegeId !== "all"
-        ? collegeList.filter((c) => c.id === filters.collegeId)
+      filters.collegeIds.length > 0
+        ? collegeList.filter((c) => filters.collegeIds.includes(c.id))
         : collegeList;
     const set = new Set<string>();
     source.forEach((c) => c.courses.forEach((course) => set.add(course)));
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [colleges, filters.collegeId]);
+  }, [colleges, filters.collegeIds]);
+
+  React.useEffect(() => {
+    if (filters.courses.length === 0) return;
+    const valid = new Set(allCourses);
+    const nextCourses = filters.courses.filter((course) => valid.has(course));
+    if (nextCourses.length !== filters.courses.length) {
+      setFilters((f) => ({ ...f, courses: nextCourses }));
+    }
+  }, [allCourses, filters.courses]);
 
   const preStatusFilteredLeads = React.useMemo(() => {
     if (!needsAllLeadsFetch) return [];
@@ -1248,8 +1354,8 @@ export function LeadsPageClient({
 
   const clientFilteredLeads = React.useMemo(() => {
     if (!needsAllLeadsFetch) return [];
-    return applyStatusFilter(preStatusFilteredLeads, filters.status ?? "all");
-  }, [filters.status, needsAllLeadsFetch, preStatusFilteredLeads]);
+    return applyStatusFilter(preStatusFilteredLeads, filters.statuses);
+  }, [filters.statuses, needsAllLeadsFetch, preStatusFilteredLeads]);
 
   const clientSortedLeads = React.useMemo(() => {
     if (!needsAllLeadsFetch) return [];
@@ -1324,11 +1430,15 @@ export function LeadsPageClient({
     counsellorIds,
     debouncedSearch,
     expertSearch,
-    filters.collegeId,
-    filters.course,
+    filters.collegeIds,
+    filters.courses,
+    filters.createdFrom,
+    filters.createdTo,
     filters.overdueFollowupsOnly,
-    filters.source,
-    filters.status,
+    filters.registeredFrom,
+    filters.registeredTo,
+    filters.sources,
+    filters.statuses,
     sortDir,
     sortKey,
   ]);
@@ -1346,14 +1456,17 @@ export function LeadsPageClient({
       try {
         const all = needsAllLeadsFetch
           ? (allLeads ?? [])
-          : await fetchAllLeads({ ...baseLeadFilters, status: "all" });
+          : await fetchAllLeads({
+              ...baseLeadFilters,
+              statuses: filters.statuses.length ? filters.statuses : undefined,
+            });
         if (cancelled) return;
 
         let leads = hasExpertSearchActive
           ? applyExpertSearchFilter(all, expertSearch)
           : all;
         leads = applyOverdueFollowupsFilter(leads, filters.overdueFollowupsOnly);
-        leads = applyStatusFilter(leads, filters.status ?? "all");
+        leads = applyStatusFilter(leads, filters.statuses);
         setExportPreviewLeads(sortLeadsList(leads, sortKey, sortDir));
       } catch (error) {
         if (!cancelled) {
@@ -1376,7 +1489,7 @@ export function LeadsPageClient({
     exportDialogOpen,
     expertSearch,
     filters.overdueFollowupsOnly,
-    filters.status,
+    filters.statuses,
     hasExpertSearchActive,
     needsAllLeadsFetch,
     sortDir,
@@ -1447,10 +1560,14 @@ export function LeadsPageClient({
 
   const isFiltersActive =
     !!search ||
-    (filters.status && filters.status !== "all") ||
-    (filters.source && filters.source !== "all") ||
-    (filters.collegeId && filters.collegeId !== "all") ||
-    (filters.course && filters.course !== "all") ||
+    (filters.statuses.length > 0) ||
+    (filters.sources.length > 0) ||
+    (filters.collegeIds.length > 0) ||
+    (filters.courses.length > 0) ||
+    !!filters.createdFrom ||
+    !!filters.createdTo ||
+    !!filters.registeredFrom ||
+    !!filters.registeredTo ||
     filters.overdueFollowupsOnly ||
     !isDefaultCounsellorSelection ||
     sortKey !== "created_at" ||
@@ -1678,31 +1795,41 @@ export function LeadsPageClient({
           <div className="flex flex-wrap items-center gap-2 pt-2">
             <Button
               type="button"
-              variant={filters.status === "all" ? "default" : "outline"}
+              variant={filters.statuses.length === 0 ? "default" : "outline"}
               size="sm"
               className="h-8 rounded-full px-3"
-              onClick={() => setFilters((f) => ({ ...f, status: "all" }))}
+              onClick={() => setFilters((f) => ({ ...f, statuses: [] }))}
             >
               All
               <Badge variant="secondary" className="ml-2 h-5 rounded-full px-2 text-xs">
                 {totalLeadCount}
               </Badge>
             </Button>
-            {statuses.map((status) => (
-              <Button
-                key={status}
-                type="button"
-                variant={filters.status === status ? "default" : "outline"}
-                size="sm"
-                className="h-8 rounded-full px-3"
-                onClick={() => setFilters((f) => ({ ...f, status }))}
-              >
-                {LEAD_STATUS_LABELS[status]}
-                <Badge variant="secondary" className="ml-2 h-5 rounded-full px-2 text-xs">
-                  {statusCounts[status]}
-                </Badge>
-              </Button>
-            ))}
+            {statuses.map((status) => {
+              const selected = filters.statuses.includes(status);
+              return (
+                <Button
+                  key={status}
+                  type="button"
+                  variant={selected ? "default" : "outline"}
+                  size="sm"
+                  className="h-8 rounded-full px-3"
+                  onClick={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      statuses: f.statuses.includes(status)
+                        ? f.statuses.filter((item) => item !== status)
+                        : [...f.statuses, status],
+                    }))
+                  }
+                >
+                  {LEAD_STATUS_LABELS[status]}
+                  <Badge variant="secondary" className="ml-2 h-5 rounded-full px-2 text-xs">
+                    {statusCounts[status]}
+                  </Badge>
+                </Button>
+              );
+            })}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -1785,56 +1912,38 @@ export function LeadsPageClient({
                 </Button>
               </div>
               <div className="xl:col-span-2">
-                <Select
-                  value={filters.source ?? "all"}
-                  onValueChange={(v) =>
-                    setFilters((f) => ({ ...f, source: v as LeadSource | "all" }))
+                <MultiSelectFilter
+                  options={sources.map((source) => ({
+                    value: source,
+                    label: LEAD_SOURCE_LABELS[source],
+                  }))}
+                  selected={filters.sources}
+                  onChange={(values) =>
+                    setFilters((f) => ({ ...f, sources: values as LeadSource[] }))
                   }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Source" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All sources</SelectItem>
-                    {sources.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {LEAD_SOURCE_LABELS[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="All sources"
+                  allLabel="All sources"
+                  searchPlaceholder="Search sources…"
+                  emptyMessage="No sources found."
+                  className="sm:w-full"
+                />
               </div>
               <div className="xl:col-span-2">
-                <Select
-                  value={filters.collegeId ?? "all"}
-                  onValueChange={(v) => {
-                    const selectedCollege = (colleges ?? []).find((c) => c.id === v);
-                    setFilters((f) => {
-                      const courseStillValid =
-                        !f.course ||
-                        f.course === "all" ||
-                        v === "all" ||
-                        (selectedCollege?.courses ?? []).includes(f.course);
-                      return {
-                        ...f,
-                        collegeId: v,
-                        course: courseStillValid ? f.course : "all",
-                      };
-                    });
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="College" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All colleges</SelectItem>
-                    {(colleges ?? []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MultiSelectFilter
+                  options={(colleges ?? []).map((college) => ({
+                    value: college.id,
+                    label: college.name,
+                  }))}
+                  selected={filters.collegeIds}
+                  onChange={(values) =>
+                    setFilters((f) => ({ ...f, collegeIds: values }))
+                  }
+                  placeholder="All colleges"
+                  allLabel="All colleges"
+                  searchPlaceholder="Search colleges…"
+                  emptyMessage="No colleges found."
+                  className="sm:w-full"
+                />
               </div>
               <div className="xl:col-span-2">
                 <Popover open={counsellorPopoverOpen} onOpenChange={setCounsellorPopoverOpen}>
@@ -1957,72 +2066,64 @@ export function LeadsPageClient({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-              <Popover open={coursePopoverOpen} onOpenChange={setCoursePopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={coursePopoverOpen}
-                    className="min-w-[180px] justify-between font-normal"
-                  >
-                    <span className="truncate">
-                      {filters.course && filters.course !== "all"
-                        ? filters.course
-                        : "All courses"}
-                    </span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[260px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search courses…" />
-                    <CommandList>
-                      <CommandEmpty>No courses found.</CommandEmpty>
-                      <CommandGroup>
-                        <CommandItem
-                          value="__all_courses__"
-                          onSelect={() => {
-                            setFilters((f) => ({ ...f, course: "all" }));
-                            setCoursePopoverOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              !filters.course || filters.course === "all"
-                                ? "opacity-100"
-                                : "opacity-0",
-                            )}
-                          />
-                          All courses
-                        </CommandItem>
-                        {allCourses.map((course) => (
-                          <CommandItem
-                            key={course}
-                            value={course}
-                            onSelect={() => {
-                              setFilters((f) => ({
-                                ...f,
-                                course: f.course === course ? "all" : course,
-                              }));
-                              setCoursePopoverOpen(false);
-                            }}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                filters.course === course ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            {course}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+            <div className="flex flex-wrap items-end gap-2 border-t border-border/60 pt-3">
+              <div className="grid w-full gap-1 sm:w-auto">
+                <label className="text-xs text-muted-foreground">Created from</label>
+                <Input
+                  type="date"
+                  value={filters.createdFrom ?? ""}
+                  max={filters.createdTo || undefined}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, createdFrom: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="grid w-full gap-1 sm:w-auto">
+                <label className="text-xs text-muted-foreground">Created to</label>
+                <Input
+                  type="date"
+                  value={filters.createdTo ?? ""}
+                  min={filters.createdFrom || undefined}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, createdTo: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="grid w-full gap-1 sm:w-auto">
+                <label className="text-xs text-muted-foreground">Registered from</label>
+                <Input
+                  type="date"
+                  value={filters.registeredFrom ?? ""}
+                  max={filters.registeredTo || undefined}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, registeredFrom: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="grid w-full gap-1 sm:w-auto">
+                <label className="text-xs text-muted-foreground">Registered to</label>
+                <Input
+                  type="date"
+                  value={filters.registeredTo ?? ""}
+                  min={filters.registeredFrom || undefined}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, registeredTo: e.target.value }))
+                  }
+                />
+              </div>
+              <MultiSelectFilter
+                options={allCourses.map((course) => ({
+                  value: course,
+                  label: course,
+                }))}
+                selected={filters.courses}
+                onChange={(values) => setFilters((f) => ({ ...f, courses: values }))}
+                placeholder="All courses"
+                allLabel="All courses"
+                searchPlaceholder="Search courses…"
+                emptyMessage="No courses found."
+                className="min-w-[180px] sm:w-[220px]"
+              />
 
               <label
                 className={cn(

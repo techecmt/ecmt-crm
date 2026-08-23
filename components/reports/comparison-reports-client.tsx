@@ -4,7 +4,6 @@ import * as React from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
-  FileSpreadsheet,
   GraduationCap,
   Minus,
   TrendingUp,
@@ -20,7 +19,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import writeXlsxFile, { type SheetData } from "write-excel-file/browser";
 
 import {
   joinFilterParts,
@@ -69,6 +67,7 @@ import {
   isValidDateRange,
   previousEqualPeriod,
 } from "@/lib/reports/comparison-periods";
+import { downloadExcel, excelFilename, type SheetData } from "@/lib/reports/excel-export";
 import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -477,7 +476,16 @@ async function exportComparisonExcel({
     ]),
   ];
 
-  await writeXlsxFile([
+  await downloadExcel(
+    excelFilename([
+      "Comparison_Report",
+      periodA.from,
+      periodA.to,
+      "vs",
+      periodB.from,
+      periodB.to,
+    ]),
+    [
     {
       sheet: "Summary",
       data: summaryRows,
@@ -516,8 +524,7 @@ async function exportComparisonExcel({
         width: Math.max(header.length + 2, 12),
       })),
     },
-  ]).toFile(
-    `Comparison_Report_${periodA.from}_${periodA.to}_vs_${periodB.from}_${periodB.to}.xlsx`,
+    ],
   );
 }
 
@@ -533,7 +540,6 @@ export function ComparisonReportsClient() {
   const [courses, setCourses] = React.useState<string[]>([]);
   const [sources, setSources] = React.useState<LeadSource[]>([]);
   const [counsellorIds, setCounsellorIds] = React.useState<string[]>([]);
-  const [exporting, setExporting] = React.useState(false);
   const [appliedFilters, setAppliedFilters] = React.useState(() => ({
     periodA: initial.periodA,
     periodB: initial.periodB,
@@ -711,21 +717,16 @@ export function ComparisonReportsClient() {
 
   const handleExcelExport = async () => {
     if (!report.data || !periodAMetrics || !periodBMetrics) return;
-    setExporting(true);
-    try {
-      await exportComparisonExcel({
-        periodA: appliedFilters.periodA,
-        periodB: appliedFilters.periodB,
-        periodAMetrics,
-        periodBMetrics,
-        bySource: report.data.bySource,
-        byCollege: report.data.byCollege,
-        byCourse: report.data.byCourse,
-        byCounsellor: report.data.byCounsellor,
-      });
-    } finally {
-      setExporting(false);
-    }
+    await exportComparisonExcel({
+      periodA: appliedFilters.periodA,
+      periodB: appliedFilters.periodB,
+      periodAMetrics,
+      periodBMetrics,
+      bySource: report.data.bySource,
+      byCollege: report.data.byCollege,
+      byCourse: report.data.byCourse,
+      byCounsellor: report.data.byCounsellor,
+    });
   };
 
   if (report.isLoading) {
@@ -756,6 +757,8 @@ export function ComparisonReportsClient() {
       title="Comparison Report"
       documentTitle={`Comparison Report ${periodALabel} vs ${periodBLabel}`}
       filterSummary={filterSummary}
+      onExportExcel={handleExcelExport}
+      excelDisabled={!appliedRangesValid || !report.data}
     >
       <div className="no-print flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
@@ -769,16 +772,6 @@ export function ComparisonReportsClient() {
             registration completed date.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!appliedRangesValid || exporting || !report.data}
-          onClick={() => void handleExcelExport()}
-        >
-          <FileSpreadsheet className="mr-2 h-4 w-4" />
-          {exporting ? "Exporting…" : "Export Excel"}
-        </Button>
       </div>
 
       <Card className="no-print">

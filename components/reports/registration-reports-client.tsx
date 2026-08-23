@@ -59,7 +59,14 @@ import {
   useRegistrationReport,
 } from "@/lib/hooks/use-registration-report";
 import {
+  downloadExcel,
+  excelFilename,
+  excelSheet,
+  type ExcelRow,
+} from "@/lib/reports/excel-export";
+import {
   differenceInSgtCalendarDays,
+  formatSgtDateTimeExport,
   getSgtDateKey,
 } from "@/lib/timezone";
 import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
@@ -488,6 +495,150 @@ function CourseBySourceTable({
   );
 }
 
+const GROUP_SUMMARY_HEADERS = [
+  "Group",
+  "Unpaid",
+  "Paid",
+  "Total",
+  "Paid %",
+  "Avg days",
+  "Median days",
+];
+
+function groupSummaryExcelRows(rows: GroupSummary[]): ExcelRow[] {
+  return rows.map((row) => [
+    row.groupName,
+    row.unpaid,
+    row.paid,
+    row.total,
+    row.total === 0 ? 0 : Number(((row.paid / row.total) * 100).toFixed(1)),
+    row.avgDays === null ? "" : Number(row.avgDays.toFixed(1)),
+    row.medianDays === null ? "" : Number(row.medianDays.toFixed(0)),
+  ]);
+}
+
+async function exportRegistrationExcel({
+  fromDate,
+  toDate,
+  filterSummary,
+  totals,
+  avgDays,
+  sameDayCount,
+  sameDayRate,
+  trendData,
+  dayBuckets,
+  sourceSummaries,
+  courseSummaries,
+  collegeSummaries,
+  counsellorSummaries,
+  courseBySourceMatrix,
+  leads,
+}: {
+  fromDate: string;
+  toDate: string;
+  filterSummary: string;
+  totals: { total: number; unpaid: number; paid: number };
+  avgDays: number | null;
+  sameDayCount: number;
+  sameDayRate: string;
+  trendData: Array<{ date: string; unpaid: number; paid: number; total: number }>;
+  dayBuckets: DayBucket[];
+  sourceSummaries: GroupSummary[];
+  courseSummaries: GroupSummary[];
+  collegeSummaries: GroupSummary[];
+  counsellorSummaries: GroupSummary[];
+  courseBySourceMatrix: CourseBySourceMatrix;
+  leads: RegistrationReportLeadRow[];
+}) {
+  const matrixHeaders = [
+    "Course",
+    ...courseBySourceMatrix.sources.map((source) => source.name),
+    "Total",
+  ];
+  const matrixRows: ExcelRow[] = [
+    ...courseBySourceMatrix.courses.map((course) => [
+      course.name,
+      ...courseBySourceMatrix.sources.map(
+        (source) =>
+          (courseBySourceMatrix.cells.get(cellKey(course.id, source.id)) ?? emptyBreakdown())
+            .total,
+      ),
+      (courseBySourceMatrix.rowTotals.get(course.id) ?? emptyBreakdown()).total,
+    ]),
+    courseBySourceMatrix.courses.length > 0
+      ? [
+          "Grand Total",
+          ...courseBySourceMatrix.sources.map(
+            (source) =>
+              (courseBySourceMatrix.colTotals.get(source.id) ?? emptyBreakdown()).total,
+          ),
+          courseBySourceMatrix.grandTotal.total,
+        ]
+      : [],
+  ].filter((row) => row.length > 0);
+
+  await downloadExcel(
+    excelFilename(["Registration_Report", fromDate, "to", toDate]),
+    [
+      excelSheet("Summary", ["Metric", "Value"], [
+        ["Registration from", fromDate],
+        ["Registration to", toDate],
+        ["Filters", filterSummary],
+        ["Total registrations", totals.total],
+        ["Unpaid", totals.unpaid],
+        ["Paid", totals.paid],
+        ["Paid %", totals.total === 0 ? 0 : Number(((totals.paid / totals.total) * 100).toFixed(1))],
+        ["Avg days to register", avgDays === null ? "" : Number(avgDays.toFixed(1))],
+        ["Same-day registrations", sameDayCount],
+        ["Same-day rate", sameDayRate],
+      ]),
+      excelSheet(
+        "Trend",
+        ["Date", "Unpaid", "Paid", "Total"],
+        trendData.map((row) => [row.date, row.unpaid, row.paid, row.total]),
+      ),
+      excelSheet(
+        "Time to register",
+        ["Bucket", "Registrations"],
+        dayBuckets.map((row) => [row.label, row.count]),
+      ),
+      excelSheet("By Source", GROUP_SUMMARY_HEADERS, groupSummaryExcelRows(sourceSummaries)),
+      excelSheet("By Course", GROUP_SUMMARY_HEADERS, groupSummaryExcelRows(courseSummaries)),
+      excelSheet("By College", GROUP_SUMMARY_HEADERS, groupSummaryExcelRows(collegeSummaries)),
+      excelSheet(
+        "By Counsellor",
+        GROUP_SUMMARY_HEADERS,
+        groupSummaryExcelRows(counsellorSummaries),
+      ),
+      excelSheet("Course by Source", matrixHeaders, matrixRows),
+      excelSheet(
+        "Registrations",
+        [
+          "Name",
+          "Status",
+          "Source",
+          "Course",
+          "Counsellor",
+          "Created at",
+          "Registered at",
+          "Days to register",
+        ],
+        leads.map((lead) => [
+          lead.full_name,
+          isRegistrationPaid(lead.status) ? "Paid" : "Unpaid",
+          LEAD_SOURCE_LABELS[lead.source] ?? lead.source,
+          lead.interested_course ?? "",
+          toUserName(lead.counsellor),
+          formatSgtDateTimeExport(lead.created_at),
+          formatSgtDateTimeExport(lead.registration_completed_at),
+          daysToRegister(lead),
+        ]),
+        { minWidth: 16 },
+      ),
+    ],
+  );
+}
+
 export function RegistrationReportsClient() {
   const now = React.useMemo(() => new Date(), []);
   const [fromDate, setFromDate] = React.useState(getSgtDateKey(subDays(now, 29)));
@@ -677,6 +828,25 @@ export function RegistrationReportsClient() {
     counsellorOptions,
   ]);
 
+  const handleExportExcel = () =>
+    exportRegistrationExcel({
+      fromDate: appliedFilters.fromDate,
+      toDate: appliedFilters.toDate,
+      filterSummary,
+      totals,
+      avgDays: average(dayValues),
+      sameDayCount: sameDayStats.count,
+      sameDayRate: sameDayStats.rate,
+      trendData,
+      dayBuckets,
+      sourceSummaries,
+      courseSummaries,
+      collegeSummaries,
+      counsellorSummaries,
+      courseBySourceMatrix,
+      leads,
+    });
+
   if (report.isLoading) {
     return (
       <div className="space-y-4">
@@ -692,6 +862,7 @@ export function RegistrationReportsClient() {
       title="Registration Report"
       documentTitle={`Registration Report ${appliedFilters.fromDate} to ${appliedFilters.toDate}`}
       filterSummary={filterSummary}
+      onExportExcel={handleExportExcel}
     >
       <div className="no-print space-y-1">
         <h2 className="text-lg font-semibold tracking-tight">Registration Report</h2>

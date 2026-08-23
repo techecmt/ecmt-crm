@@ -65,6 +65,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useCustomerAnalysisReport,
   type CustomerAnalysisFilters,
+  type CustomerMessageRow,
+  type NotInterestedLeadRow,
 } from "@/lib/hooks/use-customer-analysis-report";
 import {
   average,
@@ -73,7 +75,12 @@ import {
   reasonLabel,
 } from "@/lib/reports/customer-analysis";
 import { formatDateRangeLabel } from "@/lib/reports/comparison-periods";
-import { differenceInSgtCalendarDays, getSgtDateKey } from "@/lib/timezone";
+import {
+  downloadExcel,
+  excelFilename,
+  excelSheet,
+} from "@/lib/reports/excel-export";
+import { differenceInSgtCalendarDays, formatSgtDateTimeExport, getSgtDateKey } from "@/lib/timezone";
 import {
   LEAD_SOURCE_LABELS,
   NOT_INTERESTED_REASON_LABELS,
@@ -323,6 +330,128 @@ function buildChannelBreakdown(
     .sort((a, b) => b.count - a.count);
 }
 
+async function exportCustomerAnalysisExcel({
+  fromDate,
+  toDate,
+  filterSummary,
+  notInterestedLeads,
+  totalLeadsInPeriod,
+  topReason,
+  avgDaysToDrop,
+  reasonBreakdown,
+  trendData,
+  messages,
+  likelyQuestionCount,
+  channelBreakdown,
+  messagesTruncated,
+}: {
+  fromDate: string;
+  toDate: string;
+  filterSummary: string;
+  notInterestedLeads: NotInterestedLeadRow[];
+  totalLeadsInPeriod: number;
+  topReason: string;
+  avgDaysToDrop: number | null;
+  reasonBreakdown: Array<{ reason: string; count: number }>;
+  trendData: Array<{ label: string; count: number }>;
+  messages: CustomerMessageRow[];
+  likelyQuestionCount: number;
+  channelBreakdown: Array<{ channel: string; count: number }>;
+  messagesTruncated: boolean;
+}) {
+  const share =
+    totalLeadsInPeriod === 0
+      ? 0
+      : Number(((notInterestedLeads.length / totalLeadsInPeriod) * 100).toFixed(1));
+  const courseCounts = new Map<string, number>();
+  for (const lead of notInterestedLeads) {
+    const course = (lead.interested_course ?? "").trim() || "Unspecified";
+    courseCounts.set(course, (courseCounts.get(course) ?? 0) + 1);
+  }
+  const courseRows = Array.from(courseCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([course, count]) => [course, count]);
+
+  await downloadExcel(
+    excelFilename(["Customer_Analysis", fromDate, "to", toDate]),
+    [
+      excelSheet("Summary", ["Metric", "Value"], [
+        ["Period from", fromDate],
+        ["Period to", toDate],
+        ["Filters", filterSummary],
+        ["Not interested leads", notInterestedLeads.length],
+        ["Leads created in period", totalLeadsInPeriod],
+        ["Share of all leads %", share],
+        ["Top reason", topReason],
+        ["Avg days to drop", avgDaysToDrop === null ? "" : Number(avgDaysToDrop.toFixed(1))],
+        ["Customer messages", messages.length],
+        ["Likely questions", likelyQuestionCount],
+        ["Messages truncated", messagesTruncated ? "Yes" : "No"],
+      ]),
+      excelSheet(
+        "Reasons",
+        ["Reason", "Leads"],
+        reasonBreakdown.map((row) => [row.reason, row.count]),
+      ),
+      excelSheet(
+        "Courses",
+        ["Course", "Lost leads"],
+        courseRows,
+      ),
+      excelSheet(
+        "Trend",
+        ["Week", "Not interested"],
+        trendData.map((row) => [row.label, row.count]),
+      ),
+      excelSheet(
+        "Not interested leads",
+        [
+          "Name",
+          "Course",
+          "College",
+          "Source",
+          "Reason",
+          "Notes",
+          "Counsellor",
+          "Created at",
+          "Marked at",
+        ],
+        notInterestedLeads.map((lead) => [
+          lead.full_name,
+          lead.interested_course ?? "",
+          lead.college?.name ?? "",
+          LEAD_SOURCE_LABELS[lead.source] ?? lead.source,
+          reasonLabel(lead.not_interested_reason),
+          lead.not_interested_notes ?? "",
+          toUserName(lead.counsellor),
+          formatSgtDateTimeExport(lead.created_at),
+          formatSgtDateTimeExport(lead.updated_at),
+        ]),
+        { minWidth: 16 },
+      ),
+      excelSheet(
+        "Channels",
+        ["Channel", "Messages"],
+        channelBreakdown.map((row) => [row.channel, row.count]),
+      ),
+      excelSheet(
+        "Messages",
+        ["Date", "Customer", "Channel", "Likely question", "Message", "Lead", "Course"],
+        messages.map((message) => [
+          formatSgtDateTimeExport(message.created_at),
+          message.customer_name ?? "",
+          channelLabel(message.channel),
+          message.isLikelyQuestion ? "Yes" : "No",
+          message.content,
+          message.lead_name ?? "",
+          message.interested_course ?? "",
+        ]),
+        { minWidth: 18 },
+      ),
+    ],
+  );
+}
+
 export function CustomerAnalysisReportsClient() {
   const now = React.useMemo(() => new Date(), []);
   const [fromDate, setFromDate] = React.useState(getSgtDateKey(subDays(now, 29)));
@@ -461,11 +590,30 @@ export function CustomerAnalysisReportsClient() {
     });
   };
 
+  const handleExportExcel = () =>
+    exportCustomerAnalysisExcel({
+      fromDate: appliedFilters.fromDate,
+      toDate: appliedFilters.toDate,
+      filterSummary,
+      notInterestedLeads,
+      totalLeadsInPeriod,
+      topReason: topReason?.reason ?? "",
+      avgDaysToDrop: average(daysToDrop),
+      reasonBreakdown,
+      trendData,
+      messages,
+      likelyQuestionCount,
+      channelBreakdown,
+      messagesTruncated: report.data?.messagesTruncated ?? false,
+    });
+
   return (
     <ReportPrintable
       title="Customer Analysis"
       documentTitle="Customer Analysis Report"
       filterSummary={filterSummary}
+      onExportExcel={handleExportExcel}
+      excelDisabled={report.isLoading}
     >
       <Card>
         <CardHeader>

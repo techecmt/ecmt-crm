@@ -23,10 +23,14 @@ export type LeadsExpertSearchState = {
 
 export type LeadsListNavigationState = {
   filters: {
-    status: LeadStatus | "all";
-    source: LeadSource | "all";
-    collegeId: string | "all";
-    course: string | "all";
+    statuses: LeadStatus[];
+    sources: LeadSource[];
+    collegeIds: string[];
+    courses: string[];
+    createdFrom?: string;
+    createdTo?: string;
+    registeredFrom?: string;
+    registeredTo?: string;
   };
   counsellorIds: string[];
   search: string;
@@ -55,10 +59,10 @@ export function getDefaultLeadsListNavigationState(
 ): LeadsListNavigationState {
   return {
     filters: {
-      status: "all",
-      source: "all",
-      collegeId: "all",
-      course: "all",
+      statuses: [],
+      sources: [],
+      collegeIds: [],
+      courses: [],
     },
     counsellorIds: [currentUserId],
     search: "",
@@ -74,6 +78,24 @@ function isKnownSortKey(value: string): value is LeadsSortKey {
 
 function isKnownSortDir(value: string): value is LeadsSortDir {
   return SORT_DIRS.includes(value as LeadsSortDir);
+}
+
+function parseCsvParam(query: URLSearchParams, key: string): string[] {
+  const value = query.get(key);
+  if (!value || value === "all") return [];
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function parseStatusList(query: URLSearchParams): LeadStatus[] {
+  return parseCsvParam(query, "status").filter(
+    (item): item is LeadStatus => item in LEAD_STATUS_LABELS,
+  );
+}
+
+function parseSourceList(query: URLSearchParams): LeadSource[] {
+  return parseCsvParam(query, "source").filter(
+    (item): item is LeadSource => item in LEAD_SOURCE_LABELS,
+  );
 }
 
 /** Parse list filters/sort from a leads return path (e.g. /dashboard/leads?status=...). */
@@ -110,6 +132,10 @@ export function parseLeadsListStateFromReturnPath(
     "ex_max",
     "ex_email",
     "ex_dup",
+    "created_from",
+    "created_to",
+    "registered_from",
+    "registered_to",
   ].some((key) => query.has(key));
 
   if (!hasState) {
@@ -126,15 +152,19 @@ export function parseLeadsListStateFromReturnPath(
 
   return {
     filters: {
-      status: (query.get("status") as LeadStatus | "all") || fallback.filters.status,
-      source: (query.get("source") as LeadSource | "all") || fallback.filters.source,
-      collegeId: query.get("college") || fallback.filters.collegeId,
-      course: query.get("course") || fallback.filters.course,
+      statuses: parseStatusList(query),
+      sources: parseSourceList(query),
+      collegeIds: parseCsvParam(query, "college"),
+      courses: parseCsvParam(query, "course"),
+      createdFrom: query.get("created_from") || undefined,
+      createdTo: query.get("created_to") || undefined,
+      registeredFrom: query.get("registered_from") || undefined,
+      registeredTo: query.get("registered_to") || undefined,
     },
     counsellorIds: counsellorIds.length > 0 ? counsellorIds : fallback.counsellorIds,
     search: query.get("q") ?? fallback.search,
-    sortKey: isKnownSortKey(sortKeyRaw) ? sortKeyRaw : fallback.sortKey,
-    sortDir: isKnownSortDir(sortDirRaw) ? sortDirRaw : fallback.sortDir,
+    sortKey: isKnownSortKey(sortKeyRaw) ? (sortKeyRaw as LeadsSortKey) : fallback.sortKey,
+    sortDir: isKnownSortDir(sortDirRaw) ? (sortDirRaw as LeadsSortDir) : fallback.sortDir,
     expertSearch: {
       mustInclude: query.get("ex_must") ?? "",
       exclude: query.get("ex_exclude") ?? "",
@@ -151,10 +181,16 @@ export function parseLeadsListStateFromReturnPath(
 
 export function toLeadFilters(state: LeadsListNavigationState): LeadFilters {
   return {
-    ...state.filters,
+    statuses: state.filters.statuses.length ? state.filters.statuses : undefined,
+    sources: state.filters.sources.length ? state.filters.sources : undefined,
+    collegeIds: state.filters.collegeIds.length ? state.filters.collegeIds : undefined,
+    courses: state.filters.courses.length ? state.filters.courses : undefined,
     counsellorIds: state.counsellorIds,
     search: state.search || undefined,
-    status: "all",
+    createdFrom: state.filters.createdFrom || undefined,
+    createdTo: state.filters.createdTo || undefined,
+    registeredFrom: state.filters.registeredFrom || undefined,
+    registeredTo: state.filters.registeredTo || undefined,
   };
 }
 
@@ -218,10 +254,16 @@ export function applyExpertSearchFilter(
 
 export function applyStatusFilter(
   leads: LeadWithRelations[],
-  status: LeadStatus | "all",
+  status: LeadStatus | "all" | LeadStatus[],
 ): LeadWithRelations[] {
-  if (!status || status === "all") return leads;
-  return leads.filter((lead) => lead.status === status);
+  const selected = Array.isArray(status)
+    ? status
+    : !status || status === "all"
+      ? []
+      : [status];
+  if (selected.length === 0) return leads;
+  const allowed = new Set(selected);
+  return leads.filter((lead) => allowed.has(lead.status));
 }
 
 export function leadHasOverdueFollowUp(lead: LeadWithRelations, now = new Date()): boolean {
@@ -275,7 +317,7 @@ export function buildSortedLeadList(
   state: LeadsListNavigationState,
 ): LeadWithRelations[] {
   const expertFiltered = applyExpertSearchFilter(allLeads, state.expertSearch);
-  const statusFiltered = applyStatusFilter(expertFiltered, state.filters.status);
+  const statusFiltered = applyStatusFilter(expertFiltered, state.filters.statuses);
   return sortLeadsList(statusFiltered, state.sortKey, state.sortDir);
 }
 

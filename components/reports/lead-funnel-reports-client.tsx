@@ -43,13 +43,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -64,8 +58,14 @@ import {
   ReportPrintable,
 } from "@/components/reports/report-printable";
 import { useColleges } from "@/lib/hooks/use-colleges";
-import { useLeads } from "@/lib/hooks/use-leads";
+import { useLeads, type LeadWithRelations } from "@/lib/hooks/use-leads";
 import { useProfiles } from "@/lib/hooks/use-profiles";
+import {
+  downloadExcel,
+  excelFilename,
+  excelSheet,
+} from "@/lib/reports/excel-export";
+import { formatSgtDateTimeExport } from "@/lib/timezone";
 import {
   LEAD_SOURCE_LABELS,
   LEAD_STATUS_LABELS,
@@ -136,6 +136,304 @@ function sourcePerformanceConversionLabel(
   );
 }
 
+const SOURCE_STACK_COLORS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+  "hsl(210 70% 46%)",
+  "hsl(28 80% 52%)",
+  "hsl(152 50% 38%)",
+  "hsl(280 45% 50%)",
+  "hsl(0 62% 50%)",
+  "hsl(190 60% 40%)",
+  "hsl(45 85% 46%)",
+];
+
+const COUNSELLOR_SOURCE_CHART_LIMIT = 12;
+
+type CounsellorSourceMatrix = {
+  counsellors: Array<{ id: string; name: string }>;
+  sources: Array<{ id: LeadSource; name: string }>;
+  cells: Map<string, number>;
+  rowTotals: Map<string, number>;
+  colTotals: Map<string, number>;
+  grandTotal: number;
+};
+
+function counsellorSourceCellKey(counsellorId: string, source: LeadSource) {
+  return `${counsellorId}::${source}`;
+}
+
+function counsellorNameFromLead(lead: LeadWithRelations) {
+  if (!lead.assigned_counsellor) return "Unassigned";
+  return lead.counsellor?.full_name || lead.counsellor?.email || "Unknown counsellor";
+}
+
+function buildCounsellorBySourceMatrix(leads: LeadWithRelations[]): CounsellorSourceMatrix {
+  const counsellorMap = new Map<string, { id: string; name: string; total: number }>();
+  const sourceMap = new Map<LeadSource, { id: LeadSource; name: string; total: number }>();
+  const cells = new Map<string, number>();
+  const rowTotals = new Map<string, number>();
+  const colTotals = new Map<string, number>();
+  let grandTotal = 0;
+
+  for (const lead of leads) {
+    const counsellorId = lead.assigned_counsellor ?? "unassigned";
+    const counsellorName = counsellorNameFromLead(lead);
+    const sourceId = lead.source;
+
+    if (!counsellorMap.has(counsellorId)) {
+      counsellorMap.set(counsellorId, { id: counsellorId, name: counsellorName, total: 0 });
+    }
+    counsellorMap.get(counsellorId)!.total += 1;
+
+    if (!sourceMap.has(sourceId)) {
+      sourceMap.set(sourceId, {
+        id: sourceId,
+        name: LEAD_SOURCE_LABELS[sourceId] ?? sourceId,
+        total: 0,
+      });
+    }
+    sourceMap.get(sourceId)!.total += 1;
+
+    const key = counsellorSourceCellKey(counsellorId, sourceId);
+    cells.set(key, (cells.get(key) ?? 0) + 1);
+    rowTotals.set(counsellorId, (rowTotals.get(counsellorId) ?? 0) + 1);
+    colTotals.set(sourceId, (colTotals.get(sourceId) ?? 0) + 1);
+    grandTotal += 1;
+  }
+
+  return {
+    counsellors: Array.from(counsellorMap.values())
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+      .map(({ id, name }) => ({ id, name })),
+    sources: Array.from(sourceMap.values())
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+      .map(({ id, name }) => ({ id, name })),
+    cells,
+    rowTotals,
+    colTotals,
+    grandTotal,
+  };
+}
+
+function CounsellorBySourceTable({
+  matrix,
+  emptyMessage,
+}: {
+  matrix: CounsellorSourceMatrix;
+  emptyMessage: string;
+}) {
+  if (matrix.counsellors.length === 0 || matrix.sources.length === 0) {
+    return (
+      <div className="py-8 text-center text-sm text-muted-foreground">{emptyMessage}</div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="sticky left-0 z-10 min-w-[160px] bg-background">
+              Counsellor
+            </TableHead>
+            {matrix.sources.map((source) => (
+              <TableHead key={source.id} className="min-w-[100px] text-right">
+                {source.name}
+              </TableHead>
+            ))}
+            <TableHead className="min-w-[88px] text-right font-semibold">Total</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {matrix.counsellors.map((counsellor) => {
+            const rowTotal = matrix.rowTotals.get(counsellor.id) ?? 0;
+            return (
+              <TableRow key={counsellor.id}>
+                <TableCell className="sticky left-0 z-10 bg-background font-medium">
+                  {counsellor.name}
+                </TableCell>
+                {matrix.sources.map((source) => {
+                  const value =
+                    matrix.cells.get(counsellorSourceCellKey(counsellor.id, source.id)) ?? 0;
+                  return (
+                    <TableCell key={source.id} className="text-right tabular-nums">
+                      {value > 0 ? value : "—"}
+                    </TableCell>
+                  );
+                })}
+                <TableCell className="text-right font-medium tabular-nums">{rowTotal}</TableCell>
+              </TableRow>
+            );
+          })}
+          <TableRow className="bg-muted/30 font-semibold">
+            <TableCell className="sticky left-0 z-10 bg-muted/30">Grand Total</TableCell>
+            {matrix.sources.map((source) => {
+              const colTotal = matrix.colTotals.get(source.id) ?? 0;
+              return (
+                <TableCell key={source.id} className="text-right tabular-nums">
+                  {colTotal}
+                </TableCell>
+              );
+            })}
+            <TableCell className="text-right tabular-nums">{matrix.grandTotal}</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+async function exportLeadFunnelExcel({
+  fromDate,
+  toDate,
+  filterSummary,
+  totalLeads,
+  counsellingCompleted,
+  registrations,
+  funnelRows,
+  statusData,
+  sourcePerformanceData,
+  counsellorBySourceMatrix,
+  trendGranularity,
+  trendData,
+  leads,
+}: {
+  fromDate: string;
+  toDate: string;
+  filterSummary: string;
+  totalLeads: number;
+  counsellingCompleted: number;
+  registrations: number;
+  funnelRows: Array<{ key: string; name: string; count: number }>;
+  statusData: Array<{ status: string; count: number }>;
+  sourcePerformanceData: Array<{ source: string; created: number; registered: number }>;
+  counsellorBySourceMatrix: CounsellorSourceMatrix;
+  trendGranularity: TrendGranularity;
+  trendData: Array<{ label: string; count: number }>;
+  leads: LeadWithRelations[];
+}) {
+  const sourceHeaders = [
+    "Counsellor",
+    ...counsellorBySourceMatrix.sources.map((source) => source.name),
+    "Total",
+  ];
+  const sourceRows = [
+    ...counsellorBySourceMatrix.counsellors.map((counsellor) => [
+      counsellor.name,
+      ...counsellorBySourceMatrix.sources.map(
+        (source) =>
+          counsellorBySourceMatrix.cells.get(
+            counsellorSourceCellKey(counsellor.id, source.id),
+          ) ?? 0,
+      ),
+      counsellorBySourceMatrix.rowTotals.get(counsellor.id) ?? 0,
+    ]),
+    counsellorBySourceMatrix.counsellors.length > 0
+      ? [
+          "Grand Total",
+          ...counsellorBySourceMatrix.sources.map(
+            (source) => counsellorBySourceMatrix.colTotals.get(source.id) ?? 0,
+          ),
+          counsellorBySourceMatrix.grandTotal,
+        ]
+      : [],
+  ].filter((row) => row.length > 0);
+
+  await downloadExcel(
+    excelFilename(["Lead_Funnel_Report", fromDate, "to", toDate]),
+    [
+      excelSheet("Summary", ["Metric", "Value"], [
+        ["Period from", fromDate],
+        ["Period to", toDate],
+        ["Filters", filterSummary],
+        ["Total leads", totalLeads],
+        ["Counselling completed", counsellingCompleted],
+        ["Registrations", registrations],
+        ["Conversion rate %", percentValue(registrations, totalLeads)],
+      ]),
+      excelSheet(
+        "Funnel",
+        ["Stage", "Leads", "% of total", "From previous %"],
+        funnelRows.map((row, index) => {
+          const prev = index === 0 ? row.count : funnelRows[index - 1].count;
+          return [
+            row.name,
+            row.count,
+            percentValue(row.count, totalLeads),
+            index === 0 ? "" : percentValue(row.count, prev),
+          ];
+        }),
+      ),
+      excelSheet(
+        "Status",
+        ["Status", "Leads"],
+        statusData.map((row) => [row.status, row.count]),
+      ),
+      excelSheet(
+        "Source",
+        ["Source", "Leads created", "Registrations", "Conversion %"],
+        sourcePerformanceData.map((row) => [
+          row.source,
+          row.created,
+          row.registered,
+          percentValue(row.registered, row.created),
+        ]),
+      ),
+      excelSheet("Counsellor by Source", sourceHeaders, sourceRows),
+      excelSheet(
+        "Trend",
+        [
+          trendGranularity === "daily"
+            ? "Day"
+            : trendGranularity === "weekly"
+              ? "Week"
+              : "Month",
+          "New leads",
+        ],
+        trendData.map((row) => [row.label, row.count]),
+      ),
+      excelSheet(
+        "Leads",
+        [
+          "Name",
+          "Phone",
+          "Email",
+          "Status",
+          "Source",
+          "College",
+          "Course",
+          "Counsellor",
+          "Created at",
+          "Counselling completed at",
+          "Registration completed at",
+        ],
+        leads.map((lead) => [
+          lead.full_name,
+          lead.phone,
+          lead.email ?? "",
+          LEAD_STATUS_LABELS[lead.status] ?? lead.status,
+          LEAD_SOURCE_LABELS[lead.source] ?? lead.source,
+          lead.college?.name ?? "",
+          lead.interested_course ?? "",
+          counsellorNameFromLead(lead),
+          formatSgtDateTimeExport(lead.created_at),
+          lead.counselling_completed_at
+            ? formatSgtDateTimeExport(lead.counselling_completed_at)
+            : "",
+          lead.registration_completed_at
+            ? formatSgtDateTimeExport(lead.registration_completed_at)
+            : "",
+        ]),
+        { minWidth: 16 },
+      ),
+    ],
+  );
+}
+
 /** Cumulative pipeline stages: each stage counts leads that reached at least that point. */
 const FUNNEL_STAGES: FunnelStage[] = [
   {
@@ -174,6 +472,11 @@ const FUNNEL_COLORS = [
 function percent(part: number, whole: number) {
   if (whole === 0) return "0%";
   return `${((part / whole) * 100).toFixed(1)}%`;
+}
+
+function percentValue(part: number, whole: number) {
+  if (whole === 0) return 0;
+  return Number(((part / whole) * 100).toFixed(1));
 }
 
 function chartCountLabel(value: unknown) {
@@ -289,23 +592,27 @@ export function LeadFunnelReportsClient({
   const now = React.useMemo(() => new Date(), []);
   const [fromDate, setFromDate] = React.useState(format(subDays(now, 29), "yyyy-MM-dd"));
   const [toDate, setToDate] = React.useState(format(now, "yyyy-MM-dd"));
-  const [collegeId, setCollegeId] = React.useState("all");
-  const [source, setSource] = React.useState<LeadSource | "all">("all");
-  // Default to the logged-in user's own pipeline. Admins can switch via the
+  const [collegeIds, setCollegeIds] = React.useState<string[]>([]);
+  const [sources, setSources] = React.useState<LeadSource[]>([]);
+  // Default to the logged-in user's own pipeline. Admins can add more via the
   // Counsellor filter; non-admins stay scoped to themselves.
-  const [counsellorId, setCounsellorId] = React.useState(currentUserId);
+  const [counsellorIds, setCounsellorIds] = React.useState<string[]>([currentUserId]);
   const [appliedFilters, setAppliedFilters] = React.useState(() => ({
     fromDate: format(subDays(now, 29), "yyyy-MM-dd"),
     toDate: format(now, "yyyy-MM-dd"),
-    collegeId: "all",
-    source: "all" as LeadSource | "all",
-    counsellorId: currentUserId,
+    collegeIds: [] as string[],
+    sources: [] as LeadSource[],
+    counsellorIds: [currentUserId],
   }));
 
   const leadsQuery = useLeads({
-    collegeId: appliedFilters.collegeId,
-    source: appliedFilters.source,
-    counsellorId: isAdmin ? appliedFilters.counsellorId : currentUserId,
+    collegeIds: appliedFilters.collegeIds.length > 0 ? appliedFilters.collegeIds : undefined,
+    sources: appliedFilters.sources.length > 0 ? appliedFilters.sources : undefined,
+    counsellorIds: isAdmin
+      ? appliedFilters.counsellorIds.length > 0
+        ? appliedFilters.counsellorIds
+        : undefined
+      : [currentUserId],
   });
   const collegesQuery = useColleges();
   const profilesQuery = useProfiles();
@@ -367,6 +674,47 @@ export function LeadFunnelReportsClient({
     [leads],
   );
 
+  const counsellorBySourceMatrix = React.useMemo(
+    () => buildCounsellorBySourceMatrix(leads),
+    [leads],
+  );
+
+  const counsellorBySourceChart = React.useMemo(() => {
+    const chartCounsellors = counsellorBySourceMatrix.counsellors.slice(
+      0,
+      COUNSELLOR_SOURCE_CHART_LIMIT,
+    );
+    const config: ChartConfig = Object.fromEntries(
+      counsellorBySourceMatrix.sources.map((source, index) => [
+        source.id,
+        {
+          label: source.name,
+          color: SOURCE_STACK_COLORS[index % SOURCE_STACK_COLORS.length],
+        },
+      ]),
+    );
+    const data = chartCounsellors.map((counsellor) => {
+      const row: Record<string, string | number> = {
+        counsellor: truncateChartLabel(counsellor.name, 18),
+        counsellorFull: counsellor.name,
+        total: counsellorBySourceMatrix.rowTotals.get(counsellor.id) ?? 0,
+      };
+      for (const source of counsellorBySourceMatrix.sources) {
+        row[source.id] =
+          counsellorBySourceMatrix.cells.get(
+            counsellorSourceCellKey(counsellor.id, source.id),
+          ) ?? 0;
+      }
+      return row;
+    });
+    return {
+      config,
+      data,
+      truncated:
+        counsellorBySourceMatrix.counsellors.length > COUNSELLOR_SOURCE_CHART_LIMIT,
+    };
+  }, [counsellorBySourceMatrix]);
+
   const defaultGranularity = React.useMemo(
     () =>
       defaultTrendGranularity(
@@ -407,27 +755,34 @@ export function LeadFunnelReportsClient({
   );
 
   const filterSummary = React.useMemo(() => {
-    const collegeName =
-      appliedFilters.collegeId === "all"
-        ? null
-        : (collegesQuery.data?.find((c) => c.id === appliedFilters.collegeId)?.name ??
-          appliedFilters.collegeId);
-    const sourceLabel =
-      appliedFilters.source === "all"
-        ? null
-        : LEAD_SOURCE_LABELS[appliedFilters.source];
-    const counsellor =
-      isAdmin && appliedFilters.counsellorId !== "all"
-        ? counsellorOptions.find((p) => p.id === appliedFilters.counsellorId)
-        : !isAdmin
-          ? counsellorOptions.find((p) => p.id === currentUserId)
-          : null;
+    const collegeLabels =
+      appliedFilters.collegeIds.length > 0
+        ? appliedFilters.collegeIds.map(
+            (id) => collegesQuery.data?.find((c) => c.id === id)?.name ?? id,
+          )
+        : [];
+    const sourceLabels =
+      appliedFilters.sources.length > 0
+        ? appliedFilters.sources.map((src) => LEAD_SOURCE_LABELS[src])
+        : [];
+    const selectedCounsellorIds = isAdmin
+      ? appliedFilters.counsellorIds
+      : [currentUserId];
+    const counsellorLabels =
+      selectedCounsellorIds.length > 0
+        ? selectedCounsellorIds.map((id) => {
+            const profile = counsellorOptions.find((p) => p.id === id);
+            return profile?.full_name || profile?.email || id;
+          })
+        : [];
 
     return joinFilterParts([
       `Period: ${appliedFilters.fromDate} to ${appliedFilters.toDate}`,
-      collegeName ? `College: ${collegeName}` : null,
-      sourceLabel ? `Source: ${sourceLabel}` : null,
-      counsellor ? `Counsellor: ${counsellor.full_name || counsellor.email}` : null,
+      collegeLabels.length > 0 ? `Colleges: ${collegeLabels.join(", ")}` : null,
+      sourceLabels.length > 0 ? `Sources: ${sourceLabels.join(", ")}` : null,
+      counsellorLabels.length > 0
+        ? `Counsellors: ${counsellorLabels.join(", ")}`
+        : null,
     ]);
   }, [
     appliedFilters,
@@ -436,6 +791,23 @@ export function LeadFunnelReportsClient({
     currentUserId,
     isAdmin,
   ]);
+
+  const handleExportExcel = () =>
+    exportLeadFunnelExcel({
+      fromDate: appliedFilters.fromDate,
+      toDate: appliedFilters.toDate,
+      filterSummary,
+      totalLeads,
+      counsellingCompleted,
+      registrations,
+      funnelRows,
+      statusData,
+      sourcePerformanceData,
+      counsellorBySourceMatrix,
+      trendGranularity,
+      trendData,
+      leads,
+    });
 
   if (leadsQuery.isLoading) {
     return (
@@ -452,6 +824,7 @@ export function LeadFunnelReportsClient({
       title="Lead Funnel Report"
       documentTitle={`Lead Funnel Report ${appliedFilters.fromDate} to ${appliedFilters.toDate}`}
       filterSummary={filterSummary}
+      onExportExcel={handleExportExcel}
     >
       <Card className="no-print">
         <CardHeader>
@@ -472,52 +845,49 @@ export function LeadFunnelReportsClient({
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">College</label>
-            <Select value={collegeId} onValueChange={setCollegeId}>
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All colleges</SelectItem>
-                {(collegesQuery.data ?? []).map((college) => (
-                  <SelectItem key={college.id} value={college.id}>
-                    {college.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MultiSelectFilter
+              options={(collegesQuery.data ?? []).map((college) => ({
+                value: college.id,
+                label: college.name,
+              }))}
+              selected={collegeIds}
+              onChange={setCollegeIds}
+              placeholder="All colleges"
+              allLabel="All colleges"
+              searchPlaceholder="Search colleges…"
+              emptyMessage="No colleges found."
+            />
           </div>
           <div className="grid w-full gap-1 sm:w-auto">
             <label className="text-xs text-muted-foreground">Source</label>
-            <Select value={source} onValueChange={(v) => setSource(v as LeadSource | "all")}>
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All sources</SelectItem>
-                {(Object.keys(LEAD_SOURCE_LABELS) as LeadSource[]).map((src) => (
-                  <SelectItem key={src} value={src}>
-                    {LEAD_SOURCE_LABELS[src]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MultiSelectFilter
+              options={(Object.keys(LEAD_SOURCE_LABELS) as LeadSource[]).map((src) => ({
+                value: src,
+                label: LEAD_SOURCE_LABELS[src],
+              }))}
+              selected={sources}
+              onChange={(values) => setSources(values as LeadSource[])}
+              placeholder="All sources"
+              allLabel="All sources"
+              searchPlaceholder="Search sources…"
+              emptyMessage="No sources found."
+            />
           </div>
           {isAdmin ? (
             <div className="grid w-full gap-1 sm:w-auto">
               <label className="text-xs text-muted-foreground">Counsellor</label>
-              <Select value={counsellorId} onValueChange={setCounsellorId}>
-                <SelectTrigger className="w-full sm:w-[220px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All counsellors</SelectItem>
-                  {counsellorOptions.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.full_name || p.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                options={counsellorOptions.map((p) => ({
+                  value: p.id,
+                  label: p.full_name || p.email,
+                }))}
+                selected={counsellorIds}
+                onChange={setCounsellorIds}
+                placeholder="All counsellors"
+                allLabel="All counsellors"
+                searchPlaceholder="Search counsellors…"
+                emptyMessage="No counsellors found."
+              />
             </div>
           ) : null}
           <Button
@@ -526,9 +896,9 @@ export function LeadFunnelReportsClient({
               setAppliedFilters({
                 fromDate,
                 toDate,
-                collegeId,
-                source,
-                counsellorId: isAdmin ? counsellorId : currentUserId,
+                collegeIds,
+                sources,
+                counsellorIds: isAdmin ? counsellorIds : [currentUserId],
               })
             }
           >
@@ -540,9 +910,9 @@ export function LeadFunnelReportsClient({
             onClick={() => {
               setFromDate(format(subDays(now, 29), "yyyy-MM-dd"));
               setToDate(format(now, "yyyy-MM-dd"));
-              setCollegeId("all");
-              setSource("all");
-              setCounsellorId(currentUserId);
+              setCollegeIds([]);
+              setSources([]);
+              setCounsellorIds([currentUserId]);
             }}
           >
             Reset filters
@@ -777,6 +1147,81 @@ export function LeadFunnelReportsClient({
                 </Bar>
               </ComposedChart>
             </ChartContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Counsellor by Source</CardTitle>
+          <CardDescription>
+            Lead counts for each counsellor by inquiry source in the selected period.
+            {counsellorBySourceChart.truncated
+              ? ` Chart shows the top ${COUNSELLOR_SOURCE_CHART_LIMIT} counsellors; the table includes everyone.`
+              : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {counsellorBySourceMatrix.grandTotal === 0 ? (
+            <EmptyChart label="No leads in selected period" />
+          ) : (
+            <>
+              <ChartContainer
+                config={counsellorBySourceChart.config}
+                className="aspect-auto w-full"
+                style={{
+                  height: Math.max(280, counsellorBySourceChart.data.length * 44 + 48),
+                }}
+              >
+                <BarChart
+                  data={counsellorBySourceChart.data}
+                  layout="vertical"
+                  margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
+                >
+                  <CartesianGrid horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} />
+                  <YAxis
+                    type="category"
+                    dataKey="counsellor"
+                    width={120}
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={11}
+                  />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        labelFormatter={(value, payload) => {
+                          const first = payload?.[0] as
+                            | { payload?: { counsellorFull?: string } }
+                            | undefined;
+                          return first?.payload?.counsellorFull ?? String(value ?? "");
+                        }}
+                      />
+                    }
+                  />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  {counsellorBySourceMatrix.sources.map((source, index) => (
+                    <Bar
+                      key={source.id}
+                      dataKey={source.id}
+                      stackId="leads"
+                      fill={`var(--color-${source.id})`}
+                      radius={
+                        index === counsellorBySourceMatrix.sources.length - 1
+                          ? [0, 4, 4, 0]
+                          : [0, 0, 0, 0]
+                      }
+                      maxBarSize={28}
+                    />
+                  ))}
+                </BarChart>
+              </ChartContainer>
+              <CounsellorBySourceTable
+                matrix={counsellorBySourceMatrix}
+                emptyMessage="No leads in selected period"
+              />
+            </>
           )}
         </CardContent>
       </Card>
