@@ -54,9 +54,42 @@ export async function PATCH(
 
   const { data: before } = await supabase
     .from("conversations")
-    .select("lead_id, status, assigned_user_id, channel")
+    .select("lead_id, status, assigned_user_id, channel, mode, phone, unread_count")
     .eq("id", id)
     .single();
+
+  if (!before) {
+    return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+  }
+
+  if (updates.mode !== undefined && before.mode === updates.mode) {
+    delete updates.mode;
+  }
+  if (updates.lead_id !== undefined && before.lead_id === updates.lead_id) {
+    delete updates.lead_id;
+  }
+  if (updates.status !== undefined && before.status === updates.status) {
+    delete updates.status;
+  }
+  if (
+    updates.assigned_user_id !== undefined &&
+    before.assigned_user_id === updates.assigned_user_id
+  ) {
+    delete updates.assigned_user_id;
+  }
+  if (updates.phone !== undefined && (before.phone ?? null) === (updates.phone ?? null)) {
+    delete updates.phone;
+  }
+  if (
+    updates.unread_count !== undefined &&
+    before.unread_count === updates.unread_count
+  ) {
+    delete updates.unread_count;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
 
   if (before?.channel === "website" && updates.status === "resolved") {
     updates.lifecycle_status = "closed";

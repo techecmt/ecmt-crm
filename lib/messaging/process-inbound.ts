@@ -4,7 +4,9 @@ import { getAIResponse, type AIResult, type ChatMessage } from "@/lib/ai";
 import { canonicalizePhoneKey } from "@/lib/phone";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isTerminalLeadStatus, type LeadStatus } from "@/lib/types";
+import { getAgentAvailability } from "./ai-availability";
 import { fetchMessengerProfileName } from "./messenger";
+import { clearOptOut, detectOptOutIntent, recordOptOut } from "./opt-out";
 import { sendMessage } from "./send";
 import type { ParsedInboundMessage } from "./types";
 
@@ -180,9 +182,77 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     .update({ updated_at: new Date().toISOString() })
     .eq("id", conversation.id);
 
+  // Opt-out keywords take priority over everything else on the channel.
+  const optOutIntent =
+    parsed.channel === "whatsapp" ? detectOptOutIntent(parsed.text) : null;
+  if (optOutIntent === "opt_out") {
+    await recordOptOut(supabase, {
+      phone: parsed.externalUserId,
+      leadId: conversation.lead_id ?? null,
+      source: "stop_keyword",
+    });
+    await supabase
+      .from("conversations")
+      .update({ mode: "human", updated_at: new Date().toISOString() })
+      .eq("id", conversation.id);
+    console.log("[Webhook] Opt-out recorded for", parsed.externalUserId);
+    return;
+  }
+  if (optOutIntent === "opt_in") {
+    await clearOptOut(supabase, parsed.externalUserId);
+  }
+
   if (conversation.mode === "human") {
     console.log(
       "[Webhook] Human mode — skipping AI reply for",
+      parsed.externalUserId,
+    );
+    return;
+  }
+
+  // The AI answers only while its agent is switched on and inside its hours.
+  const availability = await getAgentAvailability(
+    supabase,
+    conversation.ai_agent_id ?? inboundAgentId,
+  );
+  if (!availability.available) {
+    await supabase
+      .from("conversations")
+      .update({ mode: "human", updated_at: new Date().toISOString() })
+      .eq("id", conversation.id);
+
+    if (availability.offlineMessage) {
+      const { data: lastAssistant } = await supabase
+        .from("messages")
+        .select("content")
+        .eq("conversation_id", conversation.id)
+        .eq("role", "assistant")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // Send the away notice once per quiet period, not on every message.
+      if (lastAssistant?.content !== availability.offlineMessage) {
+        await sendMessage(
+          {
+            channel: conversation.channel,
+            provider: conversation.provider,
+            external_user_id: conversation.external_user_id,
+            page_id: conversation.page_id,
+            twilio_connection_id: conversation.twilio_connection_id ?? null,
+          },
+          availability.offlineMessage,
+        );
+        await supabase.from("messages").insert({
+          conversation_id: conversation.id,
+          role: "assistant",
+          content: availability.offlineMessage,
+        });
+      }
+    }
+
+    console.log(
+      `[Webhook] AI unavailable (${availability.reason}) — handed to human for`,
       parsed.externalUserId,
     );
     return;

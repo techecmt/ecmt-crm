@@ -7,6 +7,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
+const READ_STATE_MUTATION_COOLDOWN_MS = 15_000;
+const lastReadStateMutationAt = new Map<string, number>();
+
 export interface Conversation {
   id: string;
   channel: "whatsapp" | "messenger" | "website";
@@ -348,12 +351,33 @@ export function useSetConversationReadState() {
       conversationId: string;
       state: "read" | "unread";
     }) => {
+      if (state === "read") {
+        const cachedConversationLists = queryClient.getQueriesData<Conversation[]>({
+          queryKey: ["conversations"],
+        });
+        const cachedConversation = cachedConversationLists
+          .flatMap(([, list]) => list ?? [])
+          .find((conversation) => conversation.id === conversationId);
+        if (cachedConversation && (cachedConversation.unread_count ?? 0) <= 0) {
+          return { ok: true, skipped: true };
+        }
+      }
+
+      const mutationKey = `${conversationId}:${state}`;
+      const now = Date.now();
+      const lastRunAt = lastReadStateMutationAt.get(mutationKey) ?? 0;
+      if (now - lastRunAt < READ_STATE_MUTATION_COOLDOWN_MS) {
+        return { ok: true, skipped: true };
+      }
+      lastReadStateMutationAt.set(mutationKey, now);
+
       const res = await fetch(`/api/conversations/${conversationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ read_state: state }),
       });
       if (!res.ok) {
+        lastReadStateMutationAt.delete(mutationKey);
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error || "Failed to update read state");
       }

@@ -3,6 +3,7 @@ import "server-only";
 import { createHash, randomBytes } from "crypto";
 
 import { getAIResponse, type ChatMessage } from "@/lib/ai";
+import { getAgentAvailability } from "@/lib/messaging/ai-availability";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const TOKEN_BYTES = 32;
@@ -338,6 +339,27 @@ export async function submitWebsiteMessage(
       reply: null,
       visitorData,
       lifecycleStatus: conversation.lifecycle_status || "human_handled",
+    };
+  }
+
+  // The same master switch and weekly schedule that gate WhatsApp gate the widget.
+  const availability = await getAgentAvailability(supabase, conversation.ai_agent_id);
+  if (!availability.available) {
+    if (availability.offlineMessage) {
+      await supabase.from("messages").insert({
+        conversation_id: conversation.id,
+        role: "assistant",
+        content: availability.offlineMessage,
+      });
+    }
+    await supabase
+      .from("conversations")
+      .update({ ...commonUpdates, lifecycle_status: "human_handled" })
+      .eq("id", conversation.id);
+    return {
+      reply: availability.offlineMessage,
+      visitorData,
+      lifecycleStatus: "human_handled",
     };
   }
 

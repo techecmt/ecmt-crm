@@ -204,6 +204,9 @@ export interface Lead {
   utm_medium: string | null;
   utm_campaign: string | null;
   is_duplicate: boolean;
+  do_not_contact: boolean;
+  do_not_contact_at: string | null;
+  do_not_contact_reason: string | null;
   counselling_checks: CounsellingChecks;
   counselling_completed_at: string | null;
   registration_completed_at: string | null;

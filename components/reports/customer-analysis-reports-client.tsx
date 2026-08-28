@@ -88,10 +88,6 @@ import {
   type NotInterestedReason,
 } from "@/lib/types";
 
-const REASON_CONFIG: ChartConfig = {
-  count: { label: "Leads", color: "hsl(var(--chart-1))" },
-};
-
 const COURSE_TREEMAP_CONFIG: ChartConfig = {
   size: { label: "Lost leads", color: "hsl(var(--chart-1))" },
 };
@@ -491,7 +487,10 @@ export function CustomerAnalysisReportsClient() {
     likelyQuestionsOnly: appliedFilters.likelyQuestionsOnly,
   });
 
-  const notInterestedLeads = report.data?.notInterestedLeads ?? [];
+  const notInterestedLeads = React.useMemo(
+    () => report.data?.notInterestedLeads ?? [],
+    [report.data?.notInterestedLeads],
+  );
   const notInterestedTotalPages = React.useMemo(
     () => Math.max(1, Math.ceil(notInterestedLeads.length / notInterestedPageSize)),
     [notInterestedLeads.length, notInterestedPageSize],
@@ -511,8 +510,14 @@ export function CustomerAnalysisReportsClient() {
     }
   }, [notInterestedPage, notInterestedTotalPages]);
 
-  const messages = report.data?.messages ?? [];
-  const collegeOptions = report.data?.colleges ?? [];
+  const messages = React.useMemo(
+    () => report.data?.messages ?? [],
+    [report.data?.messages],
+  );
+  const collegeOptions = React.useMemo(
+    () => report.data?.colleges ?? [],
+    [report.data?.colleges],
+  );
   const counsellorOptions = (report.data?.profiles ?? []).filter((profile) =>
     ["counsellor", "admission_manager", "management", "super_admin"].includes(profile.role),
   );

@@ -91,6 +91,7 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/webhook") ||
     pathname.startsWith("/api/public/widget") ||
     pathname.startsWith("/api/public/callback-requests") ||
+    (pathname.startsWith("/api/messaging/campaigns/") && pathname.endsWith("/run")) ||
     pathname === "/widget" ||
     pathname === "/widget.js"
   ) {

@@ -20,10 +20,33 @@ export type TwilioWhatsAppTemplate = {
   variables: string[];
 };
 
+export type TwilioTemplateApprovalStatus =
+  | "approved"
+  | "pending"
+  | "rejected"
+  | "received"
+  | "unsubmitted"
+  | "unknown";
+
+export type TwilioContentTemplate = TwilioWhatsAppTemplate & {
+  approvalStatus: TwilioTemplateApprovalStatus;
+  approvalName: string | null;
+  category: string | null;
+  rejectionReason: string | null;
+  contentType: string | null;
+  dateCreated: string | null;
+};
+
+/** WhatsApp categories Twilio accepts on an approval request. */
+export const TWILIO_TEMPLATE_CATEGORIES = ["UTILITY", "MARKETING", "AUTHENTICATION"] as const;
+
+export type TwilioTemplateCategory = (typeof TWILIO_TEMPLATE_CATEGORIES)[number];
+
 type TwilioContentRecord = {
   sid?: string;
   friendly_name?: string;
   language?: string;
+  date_created?: string;
   variables?: Record<string, string> | null;
   types?: Record<string, { body?: string }>;
   approvals?: Record<string, unknown>;
@@ -233,14 +256,44 @@ export async function sendTwilioWhatsAppMessage(
   return response.json();
 }
 
-function approvalStatus(value: unknown): string | null {
-  if (typeof value === "string") return value.toLowerCase();
-  if (Array.isArray(value)) {
-    return value.map(approvalStatus).find(Boolean) ?? null;
-  }
-  if (value && typeof value === "object") {
-    const record = value as { status?: unknown };
-    if (typeof record.status === "string") return record.status.toLowerCase();
+const CONTENT_API_BASE = "https://content.twilio.com/v1";
+
+type TwilioApprovalRecord = {
+  status?: unknown;
+  name?: unknown;
+  category?: unknown;
+  content_type?: unknown;
+  rejection_reason?: unknown;
+};
+
+function normalizeApprovalStatus(value: unknown): TwilioTemplateApprovalStatus {
+  const status = typeof value === "string" ? value.toLowerCase() : "";
+  if (status === "approved") return "approved";
+  if (status === "rejected") return "rejected";
+  if (status === "pending") return "pending";
+  if (status === "received") return "received";
+  if (status === "unsubmitted") return "unsubmitted";
+  return "unknown";
+}
+
+/**
+ * Twilio reports WhatsApp approval in two shapes: `ContentAndApprovals` returns
+ * the fields flat under `approval_requests`, while `/ApprovalRequests` nests
+ * them under a `whatsapp` key. Read whichever one we were handed.
+ */
+function extractWhatsAppApproval(content: TwilioContentRecord): TwilioApprovalRecord | null {
+  const candidates: unknown[] = [
+    (content.approval_requests as Record<string, unknown> | undefined)?.whatsapp,
+    (content.approvals as Record<string, unknown> | undefined)?.whatsapp,
+    content.approval_requests,
+    content.approvals,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      const record = candidate as TwilioApprovalRecord;
+      if (record.status !== undefined) return record;
+    }
   }
   return null;
 }
@@ -250,53 +303,179 @@ function extractTemplateBody(types: TwilioContentRecord["types"]) {
   return Object.values(types).find((content) => content?.body)?.body || null;
 }
 
+function toContentTemplate(content: TwilioContentRecord): TwilioContentTemplate | null {
+  if (!content.sid) return null;
+
+  const approval = extractWhatsAppApproval(content);
+  const body = extractTemplateBody(content.types);
+  const declaredVariables = Object.keys(content.variables ?? {});
+  const inferredVariables =
+    declaredVariables.length > 0
+      ? declaredVariables
+      : [...(body?.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g) ?? [])].map((match) =>
+          match[1].trim(),
+        );
+
+  return {
+    sid: content.sid,
+    friendlyName: content.friendly_name || content.sid,
+    language: content.language || "en",
+    body,
+    variables: [...new Set(inferredVariables)],
+    approvalStatus: approval ? normalizeApprovalStatus(approval.status) : "unsubmitted",
+    approvalName: typeof approval?.name === "string" ? approval.name : null,
+    category: typeof approval?.category === "string" ? approval.category : null,
+    rejectionReason:
+      typeof approval?.rejection_reason === "string" && approval.rejection_reason
+        ? approval.rejection_reason
+        : null,
+    contentType:
+      typeof approval?.content_type === "string"
+        ? approval.content_type
+        : Object.keys(content.types ?? {})[0] || null,
+    dateCreated: content.date_created ?? null,
+  };
+}
+
+async function twilioContentRequest(
+  credentials: ReturnType<typeof getTwilioCredentials>,
+  path: string,
+  init?: { method?: string; body?: unknown },
+) {
+  const url = path.startsWith("http") ? path : `${CONTENT_API_BASE}${path}`;
+  const response = await fetch(url, {
+    method: init?.method ?? "GET",
+    headers: {
+      Authorization: twilioAuthorization(credentials.accountSid, credentials.authToken),
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(init?.body ? { body: JSON.stringify(init.body) } : {}),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(await readTwilioError(response));
+  }
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+/** Every Content template on the account, with its WhatsApp approval state. */
+export async function listTwilioContentTemplates(
+  override?: TwilioConnectionCredentials,
+  options?: { maxPages?: number },
+): Promise<TwilioContentTemplate[]> {
+  const credentials = getTwilioCredentials(override);
+  const maxPages = options?.maxPages ?? 10;
+
+  const templates: TwilioContentTemplate[] = [];
+  let path: string | null = "/ContentAndApprovals?PageSize=100";
+
+  for (let page = 0; page < maxPages && path; page += 1) {
+    const payload = (await twilioContentRequest(credentials, path)) as {
+      contents?: TwilioContentRecord[];
+      meta?: { next_page_url?: string | null };
+    } | null;
+
+    for (const content of payload?.contents ?? []) {
+      const template = toContentTemplate(content);
+      if (template) templates.push(template);
+    }
+    path = payload?.meta?.next_page_url ?? null;
+  }
+
+  return templates;
+}
+
 export async function listApprovedTwilioWhatsAppTemplates(
+  override?: TwilioConnectionCredentials,
+): Promise<TwilioWhatsAppTemplate[]> {
+  const templates = await listTwilioContentTemplates(override);
+  return templates
+    .filter((template) => template.approvalStatus === "approved")
+    .map(({ sid, friendlyName, language, body, variables }) => ({
+      sid,
+      friendlyName,
+      language,
+      body,
+      variables,
+    }));
+}
+
+export async function fetchTwilioContentTemplate(
+  contentSid: string,
   override?: TwilioConnectionCredentials,
 ) {
   const credentials = getTwilioCredentials(override);
-  const response = await fetch(
-    "https://content.twilio.com/v1/ContentAndApprovals?PageSize=100",
+  const [content, approvals] = await Promise.all([
+    twilioContentRequest(credentials, `/Content/${contentSid}`) as Promise<TwilioContentRecord>,
+    twilioContentRequest(credentials, `/Content/${contentSid}/ApprovalRequests`).catch(
+      () => null,
+    ) as Promise<Record<string, unknown> | null>,
+  ]);
+
+  return toContentTemplate({ ...content, approvals: approvals ?? undefined });
+}
+
+/** WhatsApp template names must be lowercase alphanumeric with underscores. */
+export function toWhatsAppTemplateName(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 512);
+}
+
+/**
+ * Creates a Content template. Twilio Content resources are immutable: editing a
+ * template means creating a new one and resubmitting it for approval.
+ */
+export async function createTwilioContentTemplate(input: {
+  friendlyName: string;
+  language: string;
+  body: string;
+  variableSamples?: Record<string, string>;
+  credentials?: TwilioConnectionCredentials;
+}) {
+  const credentials = getTwilioCredentials(input.credentials);
+  const payload = (await twilioContentRequest(credentials, "/Content", {
+    method: "POST",
+    body: {
+      friendly_name: input.friendlyName,
+      language: input.language,
+      variables: input.variableSamples ?? {},
+      types: { "twilio/text": { body: input.body } },
+    },
+  })) as TwilioContentRecord;
+
+  return toContentTemplate(payload);
+}
+
+/** Submits an existing Content template to WhatsApp for approval. */
+export async function submitTwilioTemplateForApproval(input: {
+  contentSid: string;
+  name: string;
+  category: TwilioTemplateCategory;
+  credentials?: TwilioConnectionCredentials;
+}) {
+  const credentials = getTwilioCredentials(input.credentials);
+  return twilioContentRequest(
+    credentials,
+    `/Content/${input.contentSid}/ApprovalRequests/whatsapp`,
     {
-      headers: {
-        Authorization: twilioAuthorization(credentials.accountSid, credentials.authToken),
-      },
-      cache: "no-store",
+      method: "POST",
+      body: { name: input.name, category: input.category },
     },
   );
+}
 
-  if (!response.ok) {
-    const error = await readTwilioError(response);
-    console.error("[Twilio] Template list failed:", error);
-    throw new Error(error);
-  }
-
-  const payload = (await response.json()) as { contents?: TwilioContentRecord[] };
-  return (payload.contents ?? []).flatMap((content): TwilioWhatsAppTemplate[] => {
-    const whatsappApproval =
-      content.approvals?.whatsapp ?? content.approval_requests?.whatsapp;
-    if (approvalStatus(whatsappApproval) !== "approved" || !content.sid) {
-      return [];
-    }
-
-    const body = extractTemplateBody(content.types);
-    const variables = Object.keys(content.variables ?? {});
-    const inferredVariables =
-      variables.length > 0
-        ? variables
-        : [...(body?.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g) ?? [])].map(
-            (match) => match[1].trim(),
-          );
-
-    return [
-      {
-        sid: content.sid,
-        friendlyName: content.friendly_name || content.sid,
-        language: content.language || "en",
-        body,
-        variables: [...new Set(inferredVariables)],
-      },
-    ];
-  });
+export async function deleteTwilioContentTemplate(
+  contentSid: string,
+  override?: TwilioConnectionCredentials,
+) {
+  const credentials = getTwilioCredentials(override);
+  await twilioContentRequest(credentials, `/Content/${contentSid}`, { method: "DELETE" });
 }
 
 export async function sendTwilioWhatsAppTemplate(input: {

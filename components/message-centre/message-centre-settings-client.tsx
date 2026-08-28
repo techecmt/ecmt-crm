@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   Bot,
   Brain,
+  FileText,
   Globe,
   MessageSquare,
   Phone,
@@ -38,6 +39,13 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AiHoursEditor } from "@/components/message-centre/ai-hours-editor";
+import { WhatsAppTemplatesManager } from "@/components/message-centre/whatsapp-templates-manager";
+import {
+  DEFAULT_AI_HOURS_SCHEDULE,
+  hasAnyAiHours,
+  normalizeAiHoursSchedule,
+} from "@/lib/ai-hours";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -224,7 +232,7 @@ export function MessageCentreSettingsClient() {
 
       {selectedAgent ? (
         <Tabs defaultValue="agent" className="space-y-6">
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="agent" className="gap-1.5 px-1 sm:gap-2 sm:px-3">
           <Bot className="h-4 w-4 shrink-0" />
           <span className="truncate">
@@ -246,6 +254,10 @@ export function MessageCentreSettingsClient() {
             <span className="hidden sm:inline">Connections</span>
           </span>
         </TabsTrigger>
+        <TabsTrigger value="templates" className="gap-1.5 px-1 sm:gap-2 sm:px-3">
+          <FileText className="h-4 w-4 shrink-0" />
+          <span className="truncate">Templates</span>
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="agent">
@@ -256,6 +268,9 @@ export function MessageCentreSettingsClient() {
       </TabsContent>
       <TabsContent value="connections">
         <ConnectionsTab agentId={selectedAgent.id} />
+      </TabsContent>
+      <TabsContent value="templates">
+        <WhatsAppTemplatesManager agentId={selectedAgent.id} />
       </TabsContent>
         </Tabs>
       ) : (
@@ -297,6 +312,7 @@ function AgentSettingsTab({ agentId }: { agentId: string }) {
       auto_collect_lead: settings.auto_collect_lead ?? false,
       lead_collect_fields: settings.lead_collect_fields ?? ["name", "phone", "email", "course"],
       business_hours_enabled: settings.business_hours_enabled ?? false,
+      business_hours: normalizeAiHoursSchedule(settings.business_hours),
       offline_message: settings.offline_message ?? "",
       is_active: settings.is_active ?? true,
       is_default: settings.is_default ?? false,
@@ -452,31 +468,23 @@ function AgentSettingsTab({ agentId }: { agentId: string }) {
             </p>
           </div>
           <Separator />
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Business Hours</Label>
-              <p className="text-xs text-muted-foreground">
-                Show offline message outside business hours.
-              </p>
-            </div>
-            <Switch
-              checked={form.business_hours_enabled ?? false}
-              onCheckedChange={(checked) =>
-                patch({ business_hours_enabled: checked })
-              }
-            />
-          </div>
-          {form.business_hours_enabled ? (
-            <div className="grid gap-2">
-              <Label>Offline Message</Label>
-              <Textarea
-                rows={2}
-                value={form.offline_message ?? ""}
-                onChange={(e) => patch({ offline_message: e.target.value })}
-                placeholder="We're currently offline. Leave us a message and we'll reply during business hours."
-              />
-            </div>
-          ) : null}
+          <AiHoursEditor
+            enabled={form.business_hours_enabled ?? false}
+            schedule={form.business_hours}
+            offlineMessage={form.offline_message ?? ""}
+            onEnabledChange={(checked) =>
+              patch({
+                business_hours_enabled: checked,
+                // Turning hours on with nothing configured would silence the bot.
+                business_hours:
+                  checked && !hasAnyAiHours(normalizeAiHoursSchedule(form.business_hours))
+                    ? DEFAULT_AI_HOURS_SCHEDULE
+                    : form.business_hours,
+              })
+            }
+            onScheduleChange={(schedule) => patch({ business_hours: schedule })}
+            onOfflineMessageChange={(message) => patch({ offline_message: message })}
+          />
         </CardContent>
       </Card>
 

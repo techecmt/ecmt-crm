@@ -111,6 +111,7 @@ export function ConversationDetail({
   const hasInitialScrolled = React.useRef(false);
   const isNearBottom = React.useRef(true);
   const previousScroll = React.useRef<{ top: number; height: number } | null>(null);
+  const lastAutoReadKey = React.useRef<string | null>(null);
 
   const assignees = profiles.filter(
     (p) =>
@@ -165,10 +166,31 @@ export function ConversationDetail({
   }, [messages, messagesLoading]);
 
   React.useEffect(() => {
-    if (conversation.unread_count > 0) {
-      setReadState.mutate({ conversationId: conversation.id, state: "read" });
+    if (conversation.unread_count <= 0) {
+      lastAutoReadKey.current = null;
+      return;
     }
-  }, [conversation.id, conversation.unread_count, setReadState]);
+
+    // Prevent repeated PATCH loops for the same unread snapshot while the
+    // detail pane stays open and idle.
+    const attemptKey = `${conversation.id}:${conversation.unread_count}`;
+    if (lastAutoReadKey.current === attemptKey || setReadState.isPending) return;
+
+    lastAutoReadKey.current = attemptKey;
+    setReadState.mutate(
+      { conversationId: conversation.id, state: "read" },
+      {
+        onError: () => {
+          lastAutoReadKey.current = null;
+        },
+      },
+    );
+  }, [
+    conversation.id,
+    conversation.unread_count,
+    setReadState.isPending,
+    setReadState,
+  ]);
 
   const pageName =
     pages.find((p) => p.page_id === conversation.page_id)?.name || "Unknown page";

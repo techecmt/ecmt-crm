@@ -87,11 +87,11 @@ export function getHomePathForProfile(
   options?: { excludeModule?: AppModule },
 ): string {
   const modules = getUserModules(profile).filter(
-    (module) => module !== options?.excludeModule,
+    (appModule) => appModule !== options?.excludeModule,
   );
 
-  for (const module of modules) {
-    const path = MODULE_HOME_PATHS[module];
+  for (const appModule of modules) {
+    const path = MODULE_HOME_PATHS[appModule];
     // Prefer operational pages over /dashboard to avoid landing loops.
     if (path && path !== "/dashboard") return path;
   }

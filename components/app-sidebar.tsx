@@ -86,6 +86,13 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { href: "/dashboard/message-centre", label: "Inbox", icon: MessageCircle, module: "message_centre" },
       {
+        href: "/dashboard/message-centre/campaigns",
+        label: "Campaigns",
+        icon: Megaphone,
+        adminOnly: true,
+        module: "message_centre",
+      },
+      {
         href: "/dashboard/message-centre/settings",
         label: "Settings",
         icon: Settings2,

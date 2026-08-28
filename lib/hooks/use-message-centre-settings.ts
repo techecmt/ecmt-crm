@@ -2,6 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type { AiHoursSchedule } from "@/lib/ai-hours";
+
 export type AIAgent = {
   id: string;
   name: string;
@@ -19,10 +21,7 @@ export type AIAgent = {
   auto_collect_lead: boolean;
   lead_collect_fields: string[];
   business_hours_enabled: boolean;
-  business_hours: {
-    timezone: string;
-    days: Record<string, { start: string; end: string }>;
-  };
+  business_hours: AiHoursSchedule;
   offline_message: string;
   response_delay_ms: number;
   max_history_messages: number;

@@ -43,7 +43,7 @@
       var parsedSession = JSON.parse(savedSession);
       if (parsedSession.conversationId && parsedSession.token) session = parsedSession;
     }
-  } catch (_) {
+  } catch {
     // Storage can be disabled by the host page's privacy settings.
   }
 
@@ -120,7 +120,7 @@
   function markNudgeSeen() {
     try {
       window.sessionStorage.setItem(nudgeSeenKey, "1");
-    } catch (_) {
+    } catch {
       // sessionStorage may be unavailable.
     }
   }
@@ -183,7 +183,7 @@
     if (!nudgeDelayMs || opened) return;
     try {
       if (window.sessionStorage.getItem(nudgeSeenKey) === "1") return;
-    } catch (_) {
+    } catch {
       // Continue; nudge still works without sessionStorage.
     }
     nudgeTimer = window.setTimeout(showNudge, nudgeDelayMs);
@@ -231,7 +231,7 @@
         session = { conversationId: data.conversationId, token: data.token };
         try {
           window.localStorage.setItem(storageKey, JSON.stringify(session));
-        } catch (_) {
+        } catch {
           // The iframe still receives this session for the current page visit.
         }
         launcher.disabled = false;
