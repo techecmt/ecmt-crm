@@ -142,3 +142,28 @@ export function extensionStatusOptions(): { value: LeadStatus; label: string }[]
     label: LEAD_STATUS_LABELS[status] ?? status,
   }));
 }
+
+/**
+ * Source pre-selected for a lead captured from WhatsApp Web. Counsellors can
+ * pick any other source — a WhatsApp conversation is often just where a
+ * referral or campaign lead first reaches them, so forcing this one would
+ * misattribute the channel in the marketing reports.
+ */
+export const DEFAULT_EXTENSION_SOURCE: LeadSource = "direct_calls_whatsapp";
+
+export function isLeadSource(value: unknown): value is LeadSource {
+  // hasOwnProperty, not `in`: the latter walks the prototype chain, which would
+  // accept "toString" and "__proto__" as lead sources.
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(LEAD_SOURCE_LABELS, value)
+  );
+}
+
+/** Every CRM lead source, in the CRM's own order. */
+export function extensionSourceOptions(): { value: LeadSource; label: string }[] {
+  return (Object.keys(LEAD_SOURCE_LABELS) as LeadSource[]).map((source) => ({
+    value: source,
+    label: LEAD_SOURCE_LABELS[source],
+  }));
+}

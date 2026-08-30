@@ -8,7 +8,9 @@ import {
 import {
   EXTENSION_LEAD_SELECT,
   findLeadsByPhoneKey,
+  DEFAULT_EXTENSION_SOURCE,
   isExtensionCreateStatus,
+  isLeadSource,
   pickPreferredLead,
   toLeadCard,
   type ExtensionLeadRow,
@@ -65,6 +67,7 @@ type CreateLeadBody = {
   full_name?: unknown;
   interested_course?: unknown;
   college_id?: unknown;
+  source?: unknown;
   status?: unknown;
   assigned_counsellor?: unknown;
 };
@@ -129,6 +132,14 @@ export async function POST(request: Request) {
       other_lead_count: Math.max(existing.length - (preferred ? 1 : 0), 0),
     });
   }
+
+  // Any CRM source may be chosen: WhatsApp is frequently just where a referral
+  // or campaign lead first lands, so pinning every capture to one channel would
+  // misattribute it in the marketing reports.
+  if (body.source !== undefined && !isLeadSource(body.source)) {
+    return extensionError(origin, "Unknown lead source", 400, "bad_request");
+  }
+  const source = isLeadSource(body.source) ? body.source : DEFAULT_EXTENSION_SOURCE;
 
   // Status is restricted to what is valid at first contact; anything else has
   // preconditions that only the CRM's guarded status-change flow can satisfy.
@@ -217,7 +228,7 @@ export async function POST(request: Request) {
       phone_key: phoneKey,
       interested_course: interestedCourse,
       college_id: collegeId,
-      source: "direct_calls_whatsapp",
+      source,
       status,
       lead_score: 0,
       assigned_counsellor: assignedCounsellor,

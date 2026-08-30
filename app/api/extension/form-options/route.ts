@@ -6,7 +6,11 @@ import {
   getRequestOrigin,
   handleExtensionPreflight,
 } from "@/lib/extension/api";
-import { extensionStatusOptions } from "@/lib/extension/leads";
+import {
+  DEFAULT_EXTENSION_SOURCE,
+  extensionSourceOptions,
+  extensionStatusOptions,
+} from "@/lib/extension/leads";
 import { createClient } from "@/lib/supabase/server";
 import { isAssignableCounsellor, type UserRole } from "@/lib/types";
 
@@ -81,6 +85,8 @@ export async function GET(request: Request) {
     colleges,
     counsellors,
     statuses: extensionStatusOptions(),
+    sources: extensionSourceOptions(),
+    default_source: DEFAULT_EXTENSION_SOURCE,
     current_user_id: profile.id,
     // A read-only role still gets the form data, but the panel hides the form.
     can_write_leads: canWriteLeads(profile),
