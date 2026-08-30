@@ -18,6 +18,7 @@ export type LeadConversationMessage = {
 export type LeadConversation = {
   id: string;
   channel: "website" | "whatsapp" | "messenger";
+  provider: "meta" | "twilio" | "whatsapp_web";
   external_user_id: string;
   name: string | null;
   created_at: string;

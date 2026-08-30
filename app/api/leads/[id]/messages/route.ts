@@ -19,7 +19,7 @@ export async function GET(
   const supabase = await createClient();
   const { data: conversations, error: conversationsError } = await supabase
     .from("conversations")
-    .select("id, channel, external_user_id, name, created_at, updated_at")
+    .select("id, channel, provider, external_user_id, name, created_at, updated_at")
     .eq("lead_id", leadId)
     .order("created_at", { ascending: true });
 

@@ -87,8 +87,12 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute = pathname.startsWith("/auth");
 
   // Meta webhook delivery and the isolated website widget must be publicly reachable.
+  // The WhatsApp Web extension endpoints are listed here for the opposite
+  // reason: they authenticate the session themselves and must answer with a
+  // JSON 401 and serve CORS preflights, not redirect to the login page.
   if (
     pathname.startsWith("/api/webhook") ||
+    pathname.startsWith("/api/extension") ||
     pathname.startsWith("/api/public/widget") ||
     pathname.startsWith("/api/public/callback-requests") ||
     (pathname.startsWith("/api/messaging/campaigns/") && pathname.endsWith("/run")) ||

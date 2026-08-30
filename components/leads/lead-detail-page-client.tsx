@@ -1000,7 +1000,9 @@ function LeadConversationTranscript({
     conversation.channel === "website"
       ? "Website chat"
       : conversation.channel === "whatsapp"
-        ? "WhatsApp"
+        ? conversation.provider === "whatsapp_web"
+          ? "WhatsApp Web"
+          : "WhatsApp"
         : "Messenger";
 
   return (
