@@ -103,3 +103,42 @@ export async function findLeadsByPhoneKey(
   if (error) throw new Error(error.message);
   return ((data ?? []) as unknown as ExtensionLeadRow[]).map(toLeadCard);
 }
+
+/**
+ * Statuses the extension may set when creating a lead.
+ *
+ * Deliberately narrower than PIPELINE_LEAD_STATUSES. The CRM's own create form
+ * fixes new leads at "Inquiry Received" because later statuses carry
+ * preconditions that live in the guarded status-change flow: "Inactive Courses"
+ * requires notes, the two registration statuses require a completion date and
+ * emit `registration` audit events, and "Counselling Completed" belongs after a
+ * counselling record exists. Offering those here would create leads that skip
+ * validation and silently omit the audit events the registration and user-audit
+ * reports are built on.
+ *
+ * What remains is the set that is genuinely meaningful at first contact.
+ * "Counselling In-Progress" is included but is not a plain column write — see
+ * `applyCounsellingStart` — so it stays consistent with the CRM.
+ */
+export const EXTENSION_CREATE_STATUSES: readonly LeadStatus[] = [
+  "inquiry_received",
+  "counselling_in_progress",
+  "no_response",
+  "not_interested",
+  "invalid",
+];
+
+export function isExtensionCreateStatus(value: unknown): value is LeadStatus {
+  return (
+    typeof value === "string" &&
+    (EXTENSION_CREATE_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+/** Status options for the extension's create form, in pipeline order. */
+export function extensionStatusOptions(): { value: LeadStatus; label: string }[] {
+  return EXTENSION_CREATE_STATUSES.map((status) => ({
+    value: status,
+    label: LEAD_STATUS_LABELS[status] ?? status,
+  }));
+}
