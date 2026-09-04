@@ -3,8 +3,44 @@ import { after } from "next/server";
 
 import { getCurrentProfile } from "@/lib/auth";
 import { resolveBaseUrl, triggerCampaignWorker } from "@/lib/messaging/campaign-worker";
+import { fetchTwilioContentTemplate } from "@/lib/messaging/twilio";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminRole } from "@/lib/types";
+
+/**
+ * WhatsApp refuses templates that are not approved yet, and a campaign would
+ * otherwise mark every recipient failed. Checked here rather than at build time
+ * so a campaign drafted against a pending template can simply be sent later.
+ *
+ * Best effort: if Twilio itself is unreachable we let the send proceed rather
+ * than blocking on our own health check.
+ */
+async function templateApprovalProblem(
+  admin: ReturnType<typeof createAdminClient>,
+  campaign: { content_sid: string; twilio_connection_id: string },
+) {
+  const { data: connection } = await admin
+    .from("twilio_connections")
+    .select("account_sid, auth_token, whatsapp_from, messaging_service_sid")
+    .eq("id", campaign.twilio_connection_id)
+    .maybeSingle();
+  if (!connection) return "The Twilio connection for this campaign no longer exists";
+
+  try {
+    const template = await fetchTwilioContentTemplate(campaign.content_sid, connection);
+    if (!template) return null;
+    if (template.approvalStatus === "approved") return null;
+    if (template.approvalStatus === "rejected") {
+      return `WhatsApp rejected this template${
+        template.rejectionReason ? `: ${template.rejectionReason}` : ""
+      }. Create a new version before sending.`;
+    }
+    return `This template is not approved by WhatsApp yet (${template.approvalStatus}). Sending would fail for every recipient.`;
+  } catch (error) {
+    console.error("[Campaign] Template approval check failed:", error);
+    return null;
+  }
+}
 
 /** Moves a draft (or paused) campaign into the send queue and kicks the worker. */
 export async function POST(
@@ -22,7 +58,7 @@ export async function POST(
 
   const { data: campaign } = await admin
     .from("whatsapp_campaigns")
-    .select("id, status, total_recipients")
+    .select("id, status, total_recipients, content_sid, twilio_connection_id")
     .eq("id", id)
     .single();
   if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
@@ -45,6 +81,11 @@ export async function POST(
       { error: "This campaign has no recipients left to send to" },
       { status: 400 },
     );
+  }
+
+  const approvalProblem = await templateApprovalProblem(admin, campaign);
+  if (approvalProblem) {
+    return NextResponse.json({ error: approvalProblem }, { status: 400 });
   }
 
   const { error } = await admin

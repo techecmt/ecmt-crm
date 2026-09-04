@@ -302,7 +302,9 @@ function CampaignProgressBar({ campaign }: { campaign: WhatsAppCampaign }) {
           ) : null}
           {campaign.skipped_count > 0 ? <span>{campaign.skipped_count} skipped</span> : null}
         </span>
-        <span>{campaign.total_recipients} queued</span>
+        <span>
+          {campaign.total_recipients} recipient{campaign.total_recipients === 1 ? "" : "s"}
+        </span>
       </div>
     </div>
   );

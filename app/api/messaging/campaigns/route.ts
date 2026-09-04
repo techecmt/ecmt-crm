@@ -5,11 +5,18 @@ import {
   CAMPAIGN_MAX_RECIPIENTS,
   candidatesFromConversations,
   candidatesFromLeads,
+  candidatesFromManualEntries,
   materialiseCampaignRecipients,
 } from "@/lib/messaging/campaigns";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { CampaignVariableMapping } from "@/lib/campaigns";
+import {
+  validateVariableBinding,
+  type CampaignAudienceSource,
+  type CampaignVariableMapping,
+  type ManualRecipientEntry,
+} from "@/lib/campaigns";
+import { canonicalizePhoneKey } from "@/lib/phone";
 import { isAdminRole } from "@/lib/types";
 
 async function requireCampaignAdmin() {
@@ -50,6 +57,7 @@ type CreateCampaignBody = {
     source?: unknown;
     leadIds?: unknown;
     conversationIds?: unknown;
+    manualEntries?: unknown;
     description?: unknown;
     filters?: unknown;
   };
@@ -74,11 +82,38 @@ function asVariableMapping(value: unknown): CampaignVariableMapping {
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
     if (!raw || typeof raw !== "object") continue;
     const binding = raw as { source?: unknown; value?: unknown };
-    if (binding.source !== "lead_field" && binding.source !== "static") continue;
+    if (
+      binding.source !== "lead_field" &&
+      binding.source !== "static" &&
+      binding.source !== "link"
+    ) {
+      continue;
+    }
     if (typeof binding.value !== "string") continue;
     mapping[key] = { source: binding.source, value: binding.value };
   }
   return mapping;
+}
+
+/** Deduplicated, canonicalised numbers typed straight into the builder. */
+function asManualEntries(value: unknown): ManualRecipientEntry[] {
+  if (!Array.isArray(value)) return [];
+  const entries: ManualRecipientEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as { phone?: unknown; name?: unknown };
+    if (typeof record.phone !== "string") continue;
+    const phoneKey = canonicalizePhoneKey(record.phone);
+    if (!phoneKey || seen.has(phoneKey)) continue;
+    seen.add(phoneKey);
+    entries.push({
+      phone: phoneKey,
+      name: typeof record.name === "string" && record.name.trim() ? record.name.trim() : null,
+    });
+  }
+  return entries;
 }
 
 function asPositiveInt(value: unknown) {
@@ -107,10 +142,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "A valid template Content SID is required" }, { status: 400 });
   }
 
-  const source = body.audience?.source === "conversations" ? "conversations" : "leads";
+  const requestedSource = body.audience?.source;
+  const source: CampaignAudienceSource =
+    requestedSource === "conversations" || requestedSource === "manual"
+      ? requestedSource
+      : "leads";
   const leadIds = asIdList(body.audience?.leadIds);
   const conversationIds = asIdList(body.audience?.conversationIds);
-  const requested = source === "leads" ? leadIds.length : conversationIds.length;
+  const manualEntries = asManualEntries(body.audience?.manualEntries);
+  const requested =
+    source === "leads"
+      ? leadIds.length
+      : source === "conversations"
+        ? conversationIds.length
+        : manualEntries.length;
 
   if (requested === 0) {
     return NextResponse.json({ error: "Select at least one recipient" }, { status: 400 });
@@ -136,6 +181,16 @@ export async function POST(request: NextRequest) {
   }
 
   const mapping = asVariableMapping(body.variableMapping);
+  for (const [key, binding] of Object.entries(mapping)) {
+    const problem = validateVariableBinding(binding);
+    if (problem) {
+      return NextResponse.json(
+        { error: `Variable {{${key}}}: ${problem.toLowerCase()}` },
+        { status: 400 },
+      );
+    }
+  }
+
   const sendCap = asPositiveInt(body.sendCap);
   const skipRecentDays = asPositiveInt(body.skipRecentDays);
   const costPerMessage = Number(body.costPerMessage);
@@ -184,7 +239,9 @@ export async function POST(request: NextRequest) {
     const candidates =
       source === "leads"
         ? await candidatesFromLeads(admin, leadIds)
-        : await candidatesFromConversations(admin, conversationIds);
+        : source === "conversations"
+          ? await candidatesFromConversations(admin, conversationIds)
+          : await candidatesFromManualEntries(admin, manualEntries);
 
     const summary = await materialiseCampaignRecipients({
       supabase: admin,

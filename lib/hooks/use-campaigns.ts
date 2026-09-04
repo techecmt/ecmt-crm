@@ -5,8 +5,10 @@ import { toast } from "sonner";
 
 import {
   isCampaignRunning,
+  type CampaignAudienceSource,
   type CampaignCounts,
   type CampaignVariableMapping,
+  type ManualRecipientEntry,
   type WhatsAppCampaign,
   type WhatsAppCampaignRecipient,
 } from "@/lib/campaigns";
@@ -64,9 +66,10 @@ export type CreateCampaignInput = {
   templateBody: string | null;
   variableMapping: CampaignVariableMapping;
   audience: {
-    source: "leads" | "conversations";
+    source: CampaignAudienceSource;
     leadIds?: string[];
     conversationIds?: string[];
+    manualEntries?: ManualRecipientEntry[];
     description?: string;
     filters?: Record<string, unknown>;
   };

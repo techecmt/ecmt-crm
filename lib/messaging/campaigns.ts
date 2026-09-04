@@ -1,9 +1,12 @@
 import "server-only";
 
 import {
+  normaliseLinkValue,
   renderTemplateBody,
+  sanitiseVariableValue,
   type CampaignAudienceSnapshot,
   type CampaignVariableMapping,
+  type ManualRecipientEntry,
   type WhatsAppCampaign,
   type WhatsAppCampaignRecipient,
 } from "@/lib/campaigns";
@@ -84,10 +87,15 @@ export function resolveCampaignVariables(
 
   for (const [key, binding] of Object.entries(mapping ?? {})) {
     if (!binding) continue;
-    const value =
-      binding.source === "static" ? binding.value : (fields[binding.value] ?? "");
-    // Twilio rejects empty content variables, so fall back to a space-free blank.
-    resolved[key] = String(value ?? "").trim();
+    const raw =
+      binding.source === "link"
+        ? normaliseLinkValue(binding.value)
+        : binding.source === "static"
+          ? binding.value
+          : (fields[binding.value] ?? "");
+    // WhatsApp rejects newlines, tabs, and long space runs inside a parameter,
+    // so lead data gets the same clean-up as values typed in the builder.
+    resolved[key] = sanitiseVariableValue(String(raw ?? ""));
   }
 
   return resolved;
@@ -178,6 +186,56 @@ export async function candidatesFromConversations(
       lead,
     };
   }) satisfies CampaignCandidate[];
+}
+
+/**
+ * Candidates from numbers typed or pasted into the builder. Each number is
+ * matched against existing leads by phone key, so lead-field variables still
+ * resolve for contacts who are already in the CRM.
+ */
+export async function candidatesFromManualEntries(
+  supabase: AdminClient,
+  entries: ManualRecipientEntry[],
+) {
+  if (!entries.length) return [] as CampaignCandidate[];
+
+  const phoneKeys = entries
+    .map((entry) => canonicalizePhoneKey(entry.phone))
+    .filter((key): key is string => Boolean(key));
+
+  const leadsByPhoneKey = new Map<string, CampaignLeadRow>();
+  for (let index = 0; index < phoneKeys.length; index += 500) {
+    const chunk = phoneKeys.slice(index, index + 500);
+    const { data } = await supabase
+      .from("leads")
+      .select(
+        "id, full_name, first_name, phone, phone_key, email, city, nationality, interested_course, status, assigned_counsellor, do_not_contact",
+      )
+      .in("phone_key", chunk);
+
+    for (const lead of data ?? []) {
+      const key = lead.phone_key as string | null;
+      // Several leads can share a number; the first match is enough for variables.
+      if (key && !leadsByPhoneKey.has(key)) {
+        leadsByPhoneKey.set(key, lead as CampaignLeadRow);
+      }
+    }
+  }
+
+  const candidates: CampaignCandidate[] = [];
+  for (const entry of entries) {
+    const phoneKey = canonicalizePhoneKey(entry.phone);
+    if (!phoneKey) continue;
+    const lead = leadsByPhoneKey.get(phoneKey) ?? null;
+    candidates.push({
+      leadId: lead?.id ?? null,
+      conversationId: null,
+      phone: phoneKey,
+      fullName: entry.name || lead?.full_name || null,
+      lead,
+    });
+  }
+  return candidates;
 }
 
 /**

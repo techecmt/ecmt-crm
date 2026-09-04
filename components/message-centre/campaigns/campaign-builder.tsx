@@ -1,7 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, Search, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  RefreshCw,
+  Search,
+  Users,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,12 +39,19 @@ import { useProfiles } from "@/lib/hooks/use-profiles";
 import { useTwilioConnections } from "@/lib/hooks/use-message-centre-settings";
 import { useWhatsAppTemplates } from "@/lib/hooks/use-whatsapp-templates";
 import { useCreateCampaign, useSendCampaign } from "@/lib/hooks/use-campaigns";
+import { Textarea } from "@/components/ui/textarea";
 import {
   CAMPAIGN_LEAD_FIELDS,
+  CAMPAIGN_VARIABLE_SOURCES,
+  CAMPAIGN_VARIABLE_SOURCE_LABELS,
   extractTemplateVariableKeys,
+  normaliseLinkValue,
+  parseManualRecipients,
   renderTemplateBody,
+  validateVariableBinding,
   type CampaignVariableMapping,
 } from "@/lib/campaigns";
+import { canonicalizePhoneKey } from "@/lib/phone";
 import {
   LEAD_SOURCE_LABELS,
   LEAD_STATUS_LABELS,
@@ -47,7 +62,7 @@ import {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type AudienceSource = "leads" | "conversations";
+type AudienceSource = "leads" | "conversations" | "manual";
 
 type Step = "setup" | "audience" | "personalise" | "review";
 
@@ -78,6 +93,7 @@ export function CampaignBuilder({
   const [connectionId, setConnectionId] = React.useState("");
   const [contentSid, setContentSid] = React.useState("");
   const [source, setSource] = React.useState<AudienceSource>("leads");
+  const [manualInput, setManualInput] = React.useState("");
   const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
   const [mapping, setMapping] = React.useState<CampaignVariableMapping>({});
   const [sendCap, setSendCap] = React.useState("");
@@ -107,6 +123,7 @@ export function CampaignBuilder({
     setContentSid("");
     setSelectedIds([]);
     setMapping({});
+    setManualInput("");
     setConfirmText("");
     setSearch("");
     setStatuses([]);
@@ -114,15 +131,25 @@ export function CampaignBuilder({
     setCounsellorIds([]);
   }, [open]);
 
-  const { data: templates = [], isLoading: templatesLoading } = useWhatsAppTemplates(
-    connectionId || null,
-    open && Boolean(connectionId),
-  );
-  const approvedTemplates = React.useMemo(
-    () => templates.filter((template) => template.approvalStatus === "approved"),
+  const {
+    data: templates = [],
+    isLoading: templatesLoading,
+    isFetching: templatesFetching,
+    refetch: refetchTemplates,
+  } = useWhatsAppTemplates(connectionId || null, open && Boolean(connectionId));
+  // Approved templates first, but unapproved ones stay selectable so a campaign
+  // can be prepared while WhatsApp review is still pending.
+  const sortedTemplates = React.useMemo(
+    () =>
+      [...templates].sort((a, b) => {
+        const rank = (status: string) => (status === "approved" ? 0 : status === "rejected" ? 2 : 1);
+        const byStatus = rank(a.approvalStatus) - rank(b.approvalStatus);
+        return byStatus !== 0 ? byStatus : a.friendlyName.localeCompare(b.friendlyName);
+      }),
     [templates],
   );
-  const template = approvedTemplates.find((item) => item.sid === contentSid) ?? null;
+  const template = sortedTemplates.find((item) => item.sid === contentSid) ?? null;
+  const templateApproved = template?.approvalStatus === "approved";
 
   const { data: leads = [], isLoading: leadsLoading } = useLeads({
     search: search.trim() || undefined,
@@ -146,7 +173,33 @@ export function CampaignBuilder({
     [profiles],
   );
 
+  const manualParsed = React.useMemo(
+    () => parseManualRecipients(manualInput, canonicalizePhoneKey),
+    [manualInput],
+  );
+
   const recipients: Recipient[] = React.useMemo(() => {
+    if (source === "manual") {
+      return manualParsed.entries.map((entry) => ({
+        id: entry.phone,
+        name: entry.name || entry.phone,
+        phone: entry.phone,
+        // Lead fields are filled server-side when the number matches a lead.
+        detail: entry.name ? "Typed in" : "Number only",
+        fields: {
+          full_name: entry.name ?? "",
+          first_name: (entry.name ?? "").split(" ")[0] ?? "",
+          phone: entry.phone,
+          email: "",
+          city: "",
+          nationality: "",
+          interested_course: "",
+          counsellor_name: "",
+          status_label: "",
+        },
+      }));
+    }
+
     if (source === "leads") {
       return leads
         .filter((lead) => lead.phone && !lead.do_not_contact)
@@ -198,12 +251,25 @@ export function CampaignBuilder({
           status_label: "",
         },
       }));
-  }, [conversations, counsellorNameById, leads, search, source]);
+  }, [conversations, counsellorNameById, leads, manualParsed, search, source]);
 
   const selectedRecipients = React.useMemo(
     () => recipients.filter((recipient) => selectedIds.includes(recipient.id)),
     [recipients, selectedIds],
   );
+
+  // Pasting numbers is itself the act of choosing them, so keep them selected.
+  React.useEffect(() => {
+    if (source !== "manual") return;
+    setSelectedIds((current) => {
+      const available = new Set(recipients.map((recipient) => recipient.id));
+      const kept = current.filter((id) => available.has(id));
+      const added = recipients
+        .map((recipient) => recipient.id)
+        .filter((id) => !current.includes(id));
+      return added.length || kept.length !== current.length ? [...kept, ...added] : current;
+    });
+  }, [recipients, source]);
 
   const variables = React.useMemo(
     () => extractTemplateVariableKeys(template?.body) ,
@@ -231,9 +297,11 @@ export function CampaignBuilder({
     const resolved: Record<string, string> = {};
     for (const [key, binding] of Object.entries(mapping)) {
       resolved[key] =
-        binding.source === "static"
-          ? binding.value
-          : (previewRecipient?.fields[binding.value] ?? "");
+        binding.source === "link"
+          ? normaliseLinkValue(binding.value)
+          : binding.source === "static"
+            ? binding.value
+            : (previewRecipient?.fields[binding.value] ?? "");
     }
     return resolved;
   }, [mapping, previewRecipient]);
@@ -250,6 +318,7 @@ export function CampaignBuilder({
   // single message, so surface the count before the send rather than after.
   const blankValueWarnings = React.useMemo(() => {
     const warnings: Array<{ variable: string; field: string; count: number }> = [];
+    if (source === "manual") return warnings;
     for (const [variable, binding] of Object.entries(mapping)) {
       if (binding.source !== "lead_field") continue;
       const count = selectedRecipients.filter(
@@ -258,18 +327,32 @@ export function CampaignBuilder({
       if (count > 0) warnings.push({ variable, field: binding.value, count });
     }
     return warnings;
-  }, [mapping, selectedRecipients]);
+  }, [mapping, selectedRecipients, source]);
 
-  const unmappedVariables = variables.filter((variable) => {
-    const binding = mapping[variable];
-    if (!binding) return true;
-    return binding.source === "static" && !binding.value.trim();
-  });
+  // Values that WhatsApp would reject (blank, line breaks, malformed links).
+  const bindingErrors = React.useMemo(() => {
+    const errors: Record<string, string> = {};
+    for (const variable of variables) {
+      const binding = mapping[variable];
+      if (!binding) {
+        errors[variable] = "Choose a value for this variable";
+        continue;
+      }
+      const problem = validateVariableBinding(binding);
+      if (problem) errors[variable] = problem;
+    }
+    return errors;
+  }, [mapping, variables]);
+
+  const hasBindingErrors = Object.keys(bindingErrors).length > 0;
+  const usesLeadFields = Object.values(mapping).some(
+    (binding) => binding.source === "lead_field",
+  );
 
   const canContinue = (() => {
     if (step === "setup") return Boolean(name.trim() && connectionId && contentSid);
     if (step === "audience") return selectedRecipients.length > 0;
-    if (step === "personalise") return unmappedVariables.length === 0;
+    if (step === "personalise") return !hasBindingErrors;
     return confirmText.trim().toUpperCase() === "SEND";
   })();
 
@@ -295,10 +378,18 @@ export function CampaignBuilder({
       leadIds: source === "leads" ? selectedRecipients.map((item) => item.id) : undefined,
       conversationIds:
         source === "conversations" ? selectedRecipients.map((item) => item.id) : undefined,
+      manualEntries:
+        source === "manual"
+          ? selectedRecipients.map((item) => ({ phone: item.phone, name: item.name || null }))
+          : undefined,
       description:
         source === "leads"
           ? describeLeadFilters({ search, statuses, sources, counsellorIds, counsellorNameById })
-          : "Selected WhatsApp conversations",
+          : source === "conversations"
+            ? "Selected WhatsApp conversations"
+            : `${selectedRecipients.length} manually entered number${
+                selectedRecipients.length === 1 ? "" : "s"
+              }`,
     },
     sendCap: Number.isFinite(cap) && cap > 0 ? cap : null,
     skipRecentDays: Number(skipRecentDays) > 0 ? Number(skipRecentDays) : null,
@@ -317,7 +408,8 @@ export function CampaignBuilder({
   };
 
   const isBusy = createCampaign.isPending || sendCampaign.isPending;
-  const listLoading = source === "leads" ? leadsLoading : conversationsLoading;
+  const listLoading =
+    source === "leads" ? leadsLoading : source === "conversations" ? conversationsLoading : false;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -394,13 +486,27 @@ export function CampaignBuilder({
               </div>
 
               <div className="grid gap-2">
-                <Label>Approved template</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Template</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    disabled={templatesFetching || !connectionId}
+                    onClick={() => refetchTemplates()}
+                  >
+                    <RefreshCw
+                      className={cn("mr-1.5 h-3.5 w-3.5", templatesFetching && "animate-spin")}
+                    />
+                    Check approval
+                  </Button>
+                </div>
                 {templatesLoading ? (
                   <Skeleton className="h-10" />
-                ) : approvedTemplates.length === 0 ? (
+                ) : sortedTemplates.length === 0 ? (
                   <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                    No approved templates on this connection. Create one under Settings →
-                    Templates and wait for WhatsApp approval.
+                    No templates on this connection yet. Create one under Settings → Templates.
                   </p>
                 ) : (
                   <Select value={contentSid} onValueChange={setContentSid}>
@@ -408,15 +514,43 @@ export function CampaignBuilder({
                       <SelectValue placeholder="Select a template" />
                     </SelectTrigger>
                     <SelectContent>
-                      {approvedTemplates.map((item) => (
+                      {sortedTemplates.map((item) => (
                         <SelectItem key={item.sid} value={item.sid}>
-                          {item.friendlyName} ({item.language})
+                          <span className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "h-1.5 w-1.5 shrink-0 rounded-full",
+                                item.approvalStatus === "approved"
+                                  ? "bg-emerald-500"
+                                  : item.approvalStatus === "rejected"
+                                    ? "bg-rose-500"
+                                    : "bg-amber-500",
+                              )}
+                            />
+                            {item.friendlyName} ({item.language})
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 )}
               </div>
+
+              {template && !templateApproved ? (
+                <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs dark:border-amber-500/40 dark:bg-amber-500/10">
+                  <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-200">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {template.approvalStatus === "rejected"
+                      ? "WhatsApp rejected this template"
+                      : `WhatsApp approval is ${template.approvalStatus}`}
+                  </p>
+                  <p className="mt-1 text-amber-800/80 dark:text-amber-200/80">
+                    {template.rejectionReason
+                      ? template.rejectionReason
+                      : "You can build and save this campaign now, but sending stays blocked until Meta approves the template. Use “Check approval” above once it clears."}
+                  </p>
+                </div>
+              ) : null}
 
               {template ? (
                 <div className="rounded-md border bg-muted/40 p-3">
@@ -452,19 +586,102 @@ export function CampaignBuilder({
                 >
                   WhatsApp conversations
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={source === "manual" ? "default" : "outline"}
+                  onClick={() => {
+                    setSource("manual");
+                    setSelectedIds([]);
+                  }}
+                >
+                  Enter numbers
+                </Button>
               </div>
 
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  className="h-9 pl-9"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder={
-                    source === "leads" ? "Search leads" : "Search conversations by name or number"
-                  }
-                />
-              </div>
+              {source === "manual" ? (
+                <div className="space-y-2">
+                  <Label>Phone numbers</Label>
+                  <Textarea
+                    rows={6}
+                    className="font-mono text-sm"
+                    value={manualInput}
+                    onChange={(event) => setManualInput(event.target.value)}
+                    placeholder={"+6591234567\n+6598765432, Jane Tan\n+918220699295"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    One per line, optionally followed by a comma and a name. Numbers without a
+                    country code are treated as Singapore. Any number already in your leads is
+                    matched automatically, so lead fields still work.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <Badge variant="secondary" className="border-0">
+                      {manualParsed.entries.length} valid
+                    </Badge>
+                    {manualParsed.duplicates > 0 ? (
+                      <Badge
+                        variant="secondary"
+                        className="border-0 bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                      >
+                        {manualParsed.duplicates} duplicate
+                        {manualParsed.duplicates === 1 ? "" : "s"} removed
+                      </Badge>
+                    ) : null}
+                    {manualParsed.invalid.length > 0 ? (
+                      <Badge
+                        variant="secondary"
+                        className="border-0 bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300"
+                      >
+                        {manualParsed.invalid.length} unreadable
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  {manualParsed.ambiguous.length > 0 ? (
+                    <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs dark:border-amber-500/40 dark:bg-amber-500/10">
+                      <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-200">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Check the country code on {manualParsed.ambiguous.length} number
+                        {manualParsed.ambiguous.length === 1 ? "" : "s"}
+                      </p>
+                      <p className="mt-1 text-amber-800/80 dark:text-amber-200/80">
+                        These were entered without a country code and have been read as{" "}
+                        {manualParsed.ambiguous
+                          .slice(0, 4)
+                          .map((entry) => entry.phone)
+                          .join(", ")}
+                        {manualParsed.ambiguous.length > 4
+                          ? ` and ${manualParsed.ambiguous.length - 4} more`
+                          : ""}
+                        . If that is wrong, add the country code — otherwise the message goes to
+                        a stranger.
+                      </p>
+                    </div>
+                  ) : null}
+                  {manualParsed.invalid.length > 0 ? (
+                    <p className="text-xs text-rose-600 dark:text-rose-400">
+                      Could not read: {manualParsed.invalid.slice(0, 5).join(", ")}
+                      {manualParsed.invalid.length > 5
+                        ? ` and ${manualParsed.invalid.length - 5} more`
+                        : ""}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {source !== "manual" ? (
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    className="h-9 pl-9"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder={
+                      source === "leads" ? "Search leads" : "Search conversations by name or number"
+                    }
+                  />
+                </div>
+              ) : null}
 
               {source === "leads" ? (
                 <div className="flex flex-wrap gap-2">
@@ -533,7 +750,9 @@ export function CampaignBuilder({
                   <div className="flex flex-col items-center justify-center p-8 text-center">
                     <Users className="mb-2 h-6 w-6 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">
-                      No contactable recipients match these filters.
+                      {source === "manual"
+                        ? "Paste or type numbers above to build the list."
+                        : "No contactable recipients match these filters."}
                     </p>
                   </div>
                 ) : (
@@ -598,7 +817,9 @@ export function CampaignBuilder({
                               [variable]:
                                 value === "static"
                                   ? { source: "static", value: "" }
-                                  : { source: "lead_field", value: "full_name" },
+                                  : value === "link"
+                                    ? { source: "link", value: "" }
+                                    : { source: "lead_field", value: "full_name" },
                             }))
                           }
                         >
@@ -606,8 +827,11 @@ export function CampaignBuilder({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="lead_field">Lead field</SelectItem>
-                            <SelectItem value="static">Fixed text</SelectItem>
+                            {CAMPAIGN_VARIABLE_SOURCES.map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {CAMPAIGN_VARIABLE_SOURCE_LABELS[value]}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         {binding.source === "lead_field" ? (
@@ -632,17 +856,35 @@ export function CampaignBuilder({
                             </SelectContent>
                           </Select>
                         ) : (
-                          <Input
-                            className="h-9"
-                            value={binding.value}
-                            onChange={(event) =>
-                              setMapping((current) => ({
-                                ...current,
-                                [variable]: { source: "static", value: event.target.value },
-                              }))
-                            }
-                            placeholder="Fixed text"
-                          />
+                          <div className="space-y-1">
+                            <Input
+                              className="h-9"
+                              value={binding.value}
+                              onChange={(event) =>
+                                setMapping((current) => ({
+                                  ...current,
+                                  [variable]: {
+                                    source: binding.source as "static" | "link",
+                                    value: event.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder={
+                                binding.source === "link"
+                                  ? "chat.whatsapp.com/AbCdEf"
+                                  : "Fixed text"
+                              }
+                            />
+                            {bindingErrors[variable] ? (
+                              <p className="text-xs text-rose-600 dark:text-rose-400">
+                                {bindingErrors[variable]}
+                              </p>
+                            ) : binding.source === "link" && binding.value.trim() ? (
+                              <p className="truncate text-xs text-muted-foreground">
+                                Sends as {normaliseLinkValue(binding.value)}
+                              </p>
+                            ) : null}
+                          </div>
                         )}
                       </div>
                     );
@@ -659,10 +901,18 @@ export function CampaignBuilder({
                 </p>
               </div>
 
-              {unmappedVariables.length ? (
+              {hasBindingErrors ? (
                 <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                   <AlertTriangle className="h-3.5 w-3.5" />
-                  Fill in every fixed-text value before continuing.
+                  Every variable needs a valid value before continuing.
+                </p>
+              ) : null}
+
+              {source === "manual" && usesLeadFields ? (
+                <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  Lead fields only fill in for numbers that match an existing lead. For typed-in
+                  numbers that do not, prefer fixed text or a link.
                 </p>
               ) : null}
 
@@ -692,7 +942,12 @@ export function CampaignBuilder({
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <ReviewRow label="Campaign" value={name} />
-                <ReviewRow label="Template" value={template?.friendlyName ?? contentSid} />
+                <ReviewRow
+                  label="Template"
+                  value={`${template?.friendlyName ?? contentSid}${
+                    templateApproved ? "" : ` (${template?.approvalStatus ?? "unapproved"})`
+                  }`}
+                />
                 <ReviewRow
                   label="Recipients selected"
                   value={String(selectedRecipients.length)}
@@ -755,6 +1010,20 @@ export function CampaignBuilder({
                 </p>
               </div>
 
+              {!templateApproved ? (
+                <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-500/40 dark:bg-amber-500/10">
+                  <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-200">
+                    <AlertTriangle className="h-4 w-4" />
+                    Cannot send yet — template not approved
+                  </p>
+                  <p className="mt-1 text-xs text-amber-800/80 dark:text-amber-200/80">
+                    Save this campaign as a draft. Once WhatsApp approves{" "}
+                    {template?.friendlyName ?? "the template"}, open it from the campaign list
+                    and press Send — the recipient list is already built.
+                  </p>
+                </div>
+              ) : null}
+
               <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-500/40 dark:bg-amber-500/10">
                 <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-200">
                   <AlertTriangle className="h-4 w-4" />
@@ -792,7 +1061,10 @@ export function CampaignBuilder({
                 <Button variant="outline" disabled={isBusy} onClick={() => submit(false)}>
                   Save as draft
                 </Button>
-                <Button disabled={!canContinue || isBusy} onClick={() => submit(true)}>
+                <Button
+                  disabled={!canContinue || isBusy || !templateApproved}
+                  onClick={() => submit(true)}
+                >
                   {isBusy ? "Starting…" : `Send to ${effectiveCount}`}
                 </Button>
               </>
