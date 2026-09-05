@@ -95,7 +95,9 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/extension") ||
     pathname.startsWith("/api/public/widget") ||
     pathname.startsWith("/api/public/callback-requests") ||
+    pathname.startsWith("/api/public/classroom-rentals") ||
     (pathname.startsWith("/api/messaging/campaigns/") && pathname.endsWith("/run")) ||
+    pathname === "/classroom-rental" ||
     pathname === "/widget" ||
     pathname === "/widget.js"
   ) {

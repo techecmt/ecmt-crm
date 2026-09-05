@@ -303,6 +303,52 @@ export const APPOINTMENT_MODE_LABELS: Record<AppointmentMode, string> = {
   campus: "Campus visit",
 };
 
+export type ClassroomType = "classroom_1" | "classroom_2" | "classroom_3";
+
+export type ClassroomRentalStatus = "new" | "confirmed" | "completed" | "cancelled";
+
+export interface ClassroomRental {
+  id: string;
+  booking_group_id: string;
+  classroom: ClassroomType;
+  booking_date: string;
+  start_time: string;
+  end_time: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  company: string | null;
+  purpose: string | null;
+  status: ClassroomRentalStatus;
+  notes: string | null;
+  internal_notes: string | null;
+  source_url: string | null;
+  referrer: string | null;
+  utm: Record<string, string>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const CLASSROOM_LABELS: Record<ClassroomType, string> = {
+  classroom_1: "Classroom 1",
+  classroom_2: "Classroom 2",
+  classroom_3: "Classroom 3",
+};
+
+export const CLASSROOM_RENTAL_STATUS_LABELS: Record<ClassroomRentalStatus, string> = {
+  new: "New",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const ACTIVE_CLASSROOM_RENTAL_STATUSES: ClassroomRentalStatus[] = [
+  "new",
+  "confirmed",
+  "completed",
+];
+
 export interface AdmissionGoal {
   id: string;
   title: string;

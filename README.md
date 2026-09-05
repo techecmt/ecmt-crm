@@ -169,6 +169,31 @@ await fetch("https://YOUR-CRM-DOMAIN/api/public/callback-requests", {
 
 The API matches by normalized phone first, then email. It creates a new website lead only when neither matches, then links the callback request and records it in the lead timeline. CRM users can manage requests from **Leads → Callback requests** or on the lead’s **Callback requests** tab.
 
+## Website classroom rentals
+
+After applying `20260905070000_add_classroom_rentals.sql` and
+`20260905074500_add_multi_date_classroom_rentals.sql`, users can book classrooms through:
+
+```text
+GET|POST https://YOUR-CRM-DOMAIN/api/public/classroom-rentals
+```
+
+A built-in booking page is available at:
+
+```text
+https://YOUR-CRM-DOMAIN/classroom-rental
+```
+
+Rules enforced by the API and database:
+
+- Monday to Friday bookings only
+- Full-day slot starts at `09:00`
+- End time can be `18:00`, `19:00`, or `20:00`
+- Same classroom/date cannot be double-booked while an active booking exists
+- A single submission can include multiple booking dates (`bookingDates`)
+
+CRM users can manage these bookings from **Leads → Classroom rentals** using the calendar view.
+
 ## More Supabase examples
 
 - [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)

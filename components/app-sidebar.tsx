@@ -75,6 +75,12 @@ const NAV_ITEMS: NavItem[] = [
         icon: PhoneCall,
         module: "leads",
       },
+      {
+        href: "/dashboard/classroom-rentals",
+        label: "Classroom rentals",
+        icon: CalendarDays,
+        module: "leads",
+      },
       { href: "/dashboard/follow-ups", label: "Follow-ups", icon: ListChecks, module: "follow_ups" },
     ],
   },
