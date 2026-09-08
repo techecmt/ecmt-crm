@@ -101,6 +101,18 @@ export async function POST(request: Request) {
   const fullName = readText(body.full_name, 160) ?? `WhatsApp lead ${phoneKey}`;
   const interestedCourse = readText(body.interested_course, 160);
   const collegeId = readText(body.college_id, 64);
+
+  // College and course are required. Enforced here as well as in the form,
+  // since the form is the one part of this an attacker controls — and because
+  // duplicate matching is only meaningful with both: `get_lead_duplicate_matches`
+  // decides `same_context` from the college/course pair.
+  if (!collegeId) {
+    return extensionError(origin, "A college is required", 400, "bad_request");
+  }
+  if (!interestedCourse) {
+    return extensionError(origin, "An interested course is required", 400, "bad_request");
+  }
+
   const supabase = await createClient();
 
   // Reuse the CRM's DB-authoritative duplicate matching rather than a second
@@ -159,7 +171,7 @@ export async function POST(request: Request) {
 
   // Never trust a client-supplied college: it must exist and be active, and a
   // course must belong to it when that college publishes a course list.
-  if (collegeId) {
+  {
     const { data: college, error: collegeError } = await supabase
       .from("colleges")
       .select("id, courses")
