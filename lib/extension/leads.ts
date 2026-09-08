@@ -107,18 +107,18 @@ export async function findLeadsByPhoneKey(
 /**
  * Statuses the extension may set when creating a lead.
  *
- * Deliberately narrower than PIPELINE_LEAD_STATUSES. The CRM's own create form
- * fixes new leads at "Inquiry Received" because later statuses carry
- * preconditions that live in the guarded status-change flow: "Inactive Courses"
- * requires notes, the two registration statuses require a completion date and
- * emit `registration` audit events, and "Counselling Completed" belongs after a
- * counselling record exists. Offering those here would create leads that skip
- * validation and silently omit the audit events the registration and user-audit
- * reports are built on.
+ * Still narrower than PIPELINE_LEAD_STATUSES. A status is offered only where
+ * the extension can satisfy the same preconditions the CRM's guarded
+ * status-change flow enforces:
  *
- * What remains is the set that is genuinely meaningful at first contact.
- * "Counselling In-Progress" is included but is not a plain column write — see
- * `applyCounsellingStart` — so it stays consistent with the CRM.
+ * - "Counselling In-Progress" seeds the follow-up schedule and records a
+ *   `counselling_started` audit event.
+ * - The two registration statuses require a completion date and record a
+ *   `registration` audit event.
+ *
+ * Excluded: "Inactive Courses", which requires notes the capture form does not
+ * collect, and "Counselling Completed", which belongs after a counselling
+ * record exists rather than at first contact.
  */
 export const EXTENSION_CREATE_STATUSES: readonly LeadStatus[] = [
   "inquiry_received",
@@ -126,7 +126,19 @@ export const EXTENSION_CREATE_STATUSES: readonly LeadStatus[] = [
   "no_response",
   "not_interested",
   "invalid",
+  "registration_unpaid",
+  "registered_paid_reg_fee",
 ];
+
+/** Statuses that cannot be set without a registration completion date. */
+export const REGISTRATION_STATUSES: readonly LeadStatus[] = [
+  "registration_unpaid",
+  "registered_paid_reg_fee",
+];
+
+export function requiresRegistrationDate(status: LeadStatus): boolean {
+  return REGISTRATION_STATUSES.includes(status);
+}
 
 export function isExtensionCreateStatus(value: unknown): value is LeadStatus {
   return (
@@ -136,10 +148,16 @@ export function isExtensionCreateStatus(value: unknown): value is LeadStatus {
 }
 
 /** Status options for the extension's create form, in pipeline order. */
-export function extensionStatusOptions(): { value: LeadStatus; label: string }[] {
+export function extensionStatusOptions(): {
+  value: LeadStatus;
+  label: string;
+  requires_registration_date: boolean;
+}[] {
   return EXTENSION_CREATE_STATUSES.map((status) => ({
     value: status,
     label: LEAD_STATUS_LABELS[status] ?? status,
+    // Sent so the form knows to ask, without duplicating the rule client-side.
+    requires_registration_date: requiresRegistrationDate(status),
   }));
 }
 

@@ -11,6 +11,7 @@ import {
   DEFAULT_EXTENSION_SOURCE,
   isExtensionCreateStatus,
   isLeadSource,
+  requiresRegistrationDate,
   pickPreferredLead,
   toLeadCard,
   type ExtensionLeadRow,
@@ -69,6 +70,7 @@ type CreateLeadBody = {
   college_id?: unknown;
   source?: unknown;
   status?: unknown;
+  registration_completed_at?: unknown;
   assigned_counsellor?: unknown;
 };
 
@@ -209,6 +211,33 @@ export async function POST(request: Request) {
     assignedCounsellor = profile.id;
   }
 
+  // Registration statuses are meaningless without the date they completed on:
+  // it drives the registration reports, and the CRM's own status flow refuses
+  // the change without it.
+  let registrationCompletedAt: string | null = null;
+  if (requiresRegistrationDate(status)) {
+    const raw = readText(body.registration_completed_at, 40);
+    const parsed = raw ? new Date(raw) : null;
+    if (!parsed || Number.isNaN(parsed.getTime())) {
+      return extensionError(
+        origin,
+        "A registration completed date is required for this status",
+        400,
+        "bad_request",
+      );
+    }
+    // A registration cannot have completed in the future.
+    if (parsed.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      return extensionError(
+        origin,
+        "The registration completed date cannot be in the future",
+        400,
+        "bad_request",
+      );
+    }
+    registrationCompletedAt = parsed.toISOString();
+  }
+
   // The CRM requires an owner before counselling starts, and the follow-up
   // seeding below is meaningless without one.
   if (status === "counselling_in_progress" && !assignedCounsellor) {
@@ -230,6 +259,9 @@ export async function POST(request: Request) {
       college_id: collegeId,
       source,
       status,
+      ...(registrationCompletedAt
+        ? { registration_completed_at: registrationCompletedAt }
+        : {}),
       lead_score: 0,
       assigned_counsellor: assignedCounsellor,
       created_by: profile.id,
@@ -284,6 +316,24 @@ export async function POST(request: Request) {
       user_id: profile.id,
       event_type: "counselling_started",
       lead_id: lead.id,
+    });
+  }
+
+  // Registering at capture must produce the same trail as registering through
+  // the CRM, or the registration report silently misses the lead.
+  if (registrationCompletedAt) {
+    await supabase.from("lead_activities").insert({
+      lead_id: lead.id,
+      user_id: profile.id,
+      type: "status_change",
+      title: `Status changed to ${status}`,
+      description: "Set when the lead was captured from WhatsApp Web.",
+    });
+    await supabase.from("user_audit_events").insert({
+      user_id: profile.id,
+      event_type: "registration",
+      lead_id: lead.id,
+      metadata: { registration_status: status },
     });
   }
 
