@@ -21,7 +21,7 @@
 
   var crmOrigin = new URL(script.src, window.location.href).origin;
   var position = script.getAttribute("data-position") === "left" ? "left" : "right";
-  var label = script.getAttribute("data-label") || "Talk with ESRA";
+  var label = script.getAttribute("data-label") || "Talk with LISA";
   var nudgeDelayMs = Math.max(
     0,
     Number(script.getAttribute("data-nudge-delay") || "60") * 1000

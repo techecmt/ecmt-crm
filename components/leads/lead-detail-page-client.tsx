@@ -726,7 +726,7 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
                 Conversation history
               </CardTitle>
               <CardDescription>
-                Messages exchanged between the visitor, ESRA AI, and counselors across all linked channels.
+                Messages exchanged between the visitor, LISA AI, and counselors across all linked channels.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1033,7 +1033,7 @@ function LeadConversationTranscript({
             ? "Visitor"
             : isCounselor
               ? message.sender?.full_name || message.sender?.email || "Counselor"
-              : "ESRA AI";
+              : "LISA AI";
 
           return (
             <div

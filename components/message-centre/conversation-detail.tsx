@@ -5,6 +5,7 @@ import Link from "next/link";
 import { format } from "date-fns";
 import {
   Bot,
+  ChevronDown,
   ChevronLeft,
   CircleCheck,
   FileText,
@@ -56,17 +57,26 @@ import {
 import { useProfiles } from "@/lib/hooks/use-profiles";
 import { useMessagingPages } from "@/lib/hooks/use-message-centre-settings";
 import { useCurrentProfile } from "@/lib/hooks/use-current-profile";
+import {
+  conversationSubtitle,
+  conversationTitle,
+  isWaitingForReply,
+  websitePageLabel,
+} from "@/lib/messaging/conversation-display";
 
 export function ConversationDetail({
   conversation,
+  isLive = false,
   onBack,
 }: {
   conversation: Conversation;
+  isLive?: boolean;
   onBack?: () => void;
 }) {
   const [inputValue, setInputValue] = React.useState("");
   const [phoneValue, setPhoneValue] = React.useState(conversation.phone || "");
   const [templateDialogOpen, setTemplateDialogOpen] = React.useState(false);
+  const [visitorDetailsOpen, setVisitorDetailsOpen] = React.useState(false);
   const [selectedTemplateSid, setSelectedTemplateSid] = React.useState("");
   const [templateVariables, setTemplateVariables] = React.useState<Record<string, string>>(
     {},
@@ -80,7 +90,7 @@ export function ConversationDetail({
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
-  } = useInfiniteMessages(conversation.id);
+  } = useInfiniteMessages(conversation.id, { isLive });
   const { data: profiles = [] } = useProfiles();
   const { data: pages = [] } = useMessagingPages();
   const { data: currentProfile } = useCurrentProfile();
@@ -112,6 +122,7 @@ export function ConversationDetail({
   const isNearBottom = React.useRef(true);
   const previousScroll = React.useRef<{ top: number; height: number } | null>(null);
   const lastAutoReadKey = React.useRef<string | null>(null);
+  const [showJumpToLatest, setShowJumpToLatest] = React.useState(false);
 
   const assignees = profiles.filter(
     (p) =>
@@ -122,8 +133,8 @@ export function ConversationDetail({
   );
 
   React.useEffect(() => {
-    setPhoneValue(conversation.phone || "");
-  }, [conversation.phone]);
+    setPhoneValue(conversation.phone || conversation.visitor_data?.phone || "");
+  }, [conversation.phone, conversation.visitor_data?.phone]);
 
   React.useEffect(() => {
     hasInitialScrolled.current = false;
@@ -137,8 +148,10 @@ export function ConversationDetail({
     if (!viewport) return;
 
     const updateScrollPosition = () => {
-      isNearBottom.current =
+      const nearBottom =
         viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 96;
+      isNearBottom.current = nearBottom;
+      setShowJumpToLatest(!nearBottom);
     };
     viewport.addEventListener("scroll", updateScrollPosition, { passive: true });
     updateScrollPosition();
@@ -195,6 +208,20 @@ export function ConversationDetail({
   const pageName =
     pages.find((p) => p.page_id === conversation.page_id)?.name || "Unknown page";
   const isPhoneValid = /^\+?[0-9]{7,15}$/.test(phoneValue.replace(/\s+/g, ""));
+  const waiting = isWaitingForReply(conversation);
+  const title = conversationTitle(conversation);
+  const subtitle = conversationSubtitle(conversation);
+  const pageLabel = websitePageLabel(conversation.source_url);
+
+  const scrollToLatest = () => {
+    const viewport = scrollRef.current?.querySelector<HTMLElement>(
+      "[data-radix-scroll-area-viewport]",
+    );
+    if (!viewport) return;
+    viewport.scrollTop = viewport.scrollHeight;
+    isNearBottom.current = true;
+    setShowJumpToLatest(false);
+  };
 
   const loadOlderMessages = () => {
     const viewport = scrollRef.current?.querySelector<HTMLElement>(
@@ -295,12 +322,19 @@ export function ConversationDetail({
           </button>
         ) : null}
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <h3 className="text-sm font-semibold">
-              {conversation.name ||
-                conversation.phone ||
-                conversation.external_user_id}
-            </h3>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold">{title}</h3>
+              {waiting ? (
+                <Badge className="bg-amber-500 hover:bg-amber-500">Waiting for reply</Badge>
+              ) : null}
+              {isLive ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  Live
+                </span>
+              ) : null}
+            </div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <Badge variant="outline">
                 {conversation.channel === "whatsapp"
@@ -315,10 +349,13 @@ export function ConversationDetail({
                 </Badge>
               ) : null}
               {conversation.page_id ? <Badge variant="outline">{pageName}</Badge> : null}
-              <span>{conversation.external_user_id}</span>
+              {pageLabel ? <span className="truncate">{pageLabel}</span> : <span>{subtitle}</span>}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-md border px-2 py-1">
+            <span className="text-xs text-muted-foreground">
+              {conversation.mode === "agent" ? "LISA answering" : "You are answering"}
+            </span>
             <Badge
               variant="outline"
               className={cn(
@@ -337,18 +374,6 @@ export function ConversationDetail({
                 </>
               )}
             </Badge>
-            {conversation.lifecycle_status ? (
-              <Badge
-                variant={conversation.lifecycle_status === "escalation_requested" ? "default" : "outline"}
-                className={
-                  conversation.lifecycle_status === "escalation_requested"
-                    ? "bg-amber-500 hover:bg-amber-500"
-                    : undefined
-                }
-              >
-                {conversation.lifecycle_status.replace(/_/g, " ")}
-              </Badge>
-            ) : null}
             <Switch
               checked={conversation.mode === "human"}
               onCheckedChange={(checked) =>
@@ -362,11 +387,102 @@ export function ConversationDetail({
                   },
                 )
               }
+              aria-label="Toggle human handling"
             />
           </div>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
+          <Select
+            value={conversation.status}
+            onValueChange={(value) =>
+              updateMeta.mutate({
+                conversationId: conversation.id,
+                payload: {
+                  status: value as Conversation["status"],
+                },
+              })
+            }
+          >
+            <SelectTrigger className="h-8 w-[140px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="open">Open</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="resolved">Resolved</SelectItem>
+              <SelectItem value="spam">Spam</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={conversation.assigned_user_id || "unassigned"}
+            onValueChange={(value) =>
+              updateMeta.mutate({
+                conversationId: conversation.id,
+                payload: {
+                  assigned_user_id: value === "unassigned" ? null : value,
+                },
+              })
+            }
+          >
+            <SelectTrigger className="h-8 min-w-[132px] flex-1 sm:flex-none sm:w-[160px]">
+              <SelectValue placeholder="Assignee" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              {assignees.map((assignee) => (
+                <SelectItem key={assignee.id} value={assignee.id}>
+                  {assignee.full_name || assignee.email}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="flex min-w-[180px] flex-1 items-center gap-2">
+            <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <Input
+              className="h-8"
+              value={phoneValue}
+              placeholder="Add phone to convert"
+              onChange={(e) => setPhoneValue(e.target.value)}
+              onBlur={() => {
+                if (phoneValue !== (conversation.phone || conversation.visitor_data?.phone || "")) {
+                  updateMeta.mutate({
+                    conversationId: conversation.id,
+                    payload: { phone: phoneValue || null },
+                  });
+                }
+              }}
+            />
+          </div>
+
+          {conversation.lead_id ? (
+            <Button asChild variant="outline" className="h-8">
+              <Link href={`/dashboard/leads/${conversation.lead_id}`}>
+                <Link2 className="mr-1 h-3.5 w-3.5" />
+                View lead
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              className="h-8"
+              disabled={!isPhoneValid || convertLead.isPending}
+              title={!isPhoneValid ? "Enter a valid phone number first" : undefined}
+              onClick={() =>
+                convertLead.mutate(conversation.id, {
+                  onSuccess: () => toast.success("Converted and linked to lead"),
+                  onError: (error) => toast.error(error.message),
+                })
+              }
+            >
+              Convert to Lead
+            </Button>
+          )}
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-2">
           <Button
             size="sm"
             variant="outline"
@@ -414,119 +530,58 @@ export function ConversationDetail({
             <MessageSquareMore className="mr-1.5 h-3.5 w-3.5" />
             {conversation.unread_count > 0 ? "Mark read" : "Mark unread"}
           </Button>
+          {!conversation.lead_id && !isPhoneValid ? (
+            <p className="self-center text-[11px] text-muted-foreground">
+              Add a phone number to convert this chat into a lead.
+            </p>
+          ) : null}
         </div>
-
-        <div className="mt-3 grid gap-2 md:grid-cols-4">
-          <Select
-            value={conversation.status}
-            onValueChange={(value) =>
-              updateMeta.mutate({
-                conversationId: conversation.id,
-                payload: {
-                  status: value as Conversation["status"],
-                },
-              })
-            }
-          >
-            <SelectTrigger className="h-8">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="resolved">Resolved</SelectItem>
-              <SelectItem value="spam">Spam</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={conversation.assigned_user_id || "unassigned"}
-            onValueChange={(value) =>
-              updateMeta.mutate({
-                conversationId: conversation.id,
-                payload: {
-                  assigned_user_id: value === "unassigned" ? null : value,
-                },
-              })
-            }
-          >
-            <SelectTrigger className="h-8">
-              <SelectValue placeholder="Assignee" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="unassigned">Unassigned</SelectItem>
-              {assignees.map((assignee) => (
-                <SelectItem key={assignee.id} value={assignee.id}>
-                  {assignee.full_name || assignee.email}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <div className="flex items-center gap-2">
-            <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              className="h-8"
-              value={phoneValue}
-              placeholder="Phone"
-              onChange={(e) => setPhoneValue(e.target.value)}
-              onBlur={() => {
-                if (phoneValue !== (conversation.phone || "")) {
-                  updateMeta.mutate({
-                    conversationId: conversation.id,
-                    payload: { phone: phoneValue || null },
-                  });
-                }
-              }}
-            />
-          </div>
-
-          {conversation.lead_id ? (
-            <Button asChild variant="outline" className="h-8">
-              <Link href={`/dashboard/leads/${conversation.lead_id}`}>
-                <Link2 className="mr-1 h-3.5 w-3.5" />
-                View lead
-              </Link>
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              className="h-8"
-              disabled={!isPhoneValid || convertLead.isPending}
-              onClick={() =>
-                convertLead.mutate(conversation.id, {
-                  onSuccess: () => toast.success("Converted and linked to lead"),
-                  onError: (error) => toast.error(error.message),
-                })
-              }
+        {conversation.channel === "website" ? (
+          <div className="mt-3 rounded-md border bg-muted/30 text-xs">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-3 py-2 text-left font-medium text-foreground"
+              onClick={() => setVisitorDetailsOpen((open) => !open)}
             >
-              Convert to Lead
-            </Button>
-          )}
-        </div>
-        {conversation.channel === "website" && conversation.visitor_data ? (
-          <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs">
-            <p className="font-medium text-foreground">Captured website visitor details</p>
-            <div className="mt-1 grid gap-1 text-muted-foreground sm:grid-cols-2">
-              <span>Email: {conversation.visitor_data.email || "Not provided"}</span>
-              <span>Phone: {conversation.visitor_data.phone || "Not provided"}</span>
               <span>
-                Courses: {conversation.visitor_data.interested_courses?.join(", ") || "Not provided"}
+                Visitor details
+                {conversation.visitor_data?.email ? ` · ${conversation.visitor_data.email}` : ""}
+                {pageLabel ? ` · ${pageLabel}` : ""}
               </span>
-              <span>
-                Qualification: {conversation.visitor_data.qualified ? "Qualified" : "Not qualified yet"}
-              </span>
-            </div>
-            {conversation.source_url ? (
-              <p className="mt-1 truncate text-muted-foreground" title={conversation.source_url}>
-                Page: {conversation.source_url}
-              </p>
+              <ChevronDown
+                className={cn("h-4 w-4 text-muted-foreground", visitorDetailsOpen && "rotate-180")}
+              />
+            </button>
+            {visitorDetailsOpen ? (
+              <div className="grid gap-1 border-t px-3 py-2 text-muted-foreground sm:grid-cols-2">
+                <span>Name: {conversation.visitor_data?.name || conversation.name || "Not provided"}</span>
+                <span>Email: {conversation.visitor_data?.email || "Not provided"}</span>
+                <span>Phone: {conversation.visitor_data?.phone || conversation.phone || "Not provided"}</span>
+                <span>
+                  Courses: {conversation.visitor_data?.interested_courses?.join(", ") || "Not provided"}
+                </span>
+                <span>
+                  Qualification: {conversation.visitor_data?.qualified ? "Qualified" : "Not qualified yet"}
+                </span>
+                {conversation.source_url ? (
+                  <a
+                    href={conversation.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="truncate text-blue-600 hover:underline sm:col-span-2"
+                    title={conversation.source_url}
+                  >
+                    Page: {conversation.source_url}
+                  </a>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}
       </div>
 
-      <ScrollArea ref={scrollRef} className="flex-1 p-4">
+      <div className="relative min-h-0 flex-1">
+      <ScrollArea ref={scrollRef} className="h-full p-4">
         {messagesLoading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -565,6 +620,18 @@ export function ConversationDetail({
           </div>
         )}
       </ScrollArea>
+      {showJumpToLatest ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+          <Button
+            size="sm"
+            className="pointer-events-auto shadow-md"
+            onClick={scrollToLatest}
+          >
+            Jump to latest
+          </Button>
+        </div>
+      ) : null}
+      </div>
 
       <div className="border-t p-3">
         <div className="flex items-center gap-2">
@@ -584,8 +651,8 @@ export function ConversationDetail({
             ref={inputRef}
             placeholder={
               conversation.mode === "human"
-                ? "Reply as human counselor..."
-                : "Send manual message..."
+                ? "Reply as counsellor…"
+                : "Send a manual message (LISA is still answering)…"
             }
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}

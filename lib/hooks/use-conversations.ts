@@ -5,10 +5,8 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from "@tanstack/react-query";
-
-const READ_STATE_MUTATION_COOLDOWN_MS = 15_000;
-const lastReadStateMutationAt = new Map<string, number>();
 
 export interface Conversation {
   id: string;
@@ -115,7 +113,36 @@ function toQueryString(filters: ConversationFilters) {
   return params.toString();
 }
 
-export function useConversations(filters: ConversationFilters = {}) {
+export const messageThreadQueryKey = (conversationId: string | null) =>
+  ["messages", conversationId, "infinite"] as const;
+
+export function applyConversationUnread(
+  queryClient: QueryClient,
+  conversationId: string,
+  unreadCount: number,
+) {
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ["conversations"] }, (list) => {
+    if (!Array.isArray(list)) return list;
+    let changed = false;
+    const next = list.map((conversation) => {
+      if (conversation.id !== conversationId || conversation.unread_count === unreadCount) {
+        return conversation;
+      }
+      changed = true;
+      return { ...conversation, unread_count: unreadCount };
+    });
+    return changed ? next : list;
+  });
+}
+
+type LiveQueryOptions = {
+  isLive?: boolean;
+};
+
+export function useConversations(
+  filters: ConversationFilters = {},
+  options: LiveQueryOptions = {},
+) {
   return useQuery<Conversation[]>({
     queryKey: ["conversations", filters],
     queryFn: async () => {
@@ -124,7 +151,9 @@ export function useConversations(filters: ConversationFilters = {}) {
       if (!res.ok) throw new Error("Failed to fetch conversations");
       return (await res.json()) as Conversation[];
     },
-    refetchInterval: 30000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: options.isLive ? 20_000 : 4_000,
   });
 }
 
@@ -144,13 +173,18 @@ export function useMessages(conversationId: string | null) {
       return page.messages;
     },
     enabled: !!conversationId,
-    refetchInterval: 15000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 4_000,
   });
 }
 
-export function useInfiniteMessages(conversationId: string | null) {
+export function useInfiniteMessages(
+  conversationId: string | null,
+  options: LiveQueryOptions = {},
+) {
   return useInfiniteQuery({
-    queryKey: ["messages", conversationId, "infinite"],
+    queryKey: messageThreadQueryKey(conversationId),
     queryFn: async ({ pageParam }) => {
       if (!conversationId) return { messages: [], nextCursor: null } as MessagePage;
       const params = new URLSearchParams({ limit: "50" });
@@ -162,7 +196,9 @@ export function useInfiniteMessages(conversationId: string | null) {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: !!conversationId,
-    refetchInterval: 15000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: options.isLive ? 20_000 : 4_000,
   });
 }
 
@@ -215,7 +251,7 @@ export function useSendMessage() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ["messages", variables.conversationId],
+        queryKey: messageThreadQueryKey(variables.conversationId),
       });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
@@ -274,7 +310,7 @@ export function useSendTwilioTemplate() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ["messages", variables.conversationId],
+        queryKey: messageThreadQueryKey(variables.conversationId),
       });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
@@ -351,39 +387,35 @@ export function useSetConversationReadState() {
       conversationId: string;
       state: "read" | "unread";
     }) => {
-      if (state === "read") {
-        const cachedConversationLists = queryClient.getQueriesData<Conversation[]>({
-          queryKey: ["conversations"],
-        });
-        const cachedConversation = cachedConversationLists
-          .flatMap(([, list]) => list ?? [])
-          .find((conversation) => conversation.id === conversationId);
-        if (cachedConversation && (cachedConversation.unread_count ?? 0) <= 0) {
-          return { ok: true, skipped: true };
-        }
-      }
-
-      const mutationKey = `${conversationId}:${state}`;
-      const now = Date.now();
-      const lastRunAt = lastReadStateMutationAt.get(mutationKey) ?? 0;
-      if (now - lastRunAt < READ_STATE_MUTATION_COOLDOWN_MS) {
-        return { ok: true, skipped: true };
-      }
-      lastReadStateMutationAt.set(mutationKey, now);
-
       const res = await fetch(`/api/conversations/${conversationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ read_state: state }),
       });
       if (!res.ok) {
-        lastReadStateMutationAt.delete(mutationKey);
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error || "Failed to update read state");
       }
       return res.json();
     },
-    onSuccess: () => {
+    onMutate: async ({ conversationId, state }) => {
+      await queryClient.cancelQueries({ queryKey: ["conversations"] });
+      const previous = queryClient.getQueriesData<Conversation[]>({
+        queryKey: ["conversations"],
+      });
+      applyConversationUnread(
+        queryClient,
+        conversationId,
+        state === "read" ? 0 : 1,
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      for (const [queryKey, data] of context?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
   });

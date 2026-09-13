@@ -19,7 +19,7 @@ type WidgetMessage = {
 };
 
 const STORAGE_KEY = "ecmt-website-chat-session";
-const AGENT_NAME = "ESRA";
+const AGENT_NAME = "LISA";
 
 function formatTime(value: string) {
   const date = new Date(value);
