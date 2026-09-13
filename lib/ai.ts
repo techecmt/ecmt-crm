@@ -143,7 +143,7 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
         .order("sort_order", { ascending: true })
     : { data: [] as Array<{ title: string; content: string; category: string | null }> };
 
-  const model = settings?.model || process.env.AI_MODEL || "openai/gpt-4o-mini";
+  const model = settings?.model || "openai/gpt-4o-mini";
   const maxTokens = settings?.max_tokens || 500;
   const temperature = Number(settings?.temperature ?? 0.7);
   const maxHistory = settings?.max_history_messages || 20;

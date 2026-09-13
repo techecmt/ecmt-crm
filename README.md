@@ -108,7 +108,6 @@ For the unified WhatsApp + Facebook Messenger Message Centre, set these variable
 
 ```env
 OPENROUTER_API_KEY=
-AI_MODEL=openai/gpt-4o-mini
 META_VERIFY_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_ACCESS_TOKEN=
@@ -118,7 +117,7 @@ TWILIO_WHATSAPP_FROM=
 TWILIO_MESSAGING_SERVICE_SID=
 ```
 
-Messenger page credentials are configured from the app in `Message Centre Settings` and stored in the `messaging_pages` table. Twilio credentials can now be configured per AI agent in the same settings screen (`twilio_connections` table), with env vars used only as fallback.
+The chat model is set per AI agent in `Message Centre Settings` → **Model Configuration**, not via env. Messenger page credentials are configured from the app in `Message Centre Settings` and stored in the `messaging_pages` table. Twilio credentials can now be configured per AI agent in the same settings screen (`twilio_connections` table), with env vars used only as fallback.
 
 ## Website chat widget
 
