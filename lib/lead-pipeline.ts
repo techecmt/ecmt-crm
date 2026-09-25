@@ -14,7 +14,8 @@ import {
  * - "Invalid Contact" can ONLY be set directly after "Inquiry Received".
  * - "Not Interested" requires that the lead has entered the counselling stages
  *   at some point (Counselling In-Progress or Counselling Completed).
- * - Registration statuses require counselling to be completed first.
+ * - Entering Registration (Unpaid) requires counselling to be completed first.
+ * - Registration (Paid) is allowed from Registration (Unpaid) without re-checking counselling.
  */
 
 /** Inputs needed to evaluate whether a transition is allowed. */
@@ -91,7 +92,18 @@ export function evaluateLeadTransition(
       return { allowed: true };
 
     case "registration_unpaid":
+      if (!ctx.hasCompletedCounselling) {
+        return {
+          allowed: false,
+          reason: "Counselling must be completed before moving to a Registration stage.",
+        };
+      }
+      return { allowed: true };
+
     case "registered_paid_reg_fee":
+      if (ctx.currentStatus === "registration_unpaid") {
+        return { allowed: true };
+      }
       if (!ctx.hasCompletedCounselling) {
         return {
           allowed: false,
