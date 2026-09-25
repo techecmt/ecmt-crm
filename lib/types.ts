@@ -16,6 +16,8 @@ export type LeadStatus =
   | "course_not_started"
   | "registration_unpaid"
   | "registered_paid_reg_fee"
+  | "withdrawn"
+  | "dropped"
   // Legacy statuses kept for backward compatibility with existing data.
   | "unable_to_reach"
   | "contacted_info_shared"
@@ -58,7 +60,8 @@ export type LeadSource =
   | "facebook_organic"
   | "website"
   | "direct_calls_whatsapp"
-  | "walk_in";
+  | "walk_in"
+  | "alumni";
 
 export const DEFAULT_LEAD_SOURCE: LeadSource = "website";
 
@@ -433,6 +436,8 @@ export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   course_not_started: "Inactive Courses",
   registration_unpaid: "Registration (Unpaid)",
   registered_paid_reg_fee: "Registration (Paid)",
+  withdrawn: "Withdrawn",
+  dropped: "Dropped",
   // Legacy labels kept for historical rows.
   unable_to_reach: "Unable to Reach (legacy)",
   contacted_info_shared: "Contacted & Info Shared (legacy)",
@@ -454,6 +459,8 @@ export const PIPELINE_LEAD_STATUSES: LeadStatus[] = [
   "course_not_started",
   "registration_unpaid",
   "registered_paid_reg_fee",
+  "withdrawn",
+  "dropped",
 ];
 
 /** Statuses where the lead is considered to have entered counselling at least once. */
@@ -470,6 +477,8 @@ export const STATUSES_THAT_CLEAR_PENDING_FOLLOWUPS: LeadStatus[] = [
   "course_not_started",
   "registration_unpaid",
   "registered_paid_reg_fee",
+  "withdrawn",
+  "dropped",
 ];
 
 /** Statuses that do not require an ongoing pending follow-up. */
@@ -481,6 +490,8 @@ export const TERMINAL_LEAD_STATUSES: LeadStatus[] = [
   "course_not_started",
   "registration_unpaid",
   "registered_paid_reg_fee",
+  "withdrawn",
+  "dropped",
   "registered_closed",
   "registered_dropped_out",
 ];
@@ -532,6 +543,7 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   website: "Website",
   direct_calls_whatsapp: "Direct - Calls/ WhatsApp",
   walk_in: "Walk-In",
+  alumni: "Alumni",
 };
 
 export const FOLLOW_UP_TYPE_LABELS: Record<FollowUpType, string> = {

@@ -85,6 +85,8 @@ const COUNSELLING_STARTED_STATUSES = new Set<LeadStatus>([
   "counselling_completed",
   "registration_unpaid",
   "registered_paid_reg_fee",
+  "withdrawn",
+  "dropped",
   "on_discussions",
   "registered_closed",
   "registered_dropped_out",
@@ -94,6 +96,8 @@ const COUNSELLING_COMPLETED_STATUSES = new Set<LeadStatus>([
   "counselling_completed",
   "registration_unpaid",
   "registered_paid_reg_fee",
+  "withdrawn",
+  "dropped",
   "registered_closed",
   "registered_dropped_out",
 ]);
@@ -101,6 +105,8 @@ const COUNSELLING_COMPLETED_STATUSES = new Set<LeadStatus>([
 const REGISTRATION_STATUSES = new Set<LeadStatus>([
   "registration_unpaid",
   "registered_paid_reg_fee",
+  "withdrawn",
+  "dropped",
   "registered_closed",
   "registered_dropped_out",
 ]);

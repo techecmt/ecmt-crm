@@ -89,6 +89,8 @@ export function evaluateLeadTransition(
       return { allowed: true };
 
     case "course_not_started":
+    case "withdrawn":
+    case "dropped":
       return { allowed: true };
 
     case "registration_unpaid":

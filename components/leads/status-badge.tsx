@@ -21,6 +21,10 @@ const STATUS_STYLES: Record<LeadStatus, string> = {
     "bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/20 dark:text-amber-300",
   registered_paid_reg_fee:
     "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/20 dark:text-emerald-300",
+  withdrawn:
+    "bg-orange-100 text-orange-800 hover:bg-orange-100 dark:bg-orange-500/20 dark:text-orange-300",
+  dropped:
+    "bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-500/20 dark:text-red-300",
   // Legacy
   unable_to_reach:
     "bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/20 dark:text-amber-300",

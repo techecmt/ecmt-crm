@@ -96,6 +96,8 @@ const STATUS_ORDER: LeadStatus[] = [
   "on_discussions",
   "registered_closed",
   "registered_paid_reg_fee",
+  "withdrawn",
+  "dropped",
   "registered_dropped_out",
 ];
 
@@ -106,6 +108,8 @@ const TERMINAL_STATUSES = new Set<LeadStatus>([
   "not_interested",
   "registered_closed",
   "registered_paid_reg_fee",
+  "withdrawn",
+  "dropped",
   "registered_dropped_out",
 ]);
 
@@ -131,6 +135,7 @@ const sourceColors: Record<LeadSource, string> = {
   website: "hsl(var(--chart-5))",
   direct_calls_whatsapp: "hsl(var(--chart-1))",
   walk_in: "hsl(var(--chart-2))",
+  alumni: "hsl(var(--chart-3))",
 };
 
 export function DashboardOverview({ leads, colleges, usersCount, profile, followUps }: Props) {
