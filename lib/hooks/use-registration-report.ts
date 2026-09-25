@@ -52,12 +52,18 @@ function normalizeCourse(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
+/** Leads counted on the registration report (timestamp + current status). */
+const REGISTRATION_REPORT_STATUSES: LeadStatus[] = [
+  "registration_unpaid",
+  "registered_paid_reg_fee",
+];
+
 export function isRegistrationUnpaid(status: LeadStatus) {
   return status === "registration_unpaid";
 }
 
 export function isRegistrationPaid(status: LeadStatus) {
-  return status === "registered_paid_reg_fee" || status === "registered_closed";
+  return status === "registered_paid_reg_fee";
 }
 
 export function useRegistrationReport(filters: RegistrationReportFilters) {
@@ -78,6 +84,7 @@ export function useRegistrationReport(filters: RegistrationReportFilters) {
           "id,full_name,created_at,registration_completed_at,status,college_id,interested_course,source,assigned_counsellor,counsellor:profiles!leads_assigned_counsellor_fkey(id,full_name,email)",
         )
         .not("registration_completed_at", "is", null)
+        .in("status", REGISTRATION_REPORT_STATUSES)
         .gte("registration_completed_at", fromIso)
         .lte("registration_completed_at", toIso)
         .order("registration_completed_at", { ascending: false });
