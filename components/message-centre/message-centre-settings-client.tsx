@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  BookOpen,
   Bot,
   Brain,
   FileText,
@@ -78,6 +79,7 @@ import {
   useUpdateTwilioConnection,
 } from "@/lib/hooks/use-message-centre-settings";
 import { WebsiteWidgetSettings } from "@/components/message-centre/website-widget-settings";
+import { CourseCatalogManager } from "@/components/message-centre/course-catalog-manager";
 
 const TONE_OPTIONS = [
   { value: "professional_friendly", label: "Professional & Friendly" },
@@ -232,7 +234,7 @@ export function MessageCentreSettingsClient() {
 
       {selectedAgent ? (
         <Tabs defaultValue="agent" className="space-y-6">
-      <TabsList className="grid w-full grid-cols-4">
+      <TabsList className="grid w-full grid-cols-5">
         <TabsTrigger value="agent" className="gap-1.5 px-1 sm:gap-2 sm:px-3">
           <Bot className="h-4 w-4 shrink-0" />
           <span className="truncate">
@@ -258,6 +260,10 @@ export function MessageCentreSettingsClient() {
           <FileText className="h-4 w-4 shrink-0" />
           <span className="truncate">Templates</span>
         </TabsTrigger>
+        <TabsTrigger value="courses" className="gap-1.5 px-1 sm:gap-2 sm:px-3">
+          <BookOpen className="h-4 w-4 shrink-0" />
+          <span className="truncate">Courses</span>
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="agent">
@@ -271,6 +277,9 @@ export function MessageCentreSettingsClient() {
       </TabsContent>
       <TabsContent value="templates">
         <WhatsAppTemplatesManager agentId={selectedAgent.id} />
+      </TabsContent>
+      <TabsContent value="courses">
+        <CourseCatalogManager agentId={selectedAgent.id} />
       </TabsContent>
         </Tabs>
       ) : (

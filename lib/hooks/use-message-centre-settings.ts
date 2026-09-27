@@ -72,6 +72,39 @@ export type TwilioConnection = {
   updated_at: string;
 };
 
+export type CourseCatalogAsset = {
+  id: string;
+  course_id: string;
+  asset_type: "brochure" | "creative";
+  media_type: "image" | "document";
+  bucket: string;
+  path: string;
+  url: string;
+  mime_type: string | null;
+  filename: string | null;
+  caption: string;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CourseCatalogEntry = {
+  id: string;
+  agent_id: string;
+  course_name: string;
+  fee_summary: string;
+  fee_details: string;
+  fee_amount: number | null;
+  fee_currency: string;
+  keyword_aliases: string[];
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  assets: CourseCatalogAsset[];
+};
+
 export function useAIAgents() {
   return useQuery<AIAgent[]>({
     queryKey: ["ai-agents"],
@@ -405,5 +438,160 @@ export function useDeleteTwilioConnection() {
     },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["twilio-connections"] }),
+  });
+}
+
+export function useCourseCatalog(agentId?: string | null) {
+  return useQuery<CourseCatalogEntry[]>({
+    queryKey: ["ai-course-catalog", agentId ?? "default"],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (agentId) params.set("agent_id", agentId);
+      const query = params.toString();
+      const res = await fetch(`/api/ai/course-catalog${query ? `?${query}` : ""}`);
+      if (!res.ok) throw new Error("Failed to fetch course catalog");
+      return res.json();
+    },
+    enabled: !!agentId,
+  });
+}
+
+export function useCreateCourseCatalogEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      agent_id: string;
+      course_name: string;
+      fee_summary?: string;
+      fee_details?: string;
+      fee_amount?: number | null;
+      fee_currency?: string;
+      keyword_aliases?: string[];
+      is_active?: boolean;
+      sort_order?: number;
+    }) => {
+      const res = await fetch("/api/ai/course-catalog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to create course");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-course-catalog"] }),
+  });
+}
+
+export function useUpdateCourseCatalogEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      course_name?: string;
+      fee_summary?: string;
+      fee_details?: string;
+      fee_amount?: number | null;
+      fee_currency?: string;
+      keyword_aliases?: string[];
+      is_active?: boolean;
+      sort_order?: number;
+    }) => {
+      const { id, ...updates } = payload;
+      const res = await fetch(`/api/ai/course-catalog/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to update course");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-course-catalog"] }),
+  });
+}
+
+export function useDeleteCourseCatalogEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/ai/course-catalog/${id}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to delete course");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-course-catalog"] }),
+  });
+}
+
+export function useUploadCourseCatalogAsset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      courseId: string;
+      file: File;
+      assetType: "brochure" | "creative";
+      caption?: string;
+      sortOrder?: number;
+    }) => {
+      const formData = new FormData();
+      formData.set("course_id", payload.courseId);
+      formData.set("asset_type", payload.assetType);
+      formData.set("file", payload.file);
+      if (payload.caption) formData.set("caption", payload.caption);
+      if (payload.sortOrder !== undefined) {
+        formData.set("sort_order", String(payload.sortOrder));
+      }
+      const res = await fetch("/api/ai/course-catalog/assets/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to upload asset");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-course-catalog"] }),
+  });
+}
+
+export function useUpdateCourseCatalogAsset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      caption?: string;
+      is_active?: boolean;
+      sort_order?: number;
+      asset_type?: "brochure" | "creative";
+    }) => {
+      const res = await fetch("/api/ai/course-catalog/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to update asset");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-course-catalog"] }),
+  });
+}
+
+export function useDeleteCourseCatalogAsset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch("/api/ai/course-catalog/assets", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to delete asset");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-course-catalog"] }),
   });
 }

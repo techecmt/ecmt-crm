@@ -3,12 +3,17 @@ import "server-only";
 import { getAIResponse, type AIResult, type ChatMessage } from "@/lib/ai";
 import { canonicalizePhoneKey } from "@/lib/phone";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isTerminalLeadStatus, type LeadStatus } from "@/lib/types";
+import { isTerminalLeadStatus, type LeadSource, type LeadStatus } from "@/lib/types";
 import { getAgentAvailability } from "./ai-availability";
 import { captureCtwaAttributionForConversation } from "./capture-ctwa-attribution";
 import { fetchMessengerProfileName } from "./messenger";
 import { clearOptOut, detectOptOutIntent, recordOptOut } from "./opt-out";
 import { sendMessage } from "./send";
+import {
+  buildCourseCatalogContext,
+  filterAssetsByCooldown,
+  selectCourseAssetsForMessage,
+} from "./course-assets";
 import type { ParsedInboundMessage } from "./types";
 
 async function resolveInboundAgentId(
@@ -34,6 +39,92 @@ async function resolveInboundAgentId(
     .eq("is_default", true)
     .maybeSingle();
   return (defaultAgent?.id as string | undefined) ?? null;
+}
+
+function inferLeadSourceForInboundConversation(conversation: {
+  provider: string | null;
+  source: string | null;
+  attribution_captured_at: string | null;
+}): LeadSource {
+  if (conversation.source === "meta_ads" || conversation.attribution_captured_at) {
+    return "meta_ads";
+  }
+  if (conversation.provider === "twilio") {
+    return "direct_calls_whatsapp";
+  }
+  return "facebook_organic";
+}
+
+async function ensureLeadForWhatsAppConversation(input: {
+  supabase: ReturnType<typeof createAdminClient>;
+  conversation: {
+    id: string;
+    channel: string;
+    provider: string | null;
+    phone: string | null;
+    external_user_id: string;
+    name: string | null;
+    assigned_user_id: string | null;
+    lead_id: string | null;
+    source: string | null;
+    attribution_captured_at: string | null;
+  };
+  incomingName: string | null;
+}) {
+  if (input.conversation.channel !== "whatsapp") return input.conversation.lead_id;
+  if (input.conversation.lead_id) return input.conversation.lead_id;
+
+  const inferredPhone = input.conversation.phone ?? input.conversation.external_user_id;
+  const inferredPhoneKey = canonicalizePhoneKey(inferredPhone);
+  if (!inferredPhoneKey) return null;
+
+  const { data: leads } = await input.supabase
+    .from("leads")
+    .select("id,status")
+    .eq("phone_key", inferredPhoneKey)
+    .order("created_at", { ascending: false });
+  const preferredLead =
+    (leads ?? []).find((lead) => !isTerminalLeadStatus(lead.status as LeadStatus)) ??
+    (leads ?? [])[0];
+
+  let leadId = preferredLead?.id ?? null;
+  if (!leadId) {
+    const source = inferLeadSourceForInboundConversation({
+      provider: input.conversation.provider,
+      source: input.conversation.source,
+      attribution_captured_at: input.conversation.attribution_captured_at,
+    });
+    const { data: createdLead, error: leadError } = await input.supabase
+      .from("leads")
+      .insert({
+        full_name:
+          input.incomingName ||
+          input.conversation.name ||
+          `Message lead ${inferredPhone}`,
+        phone: inferredPhone,
+        phone_key: inferredPhoneKey,
+        source,
+        status: "inquiry_received",
+        lead_score: 0,
+        assigned_counsellor: input.conversation.assigned_user_id || null,
+      })
+      .select("id")
+      .single();
+
+    if (leadError || !createdLead) {
+      console.error("[Webhook] Failed to auto-create lead:", leadError);
+      return null;
+    }
+    leadId = createdLead.id as string;
+  }
+
+  await input.supabase
+    .from("conversations")
+    .update({ lead_id: leadId })
+    .eq("id", input.conversation.id)
+    .is("lead_id", null);
+
+  return leadId;
 }
 
 export async function processInboundMessage(parsed: ParsedInboundMessage) {
@@ -107,21 +198,6 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
   if (!conversation) {
     const inferredPhone =
       parsed.channel === "whatsapp" ? parsed.externalUserId : null;
-    let leadId: string | null = null;
-    if (inferredPhone) {
-      const inferredPhoneKey = canonicalizePhoneKey(inferredPhone);
-      if (inferredPhoneKey) {
-        const { data: leads } = await supabase
-          .from("leads")
-          .select("id,status")
-          .eq("phone_key", inferredPhoneKey)
-          .order("created_at", { ascending: false });
-        const preferredLead =
-          (leads ?? []).find((lead) => !isTerminalLeadStatus(lead.status as LeadStatus)) ??
-          (leads ?? [])[0];
-        leadId = preferredLead?.id ?? null;
-      }
-    }
 
     const { data: newConv, error } = await supabase
       .from("conversations")
@@ -133,7 +209,7 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
         external_user_id: parsed.externalUserId,
         phone: inferredPhone,
         name: incomingName,
-        lead_id: leadId,
+        lead_id: null,
         ai_agent_id: inboundAgentId,
         status: "open",
       })
@@ -180,6 +256,27 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     if (patch) {
       conversation = { ...conversation, ...patch };
     }
+  }
+
+  const ensuredLeadId = await ensureLeadForWhatsAppConversation({
+    supabase,
+    conversation: {
+      id: conversation.id,
+      channel: conversation.channel as string,
+      provider: (conversation.provider as string | null) ?? null,
+      phone: (conversation.phone as string | null) ?? null,
+      external_user_id: conversation.external_user_id as string,
+      name: (conversation.name as string | null) ?? null,
+      assigned_user_id: (conversation.assigned_user_id as string | null) ?? null,
+      lead_id: (conversation.lead_id as string | null) ?? null,
+      source: (conversation.source as string | null) ?? null,
+      attribution_captured_at:
+        (conversation.attribution_captured_at as string | null) ?? null,
+    },
+    incomingName,
+  });
+  if (ensuredLeadId && conversation.lead_id !== ensuredLeadId) {
+    conversation = { ...conversation, lead_id: ensuredLeadId };
   }
 
   await supabase.from("messages").insert({
@@ -283,7 +380,7 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     .select("role, content")
     .eq("conversation_id", conversation.id)
     .order("created_at", { ascending: true })
-    .limit(30);
+    .limit(60);
 
   const chatHistory: ChatMessage[] = (history || []).map((message) => ({
     role: message.role as "user" | "assistant",
@@ -292,6 +389,7 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
 
   let leadContext: string | null = null;
   let linkedConversationSummary: string | null = null;
+  let leadInterestedCourse: string | null = null;
   if (conversation.lead_id) {
     const { data: lead } = await supabase
       .from("leads")
@@ -299,6 +397,7 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
       .eq("id", conversation.lead_id)
       .single();
     if (lead) {
+      leadInterestedCourse = (lead.interested_course as string | null) ?? null;
       leadContext = [
         `Name: ${lead.full_name}`,
         `Phone: ${lead.phone || "-"}`,
@@ -310,27 +409,39 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
 
     const { data: relatedConversations } = await supabase
       .from("conversations")
-      .select("id, channel")
+      .select("id, channel, updated_at")
       .eq("lead_id", conversation.lead_id)
       .neq("id", conversation.id)
-      .limit(3);
+      .order("updated_at", { ascending: false })
+      .limit(6);
 
     if (relatedConversations?.length) {
       const ids = relatedConversations.map((related) => related.id);
       const { data: relatedMessages } = await supabase
         .from("messages")
-        .select("conversation_id, role, content")
+        .select("conversation_id, role, content, created_at")
         .in("conversation_id", ids)
-        .order("created_at", { ascending: false })
-        .limit(12);
+        .order("created_at", { ascending: true })
+        .limit(60);
 
       if (relatedMessages?.length) {
-        linkedConversationSummary = relatedMessages
-          .map(
-            (message) =>
-              `${message.conversation_id.slice(0, 8)} ${message.role === "user" ? "User" : "Assistant"}: ${message.content}`,
-          )
-          .join("\n");
+        const byConversation = new Map<string, string[]>();
+        for (const message of relatedMessages) {
+          const roleLabel = message.role === "user" ? "User" : "Assistant";
+          const list = byConversation.get(message.conversation_id) ?? [];
+          list.push(`${roleLabel}: ${message.content}`);
+          byConversation.set(message.conversation_id, list);
+        }
+
+        linkedConversationSummary = relatedConversations
+          .map((related) => {
+            const lines = byConversation.get(related.id) ?? [];
+            if (!lines.length) return null;
+            const latestLines = lines.slice(-4).join("\n");
+            return `Conversation ${related.id.slice(0, 8)} (${related.channel})\n${latestLines}`;
+          })
+          .filter(Boolean)
+          .join("\n\n");
       }
     }
   }
@@ -352,12 +463,18 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     await new Promise((resolve) => setTimeout(resolve, responseDelayMs));
   }
 
+  const courseCatalogContext = await buildCourseCatalogContext({
+    supabase,
+    agentId: agentIdForReply,
+  });
+
   const aiResult: AIResult = await getAIResponse({
     agentId: agentIdForReply,
     conversationHistory: chatHistory,
     channel: parsed.channel,
     leadContext,
     linkedConversationSummary,
+    courseCatalogContext,
   });
 
   await sendMessage(
@@ -376,6 +493,63 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     role: "assistant",
     content: aiResult.reply,
   });
+
+  if (conversation.channel === "whatsapp") {
+    const selectedAssets = await selectCourseAssetsForMessage({
+      supabase,
+      agentId: agentIdForReply,
+      userText: parsed.text,
+      leadInterestedCourse,
+    });
+
+    if (selectedAssets?.assets.length) {
+      const assetsToSend = await filterAssetsByCooldown({
+        supabase,
+        conversationId: conversation.id,
+        assets: selectedAssets.assets,
+      });
+
+      for (const asset of assetsToSend) {
+        const fallbackCaption =
+          asset.assetType === "brochure"
+            ? `Brochure for ${selectedAssets.courseName}`
+            : `Creative for ${selectedAssets.courseName}`;
+        const caption = asset.caption.trim() || fallbackCaption;
+
+        try {
+          await sendMessage(
+            {
+              channel: conversation.channel,
+              provider: conversation.provider,
+              external_user_id: conversation.external_user_id,
+              page_id: conversation.page_id,
+              twilio_connection_id: conversation.twilio_connection_id ?? null,
+            },
+            caption,
+            {
+              type: asset.mediaType,
+              url: asset.url,
+              filename: asset.filename,
+            },
+          );
+          await supabase.from("messages").insert({
+            conversation_id: conversation.id,
+            role: "assistant",
+            content: caption,
+            media_type: asset.mediaType,
+            media_url: asset.url,
+            media_mime_type: asset.mimeType,
+            media_filename: asset.filename,
+            provider_media_id: null,
+            ai_course_catalog_id: selectedAssets.courseId,
+            ai_course_asset_id: asset.id,
+          });
+        } catch (error) {
+          console.error("[Webhook] Failed to send course asset:", error);
+        }
+      }
+    }
+  }
 
   await supabase
     .from("conversations")

@@ -38,6 +38,7 @@ export type AIInput = {
   channel: Channel;
   leadContext?: string | null;
   linkedConversationSummary?: string | null;
+  courseCatalogContext?: string | null;
   leadCaptureContext?: string | null;
   disableAutomaticEscalation?: boolean;
 };
@@ -60,7 +61,8 @@ const TONE_INSTRUCTIONS: Record<string, string> = {
 
 function channelInstruction(channel: Channel) {
   if (channel === "whatsapp") {
-    return "Output plain text only. Do not use markdown.";
+    return `Output plain text only. Do not use markdown.
+The phone number is already known from WhatsApp sender metadata. Never ask the user for their phone number unless they explicitly request to change/update it.`;
   }
   if (channel === "website") {
     return `Format specifically for a small website chat window:
@@ -152,6 +154,19 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
     input.conversationHistory.filter((m) => m.role === "user").pop()?.content ?? "";
 
   const escalationKeywords: string[] = settings?.escalation_keywords ?? [];
+  const requestedLeadFields: string[] = settings?.lead_collect_fields ?? [];
+  const normalizedRequestedLeadFields = requestedLeadFields
+    .map((field) => field.trim())
+    .filter(Boolean);
+  const leadCollectFields =
+    input.channel === "whatsapp"
+      ? normalizedRequestedLeadFields.filter((field) => {
+          const normalized = field.toLowerCase().replace(/[^a-z]/g, "");
+          return !["phone", "phonenumber", "mobile", "mobilenumber", "contactnumber"].includes(
+            normalized,
+          );
+        })
+      : normalizedRequestedLeadFields;
   const shouldEscalate =
     !input.disableAutomaticEscalation &&
     settings?.escalation_enabled !== false &&
@@ -178,17 +193,21 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
       ? `Your name is ${settings.name || "Assistant"}. ${settings.persona}`
       : settings?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT,
     `Tone: ${toneInstruction}`,
+    "Use prior conversation context to continue from the latest unresolved point. Do not restart a full questionnaire when earlier messages already provided details.",
     channelInstruction(input.channel),
     input.leadContext ? `Lead context:\n${input.leadContext}` : null,
     input.linkedConversationSummary
       ? `Related conversation memory:\n${input.linkedConversationSummary}`
       : null,
+    input.courseCatalogContext
+      ? `${input.courseCatalogContext}\nWhen users ask about fee/cost/payment for a course, use this catalog first.`
+      : null,
     input.leadCaptureContext
       ? `Website visitor details collected so far:\n${input.leadCaptureContext}\n\nContinue to help first. Ask naturally for any missing contact detail or course only after the visitor shows interest; do not present a rigid form.`
       : null,
     knowledge ? `Knowledge base:\n${knowledge}` : null,
-    settings?.auto_collect_lead
-      ? `If the user hasn't shared their ${(settings.lead_collect_fields || []).join(", ")}, politely ask for them.`
+    settings?.auto_collect_lead && leadCollectFields.length
+      ? `If the user hasn't shared their ${leadCollectFields.join(", ")}, politely ask for the next most relevant missing detail only (one at a time), without repeating details they already provided.`
       : null,
   ].filter(Boolean);
 
