@@ -91,6 +91,7 @@ import { FollowUpFormDialog } from "@/components/follow-ups/follow-up-form-dialo
 import { CompleteFollowUpDialog } from "@/components/follow-ups/complete-follow-up-dialog";
 import { CallbackRequestCard } from "@/components/callback-requests/callback-request-card";
 import { WhatsAppPhoneLink } from "@/components/phone/whatsapp-phone-link";
+import { MetaAttributionSummary } from "@/components/meta-attribution/meta-attribution-summary";
 import {
   useAdmissionGoals,
   useRecordAdmissionGoalEvent,
@@ -527,6 +528,10 @@ export function LeadDetailPageClient({ leadId }: { leadId: string }) {
             )}
           </CardContent>
         </Card>
+
+        <div className="lg:col-span-3">
+          <MetaAttributionSummary data={lead} />
+        </div>
       </div>
 
       {counsellingFollowUps.length > 0 || lead.status === "counselling_in_progress" || lead.status === "counselling_completed" ? (

@@ -44,6 +44,23 @@ export interface Conversation {
   last_message_at: string | null;
   last_message_preview: string | null;
   last_message_role: "user" | "assistant" | null;
+  source?: string | null;
+  source_platform?: string | null;
+  meta_campaign_id?: string | null;
+  meta_campaign_name?: string | null;
+  meta_adset_id?: string | null;
+  meta_adset_name?: string | null;
+  meta_ad_id?: string | null;
+  meta_ad_name?: string | null;
+  meta_ctwa_clid?: string | null;
+  meta_referral_source_id?: string | null;
+  meta_referral_source_type?: string | null;
+  meta_referral_source_url?: string | null;
+  meta_referral_headline?: string | null;
+  meta_referral_body?: string | null;
+  meta_referral_media_id?: string | null;
+  meta_referral_media_url?: string | null;
+  attribution_captured_at?: string | null;
   last_message: {
     content: string;
     role: string;

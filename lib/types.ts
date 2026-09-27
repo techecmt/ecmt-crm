@@ -206,6 +206,29 @@ export interface Lead {
   utm_source: string | null;
   utm_medium: string | null;
   utm_campaign: string | null;
+  source_platform: string | null;
+  meta_campaign_id: string | null;
+  meta_campaign_name: string | null;
+  meta_adset_id: string | null;
+  meta_adset_name: string | null;
+  meta_ad_id: string | null;
+  meta_ad_name: string | null;
+  meta_ctwa_clid: string | null;
+  /** Twilio ReferralSourceId */
+  meta_referral_source_id: string | null;
+  /** Twilio ReferralSourceType */
+  meta_referral_source_type: string | null;
+  /** Twilio ReferralSourceUrl */
+  meta_referral_source_url: string | null;
+  /** Twilio ReferralHeadline */
+  meta_referral_headline: string | null;
+  /** Twilio ReferralBody */
+  meta_referral_body: string | null;
+  /** Twilio ReferralMediaId */
+  meta_referral_media_id: string | null;
+  /** Twilio ReferralMediaUrl */
+  meta_referral_media_url: string | null;
+  attribution_captured_at: string | null;
   is_duplicate: boolean;
   do_not_contact: boolean;
   do_not_contact_at: string | null;

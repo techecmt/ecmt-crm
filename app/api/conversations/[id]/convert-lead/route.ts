@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentProfile, hasModuleAccess } from "@/lib/auth";
 import { canonicalizePhoneKey } from "@/lib/phone";
+import { syncConversationAttributionToLead } from "@/lib/messaging/capture-ctwa-attribution";
 import { createClient } from "@/lib/supabase/server";
 import { isTerminalLeadStatus, type LeadSource, type LeadStatus } from "@/lib/types";
 
@@ -83,6 +84,18 @@ export async function POST(
       }
     }
 
+    const { data: conversationAttribution } = await supabase
+      .from("conversations")
+      .select("attribution_captured_at, source")
+      .eq("id", conversation.id)
+      .single();
+    if (
+      conversationAttribution?.attribution_captured_at ||
+      conversationAttribution?.source === "meta_ads"
+    ) {
+      source = "meta_ads";
+    }
+
     const { data: lead, error: leadError } = await supabase
       .from("leads")
       .insert({
@@ -110,6 +123,8 @@ export async function POST(
     }
     leadId = lead.id;
 
+    await syncConversationAttributionToLead(supabase, conversation.id, lead.id);
+
     await supabase.from("lead_activities").insert({
       lead_id: lead.id,
       user_id: profile.id,
@@ -127,6 +142,8 @@ export async function POST(
   if (linkError) {
     return NextResponse.json({ error: linkError.message }, { status: 500 });
   }
+
+  await syncConversationAttributionToLead(supabase, conversation.id, leadId);
 
   await supabase.from("lead_activities").insert({
     lead_id: leadId,

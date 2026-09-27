@@ -288,7 +288,9 @@ export function MessageCentreSettingsClient() {
 
 function AgentSettingsTab({ agentId }: { agentId: string }) {
   const { data: settings } = useAISettings(agentId);
+  const { data: twilioConnections = [] } = useTwilioConnections(agentId);
   const updateSettings = useUpdateAISettings();
+  const hasTwilioWhatsApp = twilioConnections.some((connection) => connection.is_active);
 
   const [form, setForm] = React.useState<Partial<AISettings>>({});
 
@@ -454,6 +456,12 @@ function AgentSettingsTab({ agentId }: { agentId: string }) {
               onChange={(e) => patch({ greeting_message: e.target.value })}
               placeholder="Hi! Welcome to our admissions team. How can I help you today?"
             />
+            {hasTwilioWhatsApp ? (
+              <p className="text-xs text-muted-foreground">
+                For Twilio WhatsApp, the opening message in your system prompt is used on
+                the first reply. Website chat uses this greeting when a session starts.
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-2">
             <Label>Fallback Message</Label>
@@ -571,6 +579,64 @@ function AgentSettingsTab({ agentId }: { agentId: string }) {
           ) : null}
         </CardContent>
       </Card>
+
+      {hasTwilioWhatsApp ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Phone className="h-4 w-4 text-emerald-600" />
+              WhatsApp API Conversations
+            </CardTitle>
+            <CardDescription>
+              Twilio WhatsApp behaviour for this agent. Connect senders under the
+              Connections tab.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <p className="font-medium">Active Twilio senders</p>
+              <ul className="mt-2 space-y-1 text-muted-foreground">
+                {twilioConnections
+                  .filter((connection) => connection.is_active)
+                  .map((connection) => (
+                    <li key={connection.id}>
+                      {connection.name}
+                      {connection.whatsapp_from
+                        ? ` · ${connection.whatsapp_from}`
+                        : ""}
+                    </li>
+                  ))}
+              </ul>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Point your Twilio WhatsApp sandbox or sender webhook to{" "}
+                <code className="text-[11px]">/api/webhook/twilio</code> on this CRM
+                domain. Incoming messages route to this agent via the matching sender.
+              </p>
+            </div>
+            <div className="grid gap-2 md:max-w-sm">
+              <Label>Reply delay ({form.response_delay_ms ?? 0} ms)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={30000}
+                step={500}
+                value={form.response_delay_ms ?? 0}
+                onChange={(e) =>
+                  patch({
+                    response_delay_ms: Math.max(
+                      0,
+                      Math.min(30_000, Number(e.target.value) || 0),
+                    ),
+                  })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional pause before the AI sends a WhatsApp reply (0–30 seconds).
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Model Configuration */}
       <Card>

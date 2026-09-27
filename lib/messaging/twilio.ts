@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "crypto";
 import type { ParsedInboundMessage } from "./types";
+import { parseTwilioCtwaReferral } from "@/lib/meta-ad-attribution";
 
 const WHATSAPP_PREFIX = "whatsapp:";
 
@@ -103,6 +104,7 @@ export function parseTwilioWhatsAppWebhook(
     aiAgentId: options?.aiAgentId ?? null,
     pageId: null,
     name: form.get("ProfileName") || null,
+    ctwaReferral: parseTwilioCtwaReferral(form),
   };
 }
 

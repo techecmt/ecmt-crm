@@ -63,6 +63,7 @@ import {
   isWaitingForReply,
   websitePageLabel,
 } from "@/lib/messaging/conversation-display";
+import { MetaAttributionSummary } from "@/components/meta-attribution/meta-attribution-summary";
 
 export function ConversationDetail({
   conversation,
@@ -480,6 +481,10 @@ export function ConversationDetail({
               Convert to Lead
             </Button>
           )}
+        </div>
+
+        <div className="mt-2">
+          <MetaAttributionSummary data={conversation} compact />
         </div>
 
         <div className="mt-2 flex flex-wrap gap-2">

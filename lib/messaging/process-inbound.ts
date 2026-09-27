@@ -5,6 +5,7 @@ import { canonicalizePhoneKey } from "@/lib/phone";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isTerminalLeadStatus, type LeadStatus } from "@/lib/types";
 import { getAgentAvailability } from "./ai-availability";
+import { captureCtwaAttributionForConversation } from "./capture-ctwa-attribution";
 import { fetchMessengerProfileName } from "./messenger";
 import { clearOptOut, detectOptOutIntent, recordOptOut } from "./opt-out";
 import { sendMessage } from "./send";
@@ -167,6 +168,20 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     }
   }
 
+  if (parsed.ctwaReferral) {
+    const patch = await captureCtwaAttributionForConversation({
+      supabase,
+      conversationId: conversation.id,
+      leadId: (conversation.lead_id as string | null) ?? null,
+      existingAttributionCapturedAt:
+        (conversation.attribution_captured_at as string | null) ?? null,
+      referral: parsed.ctwaReferral,
+    });
+    if (patch) {
+      conversation = { ...conversation, ...patch };
+    }
+  }
+
   await supabase.from("messages").insert({
     conversation_id: conversation.id,
     role: "user",
@@ -315,8 +330,25 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     }
   }
 
+  const agentIdForReply = conversation.ai_agent_id ?? inboundAgentId;
+  const { data: agentReplySettings } = agentIdForReply
+    ? await supabase
+        .from("ai_agents")
+        .select("response_delay_ms")
+        .eq("id", agentIdForReply)
+        .maybeSingle()
+    : { data: null };
+
+  const responseDelayMs = Math.max(
+    0,
+    Math.min(30_000, Number(agentReplySettings?.response_delay_ms ?? 0)),
+  );
+  if (responseDelayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, responseDelayMs));
+  }
+
   const aiResult: AIResult = await getAIResponse({
-    agentId: conversation.ai_agent_id ?? inboundAgentId,
+    agentId: agentIdForReply,
     conversationHistory: chatHistory,
     channel: parsed.channel,
     leadContext,

@@ -49,7 +49,24 @@ export async function GET(request: NextRequest) {
       unread_count,
       last_message_at,
       last_message_preview,
-      last_message_role
+      last_message_role,
+      source,
+      source_platform,
+      meta_campaign_id,
+      meta_campaign_name,
+      meta_adset_id,
+      meta_adset_name,
+      meta_ad_id,
+      meta_ad_name,
+      meta_ctwa_clid,
+      meta_referral_source_id,
+      meta_referral_source_type,
+      meta_referral_source_url,
+      meta_referral_headline,
+      meta_referral_body,
+      meta_referral_media_id,
+      meta_referral_media_url,
+      attribution_captured_at
     `
     );
 

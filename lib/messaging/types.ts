@@ -1,3 +1,5 @@
+import type { TwilioCtwaReferral } from "@/lib/meta-ad-attribution";
+
 export type Channel = "whatsapp" | "messenger" | "website";
 export type MessagingProvider = "meta" | "twilio";
 
@@ -12,6 +14,8 @@ export interface ParsedInboundMessage {
   timestamp: string;
   pageId: string | null;
   name: string | null;
+  /** Present on Twilio inbound messages from Meta Click-to-WhatsApp ads. */
+  ctwaReferral?: TwilioCtwaReferral | null;
 }
 
 export interface OutboundMessage {
