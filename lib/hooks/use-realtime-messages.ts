@@ -30,6 +30,12 @@ function toMessage(row: MessageRow): Message {
     whatsapp_msg_id: row.whatsapp_msg_id,
     external_msg_id: row.external_msg_id,
     sent_by_user_id: row.sent_by_user_id,
+    media_type: row.media_type,
+    media_url: row.media_url,
+    media_mime_type: row.media_mime_type,
+    media_filename: row.media_filename,
+    provider_media_id: row.provider_media_id,
+    template_content_sid: row.template_content_sid,
     created_at: row.created_at,
   };
 }

@@ -24,7 +24,9 @@ export async function GET(
 
   let query = supabase
     .from("messages")
-    .select("id, role, content, whatsapp_msg_id, external_msg_id, sent_by_user_id, created_at")
+    .select(
+      "id, role, content, whatsapp_msg_id, external_msg_id, sent_by_user_id, media_type, media_url, media_mime_type, media_filename, provider_media_id, template_content_sid, created_at",
+    )
     .eq("conversation_id", id)
     .order("created_at", { ascending: false })
     .limit(limit + 1);

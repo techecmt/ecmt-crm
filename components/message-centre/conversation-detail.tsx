@@ -12,8 +12,10 @@ import {
   Link2,
   Loader2,
   MessageSquareMore,
+  Paperclip,
   Phone,
   Send,
+  X,
   UserCheck,
   UserRoundPlus,
 } from "lucide-react";
@@ -30,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -64,6 +67,10 @@ import {
   websitePageLabel,
 } from "@/lib/messaging/conversation-display";
 import { MetaAttributionSummary } from "@/components/meta-attribution/meta-attribution-summary";
+import {
+  WHATSAPP_MEDIA_LIMITS_BYTES,
+  classifyWhatsAppMedia,
+} from "@/lib/messaging/media";
 
 export function ConversationDetail({
   conversation,
@@ -77,6 +84,18 @@ export function ConversationDetail({
   const [inputValue, setInputValue] = React.useState("");
   const [phoneValue, setPhoneValue] = React.useState(conversation.phone || "");
   const [templateDialogOpen, setTemplateDialogOpen] = React.useState(false);
+  const [mediaUpload, setMediaUpload] = React.useState<{
+    bucket: string;
+    path: string;
+    url: string;
+    type: "image" | "document";
+    mimeType: string;
+    filename: string;
+    sizeBytes: number;
+  } | null>(null);
+  const [mediaPreviewUrl, setMediaPreviewUrl] = React.useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = React.useState<number | null>(null);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [visitorDetailsOpen, setVisitorDetailsOpen] = React.useState(false);
   const [selectedTemplateSid, setSelectedTemplateSid] = React.useState("");
   const [templateVariables, setTemplateVariables] = React.useState<Record<string, string>>(
@@ -84,6 +103,9 @@ export function ConversationDetail({
   );
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const mediaInputRef = React.useRef<HTMLInputElement>(null);
+  const uploadXhrRef = React.useRef<XMLHttpRequest | null>(null);
+  const mediaPreviewUrlRef = React.useRef<string | null>(null);
 
   const {
     data: messagePages,
@@ -136,6 +158,33 @@ export function ConversationDetail({
   React.useEffect(() => {
     setPhoneValue(conversation.phone || conversation.visitor_data?.phone || "");
   }, [conversation.phone, conversation.visitor_data?.phone]);
+
+  React.useEffect(() => {
+    setMediaUpload(null);
+    setUploadProgress(null);
+    setUploadError(null);
+    if (mediaPreviewUrl) {
+      URL.revokeObjectURL(mediaPreviewUrl);
+      setMediaPreviewUrl(null);
+    }
+    uploadXhrRef.current?.abort();
+    uploadXhrRef.current = null;
+    if (mediaInputRef.current) mediaInputRef.current.value = "";
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation.id]);
+
+  React.useEffect(() => {
+    mediaPreviewUrlRef.current = mediaPreviewUrl;
+  }, [mediaPreviewUrl]);
+
+  React.useEffect(() => {
+    return () => {
+      uploadXhrRef.current?.abort();
+      if (mediaPreviewUrlRef.current) {
+        URL.revokeObjectURL(mediaPreviewUrlRef.current);
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     hasInitialScrolled.current = false;
@@ -268,6 +317,178 @@ export function ConversationDetail({
           setSelectedTemplateSid("");
           setTemplateVariables({});
           toast.success("Template sent");
+        },
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  };
+
+  const clearMediaDraft = React.useCallback(
+    async (deleteRemote: boolean) => {
+      uploadXhrRef.current?.abort();
+      uploadXhrRef.current = null;
+      setUploadProgress(null);
+      setUploadError(null);
+      if (mediaPreviewUrl) {
+        URL.revokeObjectURL(mediaPreviewUrl);
+        setMediaPreviewUrl(null);
+      }
+      if (mediaInputRef.current) mediaInputRef.current.value = "";
+
+      const uploaded = mediaUpload;
+      setMediaUpload(null);
+      if (!deleteRemote || !uploaded) return;
+
+      try {
+        await fetch(`/api/conversations/${conversation.id}/media`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: uploaded.path }),
+        });
+      } catch {
+        // Best-effort cleanup. Do not block the UI if deletion fails.
+      }
+    },
+    [conversation.id, mediaPreviewUrl, mediaUpload],
+  );
+
+  const handleMediaFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const classified = classifyWhatsAppMedia({
+      mimeType: file.type || null,
+      filename: file.name || null,
+    });
+    if (!classified) {
+      setUploadError("Unsupported file type. Allowed: JPG, JPEG, PNG, WEBP, PDF.");
+      toast.error("Unsupported file type");
+      event.target.value = "";
+      return;
+    }
+
+    const maxBytes = WHATSAPP_MEDIA_LIMITS_BYTES[classified.type];
+    if (file.size <= 0 || file.size > maxBytes) {
+      const maxMb = (maxBytes / (1024 * 1024)).toFixed(0);
+      const message = `File too large. Max ${maxMb}MB for ${classified.type}.`;
+      setUploadError(message);
+      toast.error(message);
+      event.target.value = "";
+      return;
+    }
+
+    if (mediaUpload) {
+      await clearMediaDraft(true);
+    } else {
+      await clearMediaDraft(false);
+    }
+
+    const localPreview =
+      classified.type === "image" ? URL.createObjectURL(file) : null;
+    if (localPreview) setMediaPreviewUrl(localPreview);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    setUploadError(null);
+    setUploadProgress(0);
+
+    await new Promise<void>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      uploadXhrRef.current = xhr;
+      xhr.open("POST", `/api/conversations/${conversation.id}/media`);
+      xhr.responseType = "json";
+
+      xhr.upload.onprogress = (progressEvent) => {
+        if (!progressEvent.lengthComputable) return;
+        const ratio = progressEvent.total > 0 ? progressEvent.loaded / progressEvent.total : 0;
+        setUploadProgress(Math.max(0, Math.min(100, Math.round(ratio * 100))));
+      };
+
+      xhr.onerror = () => {
+        setUploadProgress(null);
+        setMediaUpload(null);
+        setUploadError("Upload failed. Please try again.");
+        if (localPreview) URL.revokeObjectURL(localPreview);
+        setMediaPreviewUrl(null);
+        toast.error("Upload failed");
+        resolve();
+      };
+
+      xhr.onabort = () => {
+        setUploadProgress(null);
+        setMediaUpload(null);
+        if (localPreview) URL.revokeObjectURL(localPreview);
+        setMediaPreviewUrl(null);
+        resolve();
+      };
+
+      xhr.onload = () => {
+        const payload =
+          typeof xhr.response === "object" && xhr.response
+            ? (xhr.response as {
+                media?: {
+                  type: "image" | "document";
+                  bucket: string;
+                  path: string;
+                  url: string;
+                  mimeType: string;
+                  filename: string;
+                  sizeBytes: number;
+                };
+                error?: string;
+              })
+            : null;
+
+        if (xhr.status >= 200 && xhr.status < 300 && payload?.media) {
+          setUploadProgress(null);
+          setMediaUpload(payload.media);
+          setUploadError(null);
+          toast.success("Attachment uploaded");
+        } else {
+          setUploadProgress(null);
+          setMediaUpload(null);
+          const message = payload?.error || "Upload failed. Please try again.";
+          setUploadError(message);
+          if (localPreview) URL.revokeObjectURL(localPreview);
+          setMediaPreviewUrl(null);
+          toast.error(message);
+        }
+
+        uploadXhrRef.current = null;
+        resolve();
+      };
+
+      xhr.send(formData);
+    });
+  };
+
+  const sendCurrentMessage = () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed && !mediaUpload) return;
+    if (uploadProgress !== null) return;
+
+    sendMessage.mutate(
+      {
+        conversationId: conversation.id,
+        message: trimmed,
+        ...(mediaUpload
+          ? {
+              media: {
+                bucket: mediaUpload.bucket,
+                path: mediaUpload.path,
+                type: mediaUpload.type,
+                mimeType: mediaUpload.mimeType,
+                filename: mediaUpload.filename,
+                sizeBytes: mediaUpload.sizeBytes,
+              },
+            }
+          : {}),
+      },
+      {
+        onSuccess: async () => {
+          setInputValue("");
+          await clearMediaDraft(false);
+          toast.success(mediaUpload ? "Media sent" : "Message sent");
         },
         onError: (error) => toast.error(error.message),
       },
@@ -639,6 +860,66 @@ export function ConversationDetail({
       </div>
 
       <div className="border-t p-3">
+        <input
+          ref={mediaInputRef}
+          type="file"
+          accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+          className="hidden"
+          onChange={handleMediaFileSelected}
+        />
+        {mediaUpload ? (
+          <div className="mb-2 rounded-md border bg-muted/20 p-2">
+            {mediaUpload.type === "image" && mediaPreviewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={mediaPreviewUrl}
+                alt={mediaUpload.filename || "Media preview"}
+                className="mb-2 max-h-40 rounded border object-cover"
+              />
+            ) : null}
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 text-xs">
+                <p className="truncate font-medium">{mediaUpload.filename}</p>
+                <p className="text-muted-foreground">
+                  {mediaUpload.type === "image" ? "Image" : "Document"} ·{" "}
+                  {(mediaUpload.sizeBytes / (1024 * 1024)).toFixed(2)}MB
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2"
+                onClick={() => clearMediaDraft(true)}
+              >
+                <X className="mr-1 h-3.5 w-3.5" />
+                Remove
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {uploadProgress !== null ? (
+          <div className="mb-2 space-y-1">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Uploading attachment...</span>
+              <span>{uploadProgress}%</span>
+            </div>
+            <Progress value={uploadProgress} />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              onClick={() => clearMediaDraft(false)}
+            >
+              Cancel upload
+            </Button>
+          </div>
+        ) : null}
+        {uploadError ? (
+          <p className="mb-2 text-xs text-destructive">{uploadError}</p>
+        ) : null}
+
         <div className="flex items-center gap-2">
           {isTwilioWhatsApp ? (
             <Button
@@ -650,6 +931,19 @@ export function ConversationDetail({
             >
               <FileText className="mr-1.5 h-4 w-4" />
               Template
+            </Button>
+          ) : null}
+          {conversation.channel === "whatsapp" ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 shrink-0 px-2.5"
+              onClick={() => mediaInputRef.current?.click()}
+              title="Upload image or PDF"
+              disabled={uploadProgress !== null || sendMessage.isPending}
+            >
+              <Paperclip className="mr-1.5 h-4 w-4" />
+              Media
             </Button>
           ) : null}
           <Input
@@ -664,40 +958,16 @@ export function ConversationDetail({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                const message = inputValue.trim();
-                if (!message) return;
-                sendMessage.mutate(
-                  { conversationId: conversation.id, message },
-                  {
-                    onSuccess: () => {
-                      setInputValue("");
-                      toast.success("Message sent");
-                    },
-                    onError: (error) => toast.error(error.message),
-                  },
-                );
+                sendCurrentMessage();
               }
             }}
-            disabled={sendMessage.isPending}
+            disabled={sendMessage.isPending || uploadProgress !== null}
             className="flex-1"
           />
           <Button
             size="icon"
-            onClick={() => {
-              const message = inputValue.trim();
-              if (!message) return;
-              sendMessage.mutate(
-                { conversationId: conversation.id, message },
-                {
-                  onSuccess: () => {
-                    setInputValue("");
-                    toast.success("Message sent");
-                  },
-                  onError: (error) => toast.error(error.message),
-                },
-              );
-            }}
-            disabled={!inputValue.trim() || sendMessage.isPending}
+            onClick={sendCurrentMessage}
+            disabled={(!inputValue.trim() && !mediaUpload) || sendMessage.isPending || uploadProgress !== null}
           >
             {sendMessage.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -840,6 +1110,8 @@ function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
   const isHumanAgent = !isUser && !!message.sent_by_user_id;
   const time = formatSgtTime24(message.created_at);
+  const hasMedia = !!message.media_type;
+  const hasMediaUrl = !!message.media_url;
 
   return (
     <div className={cn("flex", isUser ? "justify-start" : "justify-end")}>
@@ -864,7 +1136,61 @@ function MessageBubble({ message }: { message: Message }) {
             </span>
           )}
         </div>
-        <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+        {message.content ? (
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+        ) : null}
+        {hasMedia && message.media_type === "image" && hasMediaUrl ? (
+          <a href={message.media_url!} target="_blank" rel="noreferrer">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={message.media_url!}
+              alt="Shared image"
+              className="mt-2 max-h-64 rounded-lg border border-white/20 object-cover"
+            />
+          </a>
+        ) : null}
+        {hasMedia && message.media_type === "image" && !hasMediaUrl ? (
+          <div
+            className={cn(
+              "mt-2 inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs",
+              isUser
+                ? "border-border bg-background text-foreground"
+                : "border-white/20 bg-white/10 text-white",
+            )}
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+            <span>Image attachment received</span>
+          </div>
+        ) : null}
+        {hasMedia && message.media_type === "document" && hasMediaUrl ? (
+          <a
+            href={message.media_url!}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(
+              "mt-2 inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs",
+              isUser
+                ? "border-border bg-background text-foreground"
+                : "border-white/20 bg-white/10 text-white",
+            )}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>{message.media_filename || "Open document"}</span>
+          </a>
+        ) : null}
+        {hasMedia && message.media_type === "document" && !hasMediaUrl ? (
+          <div
+            className={cn(
+              "mt-2 inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs",
+              isUser
+                ? "border-border bg-background text-foreground"
+                : "border-white/20 bg-white/10 text-white",
+            )}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>Document attachment received</span>
+          </div>
+        ) : null}
         <p
           className={cn(
             "mt-1 text-right text-[10px]",

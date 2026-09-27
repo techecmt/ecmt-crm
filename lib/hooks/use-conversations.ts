@@ -75,6 +75,12 @@ export interface Message {
   whatsapp_msg_id: string | null;
   external_msg_id: string | null;
   sent_by_user_id: string | null;
+  media_type: "image" | "document" | null;
+  media_url: string | null;
+  media_mime_type: string | null;
+  media_filename: string | null;
+  provider_media_id: string | null;
+  template_content_sid: string | null;
   created_at: string;
 }
 
@@ -251,14 +257,23 @@ export function useSendMessage() {
     mutationFn: async ({
       conversationId,
       message,
+      media,
     }: {
       conversationId: string;
       message: string;
+      media?: {
+        bucket: string;
+        path: string;
+        type: "image" | "document";
+        mimeType: string;
+        filename?: string | null;
+        sizeBytes?: number;
+      };
     }) => {
       const res = await fetch(`/api/conversations/${conversationId}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, ...(media ? { media } : {}) }),
       });
       if (!res.ok) {
         const data = await res.json();

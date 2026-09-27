@@ -2,11 +2,12 @@ import "server-only";
 
 import { sendMessengerMessage } from "@/lib/messaging/messenger";
 import {
+  sendTwilioWhatsAppMedia,
   sendTwilioWhatsAppMessage,
   type TwilioConnectionCredentials,
 } from "@/lib/messaging/twilio";
-import type { MessagingProvider } from "@/lib/messaging/types";
-import { sendWhatsAppMessage } from "@/lib/messaging/whatsapp";
+import type { MessagingProvider, WhatsAppMediaType } from "@/lib/messaging/types";
+import { sendWhatsAppMediaMessage, sendWhatsAppMessage } from "@/lib/messaging/whatsapp";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type ConversationSendTarget = {
@@ -17,7 +18,17 @@ type ConversationSendTarget = {
   twilio_connection_id?: string | null;
 };
 
-export async function sendMessage(conversation: ConversationSendTarget, text: string) {
+export type OutboundMediaInput = {
+  type: WhatsAppMediaType;
+  url: string;
+  filename?: string | null;
+};
+
+export async function sendMessage(
+  conversation: ConversationSendTarget,
+  text: string,
+  media?: OutboundMediaInput | null,
+) {
   if (conversation.channel === "website") {
     // Website visitors receive the message by polling the secured widget API.
     return;
@@ -39,12 +50,36 @@ export async function sendMessage(conversation: ConversationSendTarget, text: st
         }
         credentials = connection;
       }
+      if (media?.url) {
+        await sendTwilioWhatsAppMedia({
+          to: conversation.external_user_id,
+          mediaUrl: media.url,
+          body: text || undefined,
+          credentials,
+        });
+        return;
+      }
       await sendTwilioWhatsAppMessage(conversation.external_user_id, text, credentials);
+      return;
+    }
+
+    if (media?.url) {
+      await sendWhatsAppMediaMessage({
+        to: conversation.external_user_id,
+        type: media.type,
+        mediaUrl: media.url,
+        caption: text || undefined,
+        filename: media.filename ?? null,
+      });
       return;
     }
 
     await sendWhatsAppMessage(conversation.external_user_id, text);
     return;
+  }
+
+  if (media?.url) {
+    throw new Error("Media sending is currently available for WhatsApp only");
   }
 
   if (!conversation.page_id) {

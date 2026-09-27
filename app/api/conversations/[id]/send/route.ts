@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, hasModuleAccess } from "@/lib/auth";
 import { sendMessage } from "@/lib/messaging/send";
+import {
+  MESSAGE_MEDIA_BUCKET,
+  classifyWhatsAppMedia,
+} from "@/lib/messaging/media";
 import { sendTwilioWhatsAppTemplate } from "@/lib/messaging/twilio";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { OutboundMediaInput } from "@/lib/messaging/send";
 
 export async function POST(
   request: NextRequest,
@@ -12,6 +17,33 @@ export async function POST(
   const { id } = await params;
   const body = await request.json();
   const message = typeof body.message === "string" ? body.message.trim() : "";
+  const mediaRaw =
+    body.media && typeof body.media === "object"
+      ? (body.media as Record<string, unknown>)
+      : null;
+  const mediaType: "image" | "document" | null =
+    mediaRaw?.type === "image"
+      ? "image"
+      : mediaRaw?.type === "document"
+        ? "document"
+        : null;
+  const mediaRef =
+    mediaRaw &&
+    typeof mediaRaw.bucket === "string" &&
+    typeof mediaRaw.path === "string" &&
+    mediaType
+      ? {
+          bucket: mediaRaw.bucket.trim(),
+          path: mediaRaw.path.trim(),
+          type: mediaType,
+          mimeType:
+            typeof mediaRaw.mimeType === "string" ? mediaRaw.mimeType.trim().toLowerCase() : "",
+          filename:
+            typeof mediaRaw.filename === "string" && mediaRaw.filename.trim()
+              ? mediaRaw.filename.trim()
+              : null,
+        }
+      : null;
   const template = body.template as
     | {
         content_sid?: unknown;
@@ -21,11 +53,35 @@ export async function POST(
   const contentSid =
     typeof template?.content_sid === "string" ? template.content_sid.trim() : "";
 
-  if (!message && !contentSid) {
+  if (!message && !contentSid && !mediaRef) {
     return NextResponse.json(
-      { error: "Message or template is required" },
+      { error: "Message, media, or template is required" },
       { status: 400 },
     );
+  }
+  if (contentSid && mediaRef) {
+    return NextResponse.json(
+      { error: "Template and media cannot be sent in the same request" },
+      { status: 400 },
+    );
+  }
+  if (mediaRef?.bucket && mediaRef.bucket !== MESSAGE_MEDIA_BUCKET) {
+    return NextResponse.json({ error: "Invalid media bucket" }, { status: 400 });
+  }
+  if (mediaRef?.path && !mediaRef.path.startsWith(`${id}/`)) {
+    return NextResponse.json({ error: "Invalid media path" }, { status: 400 });
+  }
+  if (mediaRef) {
+    const classified = classifyWhatsAppMedia({
+      mimeType: mediaRef.mimeType,
+      filename: mediaRef.filename,
+    });
+    if (!classified || classified.type !== mediaRef.type) {
+      return NextResponse.json(
+        { error: "Unsupported media type. Allowed: JPG, JPEG, PNG, WEBP, PDF." },
+        { status: 400 },
+      );
+    }
   }
 
   const supabase = await createClient();
@@ -50,6 +106,18 @@ export async function POST(
 
   if (convError || !conversation) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+  }
+
+  let media: (OutboundMediaInput & { mimeType: string | null }) | null = null;
+  if (mediaRef) {
+    const admin = createAdminClient();
+    const { data } = admin.storage.from(MESSAGE_MEDIA_BUCKET).getPublicUrl(mediaRef.path);
+    media = {
+      type: mediaRef.type,
+      url: data.publicUrl,
+      filename: mediaRef.filename,
+      mimeType: mediaRef.mimeType || null,
+    };
   }
 
   try {
@@ -112,7 +180,13 @@ export async function POST(
         credentials,
       });
     } else {
-      await sendMessage(conversation, message);
+      if (media && conversation.channel !== "whatsapp") {
+        return NextResponse.json(
+          { error: "Media sending is currently available for WhatsApp conversations only" },
+          { status: 400 },
+        );
+      }
+      await sendMessage(conversation, message, media);
     }
   } catch (err) {
     console.error("[API] Failed to send message:", err);
@@ -129,8 +203,16 @@ export async function POST(
   const { error: insertError } = await supabase.from("messages").insert({
     conversation_id: id,
     role: "assistant",
-    content: contentSid ? `Twilio template sent (${contentSid})` : message,
+    content: contentSid
+      ? `Twilio template sent (${contentSid})`
+      : message || (media?.type === "image" ? "Image sent" : media ? "Document sent" : ""),
     sent_by_user_id: user?.id ?? null,
+    media_type: media?.type ?? null,
+    media_url: media?.url ?? null,
+    media_mime_type: media?.mimeType ?? null,
+    media_filename: media?.filename ?? null,
+    provider_media_id: null,
+    template_content_sid: contentSid || null,
   });
 
   if (insertError) {

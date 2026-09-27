@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHmac, timingSafeEqual } from "crypto";
-import type { ParsedInboundMessage } from "./types";
+import type { ParsedInboundMedia, ParsedInboundMessage } from "./types";
 import { parseTwilioCtwaReferral } from "@/lib/meta-ad-attribution";
 
 const WHATSAPP_PREFIX = "whatsapp:";
@@ -78,6 +78,26 @@ function asTwilioWhatsAppAddress(address: string) {
     : `${WHATSAPP_PREFIX}${address}`;
 }
 
+function parseTwilioInboundMedia(form: URLSearchParams): ParsedInboundMedia | null {
+  const mediaCount = Number(form.get("NumMedia") || "0");
+  if (!Number.isFinite(mediaCount) || mediaCount <= 0) return null;
+
+  const mediaUrl = form.get("MediaUrl0")?.trim() || null;
+  const mimeType = form.get("MediaContentType0")?.trim() || null;
+  if (!mediaUrl) return null;
+
+  const type = mimeType?.toLowerCase().startsWith("image/") ? "image" : "document";
+  const segment = mediaUrl.split("/").filter(Boolean).pop() ?? null;
+
+  return {
+    type,
+    url: mediaUrl,
+    mimeType,
+    filename: segment,
+    providerMediaId: segment,
+  };
+}
+
 export function parseTwilioWhatsAppWebhook(
   form: URLSearchParams,
   options?: {
@@ -88,8 +108,9 @@ export function parseTwilioWhatsAppWebhook(
   const from = form.get("From");
   const body = form.get("Body")?.trim();
   const messageSid = form.get("MessageSid");
+  const media = parseTwilioInboundMedia(form);
 
-  if (!from?.startsWith(WHATSAPP_PREFIX) || !body || !messageSid) {
+  if (!from?.startsWith(WHATSAPP_PREFIX) || (!body && !media) || !messageSid) {
     return null;
   }
 
@@ -98,12 +119,13 @@ export function parseTwilioWhatsAppWebhook(
     provider: "twilio",
     externalUserId: normalizeWhatsAppAddress(from),
     externalMessageId: messageSid,
-    text: body,
+    text: body || (media?.type === "image" ? "Image received" : "Document received"),
     timestamp: String(Date.now()),
     twilioConnectionId: options?.twilioConnectionId ?? null,
     aiAgentId: options?.aiAgentId ?? null,
     pageId: null,
     name: form.get("ProfileName") || null,
+    media,
     ctwaReferral: parseTwilioCtwaReferral(form),
   };
 }
@@ -252,6 +274,43 @@ export async function sendTwilioWhatsAppMessage(
   if (!response.ok) {
     const error = await readTwilioError(response);
     console.error("[Twilio] WhatsApp send failed:", error);
+    throw new Error(error);
+  }
+
+  return response.json();
+}
+
+export async function sendTwilioWhatsAppMedia(input: {
+  to: string;
+  mediaUrl: string;
+  body?: string;
+  credentials?: TwilioConnectionCredentials;
+}) {
+  const credentials = getTwilioCredentials(input.credentials);
+  const requestBody = new URLSearchParams({
+    To: asTwilioWhatsAppAddress(input.to),
+    MediaUrl: input.mediaUrl,
+  });
+  if (input.body?.trim()) {
+    requestBody.set("Body", input.body.trim());
+  }
+  addTwilioSender(requestBody, credentials);
+
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${credentials.accountSid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: twilioAuthorization(credentials.accountSid, credentials.authToken),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: requestBody.toString(),
+    },
+  );
+
+  if (!response.ok) {
+    const error = await readTwilioError(response);
+    console.error("[Twilio] WhatsApp media send failed:", error);
     throw new Error(error);
   }
 

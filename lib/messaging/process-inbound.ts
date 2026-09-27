@@ -187,6 +187,11 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     role: "user",
     content: parsed.text,
     external_msg_id: parsed.externalMessageId,
+    media_type: parsed.media?.type ?? null,
+    media_url: parsed.media?.url ?? null,
+    media_mime_type: parsed.media?.mimeType ?? null,
+    media_filename: parsed.media?.filename ?? null,
+    provider_media_id: parsed.media?.providerMediaId ?? null,
     ...(parsed.channel === "whatsapp"
       ? { whatsapp_msg_id: parsed.externalMessageId }
       : {}),
