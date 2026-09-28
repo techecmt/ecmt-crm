@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentProfile } from "@/lib/auth";
-import { EMPTY_CAMPAIGN_COUNTS, type CampaignRecipientStatus } from "@/lib/campaigns";
+import {
+  EMPTY_CAMPAIGN_CONVERSION_COUNTS,
+  EMPTY_CAMPAIGN_COUNTS,
+  type CampaignConversionType,
+  type CampaignRecipientStatus,
+} from "@/lib/campaigns";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminRole } from "@/lib/types";
 
@@ -42,6 +47,26 @@ async function loadCounts(
   return counts;
 }
 
+async function loadConversions(
+  admin: ReturnType<typeof createAdminClient>,
+  campaignId: string,
+) {
+  const conversions = { ...EMPTY_CAMPAIGN_CONVERSION_COUNTS };
+  const { data, error } = await admin
+    .from("lead_campaign_attributions")
+    .select("conversion_type")
+    .eq("campaign_id", campaignId);
+  if (error) return conversions;
+
+  for (const row of data ?? []) {
+    const conversionType = row.conversion_type as CampaignConversionType;
+    if (conversionType in conversions) {
+      conversions[conversionType] += 1;
+    }
+  }
+  return conversions;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -72,12 +97,13 @@ export async function GET(
     recipientQuery = recipientQuery.eq("status", statusFilter);
   }
 
-  const [{ data: recipients }, counts] = await Promise.all([
+  const [{ data: recipients }, counts, conversions] = await Promise.all([
     recipientQuery,
     loadCounts(admin, id),
+    loadConversions(admin, id),
   ]);
 
-  return NextResponse.json({ campaign, recipients: recipients ?? [], counts });
+  return NextResponse.json({ campaign, recipients: recipients ?? [], counts, conversions });
 }
 
 /** Pause, resume, or cancel a campaign. */

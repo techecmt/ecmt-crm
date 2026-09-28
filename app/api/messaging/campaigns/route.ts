@@ -63,6 +63,8 @@ type CreateCampaignBody = {
   };
   sendCap?: unknown;
   skipRecentDays?: unknown;
+  conversionWindowAppliedDays?: unknown;
+  conversionWindowEnrolledDays?: unknown;
   costPerMessage?: unknown;
   currency?: unknown;
 };
@@ -120,6 +122,12 @@ function asPositiveInt(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return Math.floor(parsed);
+}
+
+function asNonNegativeInt(value: unknown, fallback: number) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.floor(parsed));
 }
 
 export async function POST(request: NextRequest) {
@@ -193,6 +201,8 @@ export async function POST(request: NextRequest) {
 
   const sendCap = asPositiveInt(body.sendCap);
   const skipRecentDays = asPositiveInt(body.skipRecentDays);
+  const conversionWindowAppliedDays = asNonNegativeInt(body.conversionWindowAppliedDays, 14);
+  const conversionWindowEnrolledDays = asNonNegativeInt(body.conversionWindowEnrolledDays, 30);
   const costPerMessage = Number(body.costPerMessage);
 
   const { data: campaign, error: insertError } = await admin
@@ -221,6 +231,8 @@ export async function POST(request: NextRequest) {
       status: "draft",
       send_cap: sendCap,
       skip_recent_days: skipRecentDays,
+      conversion_window_applied_days: conversionWindowAppliedDays,
+      conversion_window_enrolled_days: conversionWindowEnrolledDays,
       cost_per_message: Number.isFinite(costPerMessage) && costPerMessage > 0 ? costPerMessage : 0,
       currency: typeof body.currency === "string" && body.currency.trim() ? body.currency.trim() : "USD",
       created_by: auth.profile.id,

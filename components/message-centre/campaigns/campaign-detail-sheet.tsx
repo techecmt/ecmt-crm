@@ -95,11 +95,13 @@ export function CampaignDetailSheet({
 
             <div className="space-y-2">
               <Progress value={campaignProgress(data.campaign)} />
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
                 <Stat label="Sent" value={data.counts.sent} tone="emerald" />
                 <Stat label="Pending" value={data.counts.pending + data.counts.sending} />
                 <Stat label="Failed" value={data.counts.failed} tone="rose" />
                 <Stat label="Skipped" value={data.counts.skipped} tone="amber" />
+                <Stat label="Applied" value={data.conversions?.applied ?? 0} tone="emerald" />
+                <Stat label="Enrolled" value={data.conversions?.enrolled ?? 0} tone="emerald" />
               </div>
             </div>
 

@@ -94,6 +94,8 @@ export type WhatsAppCampaign = {
   skipped_count: number;
   send_cap: number | null;
   skip_recent_days: number | null;
+  conversion_window_applied_days: number;
+  conversion_window_enrolled_days: number;
   cost_per_message: number;
   currency: string;
   error: string | null;
@@ -123,6 +125,8 @@ export type WhatsAppCampaignRecipient = {
 };
 
 export type CampaignCounts = Record<CampaignRecipientStatus, number>;
+export type CampaignConversionType = "applied" | "enrolled";
+export type CampaignConversionCounts = Record<CampaignConversionType, number>;
 
 export const EMPTY_CAMPAIGN_COUNTS: CampaignCounts = {
   pending: 0,
@@ -130,6 +134,11 @@ export const EMPTY_CAMPAIGN_COUNTS: CampaignCounts = {
   sent: 0,
   failed: 0,
   skipped: 0,
+};
+
+export const EMPTY_CAMPAIGN_CONVERSION_COUNTS: CampaignConversionCounts = {
+  applied: 0,
+  enrolled: 0,
 };
 
 /**

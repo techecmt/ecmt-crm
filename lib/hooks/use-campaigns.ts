@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   isCampaignRunning,
   type CampaignAudienceSource,
+  type CampaignConversionCounts,
   type CampaignCounts,
   type CampaignVariableMapping,
   type ManualRecipientEntry,
@@ -41,6 +42,7 @@ export type CampaignDetail = {
   campaign: WhatsAppCampaign;
   recipients: WhatsAppCampaignRecipient[];
   counts: CampaignCounts;
+  conversions: CampaignConversionCounts;
 };
 
 export function useCampaign(campaignId: string | null) {
@@ -75,6 +77,8 @@ export type CreateCampaignInput = {
   };
   sendCap?: number | null;
   skipRecentDays?: number | null;
+  conversionWindowAppliedDays?: number;
+  conversionWindowEnrolledDays?: number;
   costPerMessage?: number;
   currency?: string;
 };
