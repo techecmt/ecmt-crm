@@ -119,6 +119,12 @@ TWILIO_MESSAGING_SERVICE_SID=
 
 The chat model is set per AI agent in `Message Centre Settings` → **Model Configuration**, not via env. Messenger page credentials are configured from the app in `Message Centre Settings` and stored in the `messaging_pages` table. Twilio credentials can now be configured per AI agent in the same settings screen (`twilio_connections` table), with env vars used only as fallback.
 
+## AI CRM automation runbook
+
+For Twilio WhatsApp AI CRM automation setup (field sync policy, follow-up automation, status approvals, escalation behavior, and audit verification), see:
+
+- [`AI_AUTOMATION_RUNBOOK.md`](AI_AUTOMATION_RUNBOOK.md)
+
 ## Website chat widget
 
 1. Deploy the CRM after the website-chat migration has been applied.

@@ -322,6 +322,15 @@ function AgentSettingsTab({ agentId }: { agentId: string }) {
       escalation_message: settings.escalation_message ?? "",
       auto_collect_lead: settings.auto_collect_lead ?? false,
       lead_collect_fields: settings.lead_collect_fields ?? ["name", "phone", "email", "course"],
+      crm_automation_enabled: settings.crm_automation_enabled ?? false,
+      followup_automation_enabled: settings.followup_automation_enabled ?? false,
+      outbound_whatsapp_enabled: settings.outbound_whatsapp_enabled ?? false,
+      outbound_policy: settings.outbound_policy ?? "session_only",
+      auto_apply_explicit_fields:
+        settings.auto_apply_explicit_fields ?? ["name", "email", "phone", "course"],
+      inference_allowed_fields: settings.inference_allowed_fields ?? ["city", "course"],
+      require_status_approval: settings.require_status_approval ?? true,
+      inference_min_confidence: settings.inference_min_confidence ?? 0.75,
       business_hours_enabled: settings.business_hours_enabled ?? false,
       business_hours: normalizeAiHoursSchedule(settings.business_hours),
       offline_message: settings.offline_message ?? "",
@@ -585,6 +594,138 @@ function AgentSettingsTab({ agentId }: { agentId: string }) {
                 placeholder="Add field (e.g. name, phone, email, course)"
               />
             </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Brain className="h-4 w-4" />
+            CRM Automation (Twilio WhatsApp)
+          </CardTitle>
+          <CardDescription>
+            Configure how this AI agent updates lead data, follow-up tasks, and status requests.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Enable CRM Automation</Label>
+              <p className="text-xs text-muted-foreground">
+                Turns on extraction, policy checks, audit logs, and CRM actions for this agent.
+              </p>
+            </div>
+            <Switch
+              checked={form.crm_automation_enabled ?? false}
+              onCheckedChange={(checked) => patch({ crm_automation_enabled: checked })}
+            />
+          </div>
+
+          {form.crm_automation_enabled ? (
+            <>
+              <div className="grid gap-2">
+                <Label>Explicit fields auto-apply</Label>
+                <KeywordInput
+                  keywords={form.auto_apply_explicit_fields ?? []}
+                  onChange={(fields) => patch({ auto_apply_explicit_fields: fields })}
+                  placeholder="e.g. name, email, phone, course"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Low-risk inferred fields</Label>
+                <KeywordInput
+                  keywords={form.inference_allowed_fields ?? []}
+                  onChange={(fields) => patch({ inference_allowed_fields: fields })}
+                  placeholder="e.g. city, course"
+                />
+              </div>
+
+              <div className="grid gap-2 md:max-w-sm">
+                <Label>
+                  Inference confidence threshold (
+                  {Number(form.inference_min_confidence ?? 0.75).toFixed(2)})
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={form.inference_min_confidence ?? 0.75}
+                  onChange={(e) =>
+                    patch({
+                      inference_min_confidence: Math.max(
+                        0,
+                        Math.min(1, Number(e.target.value) || 0),
+                      ),
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Inferred values below this threshold are logged but not applied.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Auto-create/reschedule follow-ups</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Uses conversation intent to create or move pending follow-up tasks.
+                  </p>
+                </div>
+                <Switch
+                  checked={form.followup_automation_enabled ?? false}
+                  onCheckedChange={(checked) => patch({ followup_automation_enabled: checked })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Send outbound WhatsApp acknowledgements</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Sends follow-up acknowledgements when policy allows and chat is not escalated.
+                  </p>
+                </div>
+                <Switch
+                  checked={form.outbound_whatsapp_enabled ?? false}
+                  onCheckedChange={(checked) => patch({ outbound_whatsapp_enabled: checked })}
+                />
+              </div>
+
+              <div className="grid gap-2 md:max-w-sm">
+                <Label>Outbound policy</Label>
+                <Select
+                  value={form.outbound_policy ?? "session_only"}
+                  onValueChange={(value) =>
+                    patch({
+                      outbound_policy: value === "disabled" ? "disabled" : "session_only",
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="session_only">Session only (recommended)</SelectItem>
+                    <SelectItem value="disabled">Disabled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Require approval for status changes</Label>
+                  <p className="text-xs text-muted-foreground">
+                    AI proposes status transitions to a queue for admin review.
+                  </p>
+                </div>
+                <Switch
+                  checked={form.require_status_approval ?? true}
+                  onCheckedChange={(checked) => patch({ require_status_approval: checked })}
+                />
+              </div>
+            </>
           ) : null}
         </CardContent>
       </Card>

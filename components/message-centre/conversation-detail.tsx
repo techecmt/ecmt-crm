@@ -47,12 +47,15 @@ import { cn } from "@/lib/utils";
 import {
   useConvertConversationToLead,
   useInfiniteMessages,
+  useReviewStatusApproval,
   useSendMessage,
   useSendTwilioTemplate,
   useSetConversationReadState,
+  useStatusApprovals,
   useTwilioWhatsAppTemplates,
   useUpdateConversationMeta,
   useUpdateMode,
+  type AIStatusApprovalRequest,
   type Conversation,
   type Message,
   type TwilioWhatsAppTemplate,
@@ -122,7 +125,9 @@ export function ConversationDetail({
   const updateMeta = useUpdateConversationMeta();
   const setReadState = useSetConversationReadState();
   const sendTemplate = useSendTwilioTemplate();
+  const reviewStatusApproval = useReviewStatusApproval();
   const convertLead = useConvertConversationToLead();
+  const { data: statusApprovals = [] } = useStatusApprovals(conversation.id);
   const isTwilioWhatsApp =
     conversation.channel === "whatsapp" && conversation.provider === "twilio";
   const {
@@ -262,6 +267,37 @@ export function ConversationDetail({
   const title = conversationTitle(conversation);
   const subtitle = conversationSubtitle(conversation);
   const pageLabel = websitePageLabel(conversation.source_url);
+  const canReviewAiStatus =
+    currentProfile?.role === "super_admin" ||
+    currentProfile?.role === "management" ||
+    currentProfile?.role === "admission_manager";
+
+  const handleReviewAiStatusRequest = React.useCallback(
+    (request: AIStatusApprovalRequest, action: "approve" | "reject") => {
+      const reason =
+        action === "reject"
+          ? window.prompt("Reason for rejection (optional):", "") || ""
+          : window.prompt("Approval note (optional):", "") || "";
+      reviewStatusApproval.mutate(
+        {
+          id: request.id,
+          action,
+          reason,
+          conversationId: conversation.id,
+        },
+        {
+          onSuccess: () =>
+            toast.success(
+              action === "approve"
+                ? "Status proposal approved"
+                : "Status proposal rejected",
+            ),
+          onError: (error) => toast.error(error.message),
+        },
+      );
+    },
+    [conversation.id, reviewStatusApproval],
+  );
 
   const scrollToLatest = () => {
     const viewport = scrollRef.current?.querySelector<HTMLElement>(
@@ -802,6 +838,53 @@ export function ConversationDetail({
                 ) : null}
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {statusApprovals.length > 0 ? (
+          <div className="mt-3 rounded-md border bg-amber-50/60 p-3 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium text-amber-900">
+                Pending AI status approvals ({statusApprovals.length})
+              </p>
+              {!canReviewAiStatus ? (
+                <Badge variant="outline" className="text-[10px]">
+                  Review by admin role
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-2 space-y-2">
+              {statusApprovals.map((request) => (
+                <div key={request.id} className="rounded border bg-white/80 p-2">
+                  <p className="font-medium text-foreground">
+                    {request.current_status} {"->"} {request.proposed_status}
+                  </p>
+                  {request.rationale ? (
+                    <p className="mt-1 text-muted-foreground">{request.rationale}</p>
+                  ) : null}
+                  {canReviewAiStatus ? (
+                    <div className="mt-2 flex gap-2">
+                      <Button
+                        size="sm"
+                        className="h-7"
+                        disabled={reviewStatusApproval.isPending}
+                        onClick={() => handleReviewAiStatusRequest(request, "approve")}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        disabled={reviewStatusApproval.isPending}
+                        onClick={() => handleReviewAiStatusRequest(request, "reject")}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
       </div>

@@ -50,6 +50,14 @@ export async function POST(request: NextRequest) {
     escalation_message?: string;
     auto_collect_lead?: boolean;
     lead_collect_fields?: string[];
+    crm_automation_enabled?: boolean;
+    followup_automation_enabled?: boolean;
+    outbound_whatsapp_enabled?: boolean;
+    outbound_policy?: "session_only" | "disabled";
+    auto_apply_explicit_fields?: string[];
+    inference_allowed_fields?: string[];
+    require_status_approval?: boolean;
+    inference_min_confidence?: number;
     business_hours_enabled?: boolean;
     business_hours?: {
       timezone: string;
@@ -88,6 +96,16 @@ export async function POST(request: NextRequest) {
       escalation_message: body.escalation_message?.trim() || "",
       auto_collect_lead: body.auto_collect_lead ?? false,
       lead_collect_fields: body.lead_collect_fields ?? ["name", "phone", "email", "course"],
+      crm_automation_enabled: body.crm_automation_enabled ?? false,
+      followup_automation_enabled: body.followup_automation_enabled ?? false,
+      outbound_whatsapp_enabled: body.outbound_whatsapp_enabled ?? false,
+      outbound_policy:
+        body.outbound_policy === "disabled" ? "disabled" : "session_only",
+      auto_apply_explicit_fields:
+        body.auto_apply_explicit_fields ?? ["name", "email", "phone", "course"],
+      inference_allowed_fields: body.inference_allowed_fields ?? ["city", "course"],
+      require_status_approval: body.require_status_approval ?? true,
+      inference_min_confidence: body.inference_min_confidence ?? 0.75,
       business_hours_enabled: body.business_hours_enabled ?? false,
       business_hours: body.business_hours ?? { timezone: "Asia/Singapore", days: {} },
       offline_message: body.offline_message?.trim() || "",
@@ -119,6 +137,14 @@ const ALLOWED_UPDATE_FIELDS = [
   "escalation_message",
   "auto_collect_lead",
   "lead_collect_fields",
+  "crm_automation_enabled",
+  "followup_automation_enabled",
+  "outbound_whatsapp_enabled",
+  "outbound_policy",
+  "auto_apply_explicit_fields",
+  "inference_allowed_fields",
+  "require_status_approval",
+  "inference_min_confidence",
   "business_hours_enabled",
   "business_hours",
   "offline_message",
@@ -168,6 +194,9 @@ export async function PATCH(request: NextRequest) {
   }
   if (typeof updates.offline_message === "string") {
     updates.offline_message = updates.offline_message.trim();
+  }
+  if (updates.outbound_policy !== undefined) {
+    updates.outbound_policy = updates.outbound_policy === "disabled" ? "disabled" : "session_only";
   }
 
   if (Object.keys(updates).length === 1) {

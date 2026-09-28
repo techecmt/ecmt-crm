@@ -92,6 +92,43 @@ export interface TwilioWhatsAppTemplate {
   variables: string[];
 }
 
+export interface AIStatusApprovalRequest {
+  id: string;
+  agent_id: string | null;
+  conversation_id: string | null;
+  lead_id: string;
+  current_status: string;
+  proposed_status: string;
+  rationale: string;
+  evidence: Record<string, unknown> | null;
+  state: "pending" | "approved" | "rejected" | "cancelled";
+  requested_by: string;
+  requested_at: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_reason: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  lead?: {
+    id: string;
+    full_name: string | null;
+    status: string;
+  } | null;
+  conversation?: {
+    id: string;
+    channel: string;
+    provider: string | null;
+    name: string | null;
+    external_user_id: string;
+  } | null;
+  reviewer?: {
+    id: string;
+    full_name: string | null;
+    email: string;
+  } | null;
+}
+
 export type ConversationFilters = {
   channel?: "all" | "whatsapp" | "messenger" | "website";
   page_id?: string | "all";
@@ -467,6 +504,64 @@ export function useConvertConversationToLead() {
     onSuccess: (_data, conversationId) => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["conversations", conversationId] });
+    },
+  });
+}
+
+export function useStatusApprovals(conversationId: string | null) {
+  return useQuery<AIStatusApprovalRequest[]>({
+    queryKey: ["ai-status-approvals", conversationId ?? "none"],
+    queryFn: async () => {
+      const params = new URLSearchParams({ state: "pending" });
+      if (conversationId) params.set("conversation_id", conversationId);
+      const res = await fetch(`/api/ai/status-approvals?${params.toString()}`);
+      const data = (await res.json()) as AIStatusApprovalRequest[] | { error?: string };
+      if (!res.ok) {
+        const err = (data as { error?: string }).error || "Failed to fetch status approvals";
+        throw new Error(err);
+      }
+      return data as AIStatusApprovalRequest[];
+    },
+    enabled: !!conversationId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 8_000,
+  });
+}
+
+export function useReviewStatusApproval() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      action: "approve" | "reject";
+      reason?: string;
+      conversationId?: string | null;
+    }) => {
+      const res = await fetch("/api/ai/status-approvals", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: input.id,
+          action: input.action,
+          reason: input.reason ?? "",
+        }),
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Failed to review status request");
+      return payload;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["ai-status-approvals"] });
+      if (variables.conversationId) {
+        queryClient.invalidateQueries({
+          queryKey: ["conversations", variables.conversationId],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["follow_ups"] });
     },
   });
 }

@@ -20,6 +20,14 @@ export type AIAgent = {
   escalation_message: string;
   auto_collect_lead: boolean;
   lead_collect_fields: string[];
+  crm_automation_enabled: boolean;
+  followup_automation_enabled: boolean;
+  outbound_whatsapp_enabled: boolean;
+  outbound_policy: "session_only" | "disabled";
+  auto_apply_explicit_fields: string[];
+  inference_allowed_fields: string[];
+  require_status_approval: boolean;
+  inference_min_confidence: number;
   business_hours_enabled: boolean;
   business_hours: AiHoursSchedule;
   offline_message: string;

@@ -14,6 +14,8 @@ import {
   filterAssetsByCooldown,
   selectCourseAssetsForMessage,
 } from "./course-assets";
+import { extractAndDecideCrmActions, type AgentAutomationSettings } from "./ai-crm-actions";
+import { applyAiCrmActions } from "./apply-ai-actions";
 import type { ParsedInboundMessage } from "./types";
 
 async function resolveInboundAgentId(
@@ -390,19 +392,40 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
   let leadContext: string | null = null;
   let linkedConversationSummary: string | null = null;
   let leadInterestedCourse: string | null = null;
+  let leadAutomationSnapshot: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    phone: string | null;
+    interested_course: string | null;
+    city: string | null;
+    status: LeadStatus;
+    assigned_counsellor: string | null;
+  } | null = null;
   if (conversation.lead_id) {
     const { data: lead } = await supabase
       .from("leads")
-      .select("full_name, phone, email, interested_course, status")
+      .select("id, full_name, phone, email, interested_course, city, status, assigned_counsellor")
       .eq("id", conversation.lead_id)
       .single();
     if (lead) {
       leadInterestedCourse = (lead.interested_course as string | null) ?? null;
+      leadAutomationSnapshot = {
+        id: lead.id as string,
+        full_name: (lead.full_name as string | null) ?? null,
+        phone: (lead.phone as string | null) ?? null,
+        email: (lead.email as string | null) ?? null,
+        interested_course: (lead.interested_course as string | null) ?? null,
+        city: (lead.city as string | null) ?? null,
+        status: ((lead.status as LeadStatus | null) ?? "inquiry_received") as LeadStatus,
+        assigned_counsellor: (lead.assigned_counsellor as string | null) ?? null,
+      };
       leadContext = [
         `Name: ${lead.full_name}`,
         `Phone: ${lead.phone || "-"}`,
         `Email: ${lead.email || "-"}`,
         `Interested course: ${lead.interested_course || "-"}`,
+        `City: ${lead.city || "-"}`,
         `Lead status: ${lead.status || "-"}`,
       ].join("\n");
     }
@@ -450,7 +473,9 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
   const { data: agentReplySettings } = agentIdForReply
     ? await supabase
         .from("ai_agents")
-        .select("response_delay_ms")
+        .select(
+          "id, name, model, response_delay_ms, crm_automation_enabled, followup_automation_enabled, outbound_whatsapp_enabled, outbound_policy, auto_apply_explicit_fields, inference_allowed_fields, require_status_approval, inference_min_confidence",
+        )
         .eq("id", agentIdForReply)
         .maybeSingle()
     : { data: null };
@@ -493,6 +518,82 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     role: "assistant",
     content: aiResult.reply,
   });
+
+  const automationSettings: AgentAutomationSettings = {
+    id: (agentReplySettings?.id as string | null) ?? agentIdForReply ?? null,
+    name: (agentReplySettings?.name as string | null) ?? null,
+    model: (agentReplySettings?.model as string | null) ?? null,
+    crm_automation_enabled: Boolean(agentReplySettings?.crm_automation_enabled),
+    followup_automation_enabled: Boolean(agentReplySettings?.followup_automation_enabled),
+    outbound_whatsapp_enabled: Boolean(agentReplySettings?.outbound_whatsapp_enabled),
+    outbound_policy:
+      ((agentReplySettings?.outbound_policy as "session_only" | "disabled" | null) ??
+        "session_only") === "disabled"
+        ? "disabled"
+        : "session_only",
+    auto_apply_explicit_fields: Array.isArray(agentReplySettings?.auto_apply_explicit_fields)
+      ? (agentReplySettings?.auto_apply_explicit_fields as string[])
+      : ["name", "email", "phone", "course"],
+    inference_allowed_fields: Array.isArray(agentReplySettings?.inference_allowed_fields)
+      ? (agentReplySettings?.inference_allowed_fields as string[])
+      : ["city", "course"],
+    require_status_approval:
+      agentReplySettings?.require_status_approval === undefined
+        ? true
+        : Boolean(agentReplySettings?.require_status_approval),
+    inference_min_confidence: Number(agentReplySettings?.inference_min_confidence ?? 0.75),
+  };
+
+  let autoEscalationRequested = false;
+  if (
+    parsed.channel === "whatsapp" &&
+    parsed.provider === "twilio" &&
+    automationSettings.crm_automation_enabled
+  ) {
+    const actionDecision = await extractAndDecideCrmActions({
+      settings: automationSettings,
+      channel: parsed.channel,
+      conversationHistory: chatHistory,
+      lastUserMessage: parsed.text,
+      lead: leadAutomationSnapshot,
+    });
+    const actionResult = await applyAiCrmActions({
+      supabase,
+      agentSettings: automationSettings,
+      conversation: {
+        id: conversation.id as string,
+        channel: conversation.channel as "whatsapp" | "messenger" | "website",
+        provider: (conversation.provider as "meta" | "twilio" | null) ?? null,
+        assigned_user_id: (conversation.assigned_user_id as string | null) ?? null,
+        lead_id: (conversation.lead_id as string | null) ?? null,
+        ai_agent_id: (conversation.ai_agent_id as string | null) ?? null,
+        mode: (conversation.mode as "agent" | "human") ?? "agent",
+      },
+      lead: leadAutomationSnapshot,
+      decision: actionDecision,
+    });
+    autoEscalationRequested = actionResult.shouldEscalate;
+
+    const shouldSendAutomationOutbound =
+      !!actionResult.outboundMessage && !aiResult.shouldEscalate && !autoEscalationRequested;
+    if (shouldSendAutomationOutbound) {
+      await sendMessage(
+        {
+          channel: conversation.channel,
+          provider: conversation.provider,
+          external_user_id: conversation.external_user_id,
+          page_id: conversation.page_id,
+          twilio_connection_id: conversation.twilio_connection_id ?? null,
+        },
+        actionResult.outboundMessage!,
+      );
+      await supabase.from("messages").insert({
+        conversation_id: conversation.id,
+        role: "assistant",
+        content: actionResult.outboundMessage!,
+      });
+    }
+  }
 
   if (conversation.channel === "whatsapp") {
     const selectedAssets = await selectCourseAssetsForMessage({
@@ -554,8 +655,12 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
   await supabase
     .from("conversations")
     .update(
-      aiResult.shouldEscalate
-        ? { mode: "human", updated_at: new Date().toISOString() }
+      aiResult.shouldEscalate || autoEscalationRequested
+        ? {
+            mode: "human",
+            lifecycle_status: "escalation_requested",
+            updated_at: new Date().toISOString(),
+          }
         : { updated_at: new Date().toISOString() },
     )
     .eq("id", conversation.id);

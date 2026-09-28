@@ -56,6 +56,14 @@ const ALLOWED_FIELDS = [
   "escalation_message",
   "auto_collect_lead",
   "lead_collect_fields",
+  "crm_automation_enabled",
+  "followup_automation_enabled",
+  "outbound_whatsapp_enabled",
+  "outbound_policy",
+  "auto_apply_explicit_fields",
+  "inference_allowed_fields",
+  "require_status_approval",
+  "inference_min_confidence",
   "business_hours_enabled",
   "business_hours",
   "offline_message",
@@ -92,6 +100,9 @@ export async function PATCH(request: NextRequest) {
     if (body[field] !== undefined) {
       updates[field] = body[field];
     }
+  }
+  if (updates.outbound_policy !== undefined) {
+    updates.outbound_policy = updates.outbound_policy === "disabled" ? "disabled" : "session_only";
   }
 
   const supabase = await createClient();
