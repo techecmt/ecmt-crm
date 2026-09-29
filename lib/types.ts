@@ -290,6 +290,8 @@ export type AppointmentMode = "phone" | "video" | "campus";
 export interface CallbackRequest {
   id: string;
   lead_id: string;
+  conversation_id: string | null;
+  agent_id: string | null;
   full_name: string;
   email: string;
   phone: string;

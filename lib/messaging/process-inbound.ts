@@ -20,6 +20,7 @@ import {
 } from "./course-assets";
 import { extractAndDecideCrmActions, type AgentAutomationSettings } from "./ai-crm-actions";
 import { applyAiCrmActions } from "./apply-ai-actions";
+import { tryHandleDeterministicCallbackReply } from "./callback-automation";
 import type { ParsedInboundMessage } from "./types";
 
 async function resolveInboundAgentId(
@@ -323,6 +324,26 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
   }
   if (optOutIntent === "opt_in") {
     await clearOptOut(supabase, parsed.externalUserId);
+  }
+
+  const callbackHandled = await tryHandleDeterministicCallbackReply({
+    supabase,
+    conversation: {
+      id: conversation.id as string,
+      channel: conversation.channel as "whatsapp" | "messenger" | "website",
+      provider: (conversation.provider as "meta" | "twilio" | null) ?? null,
+      external_user_id: conversation.external_user_id as string,
+      page_id: (conversation.page_id as string | null) ?? null,
+      twilio_connection_id: (conversation.twilio_connection_id as string | null) ?? null,
+      ai_agent_id: (conversation.ai_agent_id as string | null) ?? inboundAgentId ?? null,
+      assigned_user_id: (conversation.assigned_user_id as string | null) ?? null,
+      lead_id: (conversation.lead_id as string | null) ?? null,
+      mode: (conversation.mode as "agent" | "human") ?? "agent",
+    },
+    userText: parsed.text,
+  });
+  if (callbackHandled) {
+    return;
   }
 
   if (conversation.mode === "human") {

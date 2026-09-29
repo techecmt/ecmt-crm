@@ -3,6 +3,7 @@ import "server-only";
 import OpenAI from "openai";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Channel } from "@/lib/messaging/types";
+import { PROACTIVE_CALLBACK_SYSTEM_HINT } from "@/lib/messaging/proactive-callback";
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful admissions counselor AI assistant for a college/educational institution. You help prospective students with:
 - Information about courses, programs, and admission requirements
@@ -195,6 +196,7 @@ export async function getAIResponse(input: AIInput): Promise<AIResult> {
     `Tone: ${toneInstruction}`,
     "Use prior conversation context to continue from the latest unresolved point. Do not restart a full questionnaire when earlier messages already provided details.",
     channelInstruction(input.channel),
+    input.channel === "whatsapp" ? PROACTIVE_CALLBACK_SYSTEM_HINT : null,
     input.leadContext ? `Lead context:\n${input.leadContext}` : null,
     input.linkedConversationSummary
       ? `Related conversation memory:\n${input.linkedConversationSummary}`

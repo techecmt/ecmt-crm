@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { buildProactiveCallbackOffer } from "@/lib/messaging/proactive-callback";
 
 type CourseCatalogRow = {
   id: string;
@@ -211,7 +212,9 @@ export function buildCourseDisambiguationReply(options: string[]) {
 }
 
 export function buildCourseNotFoundReply() {
-  return "I could not find that course in our catalog right now. A counselor can follow up and share the exact fee details, brochure, and creatives.";
+  return buildProactiveCallbackOffer(
+    "I could not find that course in our catalog right now, but our counsellor can share exact fees, brochure, and creatives",
+  );
 }
 
 export function buildCourseMatchedReply(selection: CourseAssetSelection) {
