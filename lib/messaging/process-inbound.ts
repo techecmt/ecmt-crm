@@ -10,8 +10,12 @@ import { fetchMessengerProfileName } from "./messenger";
 import { clearOptOut, detectOptOutIntent, recordOptOut } from "./opt-out";
 import { sendMessage } from "./send";
 import {
+  buildCourseDisambiguationReply,
+  buildCourseMatchedReply,
+  buildCourseNotFoundReply,
   buildCourseCatalogContext,
   filterAssetsByCooldown,
+  resolveCourseQueryForMessage,
   selectCourseAssetsForMessage,
 } from "./course-assets";
 import { extractAndDecideCrmActions, type AgentAutomationSettings } from "./ai-crm-actions";
@@ -492,15 +496,43 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
     supabase,
     agentId: agentIdForReply,
   });
-
-  const aiResult: AIResult = await getAIResponse({
+  const courseResolution = await resolveCourseQueryForMessage({
+    supabase,
     agentId: agentIdForReply,
-    conversationHistory: chatHistory,
-    channel: parsed.channel,
-    leadContext,
-    linkedConversationSummary,
-    courseCatalogContext,
+    userText: parsed.text,
+    leadInterestedCourse,
   });
+  const courseMatchedContext =
+    courseResolution.kind === "matched"
+      ? `Matched course from catalog:\nCourse: ${courseResolution.selection.courseName}\nFee Summary: ${courseResolution.selection.feeSummary || "-"}\nFee Details: ${courseResolution.selection.feeDetails || "-"}\n\nWhen this user asks about this course or its fee, provide full fee details from this catalog entry.`
+      : null;
+
+  const aiResult: AIResult =
+    courseResolution.kind === "matched"
+      ? {
+          reply: buildCourseMatchedReply(courseResolution.selection),
+          shouldEscalate: false,
+        }
+      : courseResolution.kind === "ambiguous"
+        ? {
+            reply: buildCourseDisambiguationReply(courseResolution.options),
+            shouldEscalate: false,
+          }
+        : courseResolution.kind === "not_found"
+          ? {
+              reply: buildCourseNotFoundReply(),
+              shouldEscalate: false,
+            }
+          : await getAIResponse({
+              agentId: agentIdForReply,
+              conversationHistory: chatHistory,
+              channel: parsed.channel,
+              leadContext,
+              linkedConversationSummary,
+              courseCatalogContext: [courseCatalogContext, courseMatchedContext]
+                .filter(Boolean)
+                .join("\n\n"),
+            });
 
   await sendMessage(
     {
@@ -596,12 +628,15 @@ export async function processInboundMessage(parsed: ParsedInboundMessage) {
   }
 
   if (conversation.channel === "whatsapp") {
-    const selectedAssets = await selectCourseAssetsForMessage({
-      supabase,
-      agentId: agentIdForReply,
-      userText: parsed.text,
-      leadInterestedCourse,
-    });
+    const selectedAssets =
+      courseResolution.kind === "matched"
+        ? courseResolution.selection
+        : await selectCourseAssetsForMessage({
+            supabase,
+            agentId: agentIdForReply,
+            userText: parsed.text,
+            leadInterestedCourse,
+          });
 
     if (selectedAssets?.assets.length) {
       const assetsToSend = await filterAssetsByCooldown({

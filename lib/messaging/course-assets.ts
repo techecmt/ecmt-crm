@@ -42,6 +42,12 @@ export type CourseAssetSelection = {
   assets: SelectedCourseAsset[];
 };
 
+export type CourseQueryResolution =
+  | { kind: "none" }
+  | { kind: "not_found" }
+  | { kind: "ambiguous"; options: string[] }
+  | { kind: "matched"; selection: CourseAssetSelection };
+
 const ASSET_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 
 function normalizeText(value: string | null | undefined) {
@@ -81,82 +87,32 @@ function scoreCourseMatch(input: {
 }
 
 function detectAssetIntent(text: string) {
-  const wantsBrochure =
-    /\b(brochure|prospectus|pdf|details\s*pdf|course\s*pdf|booklet)\b/i.test(text);
+  const wantsBrochure = /\b(brochure|prospectus|pdf|booklet)\b/i.test(text);
   const wantsCreative = /\b(creative|poster|flyer|banner|image|sample\s*ad)\b/i.test(text);
-  const asksFee = /\b(fee|fees|cost|price|tuition|payment|installment)\b/i.test(text);
-  const asksCourseInfo =
-    /\b(course|program|programme|admission|intake|duration|syllabus|details)\b/i.test(text);
-
-  if (wantsBrochure || wantsCreative) {
-    const requested: Array<"brochure" | "creative"> = [];
-    if (wantsBrochure) requested.push("brochure");
-    if (wantsCreative) requested.push("creative");
-    return requested;
-  }
-
-  // When users ask for fee/course details, sending one brochure usually helps.
-  if (asksFee || asksCourseInfo) {
-    return ["brochure"] as Array<"brochure" | "creative">;
-  }
-
-  return [] as Array<"brochure" | "creative">;
+  const requested: Array<"brochure" | "creative"> = ["brochure"];
+  if (wantsCreative) requested.push("creative");
+  if (!wantsBrochure && !wantsCreative) return requested;
+  if (wantsBrochure && !requested.includes("brochure")) requested.unshift("brochure");
+  return requested;
 }
 
-export async function selectCourseAssetsForMessage(input: {
-  supabase: ReturnType<typeof createAdminClient>;
-  agentId: string | null | undefined;
-  userText: string;
-  leadInterestedCourse?: string | null;
-}) {
-  if (!input.agentId) return null;
+function detectCourseIntent(text: string) {
+  return /\b(fee|fees|cost|price|tuition|payment|installment|course|program|programme|admission|intake|duration|syllabus|brochure|creative|poster|flyer)\b/i.test(
+    text,
+  );
+}
 
-  const requestedAssetTypes = detectAssetIntent(input.userText);
-  if (!requestedAssetTypes.length) return null;
-
-  const { data: courses, error: courseError } = await input.supabase
-    .from("ai_course_catalog")
-    .select("id,course_name,fee_summary,fee_details,keyword_aliases,sort_order")
-    .eq("agent_id", input.agentId)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (courseError || !courses?.length) return null;
-
-  const normalizedUserText = normalizeText(input.userText);
-  const normalizedLeadCourse = normalizeText(input.leadInterestedCourse);
-
-  const bestMatch = (courses as CourseCatalogRow[])
-    .map((course) => ({
-      course,
-      score: scoreCourseMatch({
-        text: normalizedUserText,
-        leadCourse: normalizedLeadCourse,
-        course,
-      }),
-    }))
-    .sort((a, b) => b.score - a.score || a.course.sort_order - b.course.sort_order)[0];
-
-  if (!bestMatch || bestMatch.score <= 0) return null;
-
-  const { data: assets, error: assetsError } = await input.supabase
-    .from("ai_course_assets")
-    .select("id,course_id,asset_type,media_type,url,mime_type,filename,caption,sort_order,created_at")
-    .eq("course_id", bestMatch.course.id)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (assetsError || !assets?.length) return null;
-
-  const selectedByType = new Map<"brochure" | "creative", SelectedCourseAsset>();
-  for (const asset of assets as CourseAssetRow[]) {
-    const type = asset.asset_type;
-    if (!requestedAssetTypes.includes(type)) continue;
-    if (selectedByType.has(type)) continue;
-    selectedByType.set(type, {
+function buildCourseSelection(input: {
+  course: CourseCatalogRow;
+  assets: CourseAssetRow[];
+  requestedAssetTypes: Array<"brochure" | "creative">;
+}): CourseAssetSelection {
+  const byType = new Map<"brochure" | "creative", SelectedCourseAsset>();
+  for (const asset of input.assets) {
+    if (byType.has(asset.asset_type)) continue;
+    byType.set(asset.asset_type, {
       id: asset.id,
-      assetType: type,
+      assetType: asset.asset_type,
       mediaType: asset.media_type,
       url: asset.url,
       mimeType: asset.mime_type,
@@ -165,18 +121,119 @@ export async function selectCourseAssetsForMessage(input: {
     });
   }
 
-  const selectedAssets = requestedAssetTypes
-    .map((type) => selectedByType.get(type))
-    .filter((asset): asset is SelectedCourseAsset => Boolean(asset));
-  if (!selectedAssets.length) return null;
+  const picked: SelectedCourseAsset[] = [];
+  for (const type of input.requestedAssetTypes) {
+    const found = byType.get(type);
+    if (found) picked.push(found);
+  }
+  if (!picked.length) {
+    const brochure = byType.get("brochure");
+    const creative = byType.get("creative");
+    if (brochure) picked.push(brochure);
+    else if (creative) picked.push(creative);
+  }
 
   return {
-    courseId: bestMatch.course.id,
-    courseName: bestMatch.course.course_name,
-    feeSummary: bestMatch.course.fee_summary,
-    feeDetails: bestMatch.course.fee_details,
-    assets: selectedAssets,
-  } satisfies CourseAssetSelection;
+    courseId: input.course.id,
+    courseName: input.course.course_name,
+    feeSummary: input.course.fee_summary,
+    feeDetails: input.course.fee_details,
+    assets: picked,
+  };
+}
+
+export async function resolveCourseQueryForMessage(input: {
+  supabase: ReturnType<typeof createAdminClient>;
+  agentId: string | null | undefined;
+  userText: string;
+  leadInterestedCourse?: string | null;
+}): Promise<CourseQueryResolution> {
+  if (!input.agentId) return { kind: "none" };
+  if (!detectCourseIntent(input.userText)) return { kind: "none" };
+
+  const { data: courses, error: courseError } = await input.supabase
+    .from("ai_course_catalog")
+    .select("id,course_name,fee_summary,fee_details,keyword_aliases,sort_order")
+    .eq("agent_id", input.agentId)
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (courseError || !courses?.length) return { kind: "not_found" };
+
+  const normalizedUserText = normalizeText(input.userText);
+  const normalizedLeadCourse = normalizeText(input.leadInterestedCourse);
+  const ranked = (courses as CourseCatalogRow[])
+    .map((course) => ({
+      course,
+      score: scoreCourseMatch({
+        text: normalizedUserText,
+        leadCourse: normalizedLeadCourse,
+        course,
+      }),
+    }))
+    .sort((a, b) => b.score - a.score || a.course.sort_order - b.course.sort_order);
+
+  const top = ranked[0];
+  if (!top || top.score <= 0) return { kind: "not_found" };
+
+  const ambiguousMatches = ranked
+    .filter((entry, index) => index < 3 && entry.score > 0 && entry.score >= top.score - 12)
+    .map((entry) => entry.course.course_name);
+  if (ambiguousMatches.length > 1) {
+    return { kind: "ambiguous", options: ambiguousMatches };
+  }
+
+  const { data: assets, error: assetsError } = await input.supabase
+    .from("ai_course_assets")
+    .select(
+      "id,course_id,asset_type,media_type,url,mime_type,filename,caption,sort_order,created_at",
+    )
+    .eq("course_id", top.course.id)
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (assetsError) return { kind: "not_found" };
+
+  const selection = buildCourseSelection({
+    course: top.course,
+    assets: (assets as CourseAssetRow[]) ?? [],
+    requestedAssetTypes: detectAssetIntent(input.userText),
+  });
+  return { kind: "matched", selection };
+}
+
+export function buildCourseDisambiguationReply(options: string[]) {
+  if (!options.length) {
+    return "I found multiple course matches. Could you share the exact course name so I can send the correct fee details and brochure?";
+  }
+  const list = options.map((name, index) => `${index + 1}. ${name}`).join("\n");
+  return `I found multiple matching courses:\n${list}\n\nPlease reply with the exact course name, and I will share full fee details and the brochure.`;
+}
+
+export function buildCourseNotFoundReply() {
+  return "I could not find that course in our catalog right now. A counselor can follow up and share the exact fee details, brochure, and creatives.";
+}
+
+export function buildCourseMatchedReply(selection: CourseAssetSelection) {
+  const summary = selection.feeSummary?.trim();
+  const details = selection.feeDetails?.trim();
+  const feeText = details || summary || "Fee details are currently being updated.";
+  const summaryLine =
+    summary && details && summary.toLowerCase() !== details.toLowerCase()
+      ? `Summary: ${summary}\n\n`
+      : "";
+  return `Course: ${selection.courseName}\n\n${summaryLine}Fee Details:\n${feeText}`;
+}
+
+export async function selectCourseAssetsForMessage(input: {
+  supabase: ReturnType<typeof createAdminClient>;
+  agentId: string | null | undefined;
+  userText: string;
+  leadInterestedCourse?: string | null;
+}) {
+  const resolution = await resolveCourseQueryForMessage(input);
+  if (resolution.kind !== "matched") return null;
+  return resolution.selection;
 }
 
 export async function filterAssetsByCooldown(input: {

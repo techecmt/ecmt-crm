@@ -4,6 +4,14 @@ import { createHash, randomBytes } from "crypto";
 
 import { getAIResponse, type ChatMessage } from "@/lib/ai";
 import { getAgentAvailability } from "@/lib/messaging/ai-availability";
+import {
+  buildCourseDisambiguationReply,
+  buildCourseMatchedReply,
+  buildCourseNotFoundReply,
+  buildCourseCatalogContext,
+  filterAssetsByCooldown,
+  resolveCourseQueryForMessage,
+} from "@/lib/messaging/course-assets";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const TOKEN_BYTES = 32;
@@ -370,14 +378,42 @@ export async function submitWebsiteMessage(
     .order("created_at", { ascending: true })
     .limit(30);
   if (historyError) throw new Error(historyError.message);
-
-  const aiResult = await getAIResponse({
+  const courseCatalogContext = await buildCourseCatalogContext({
+    supabase,
     agentId: conversation.ai_agent_id,
-    channel: "website",
-    conversationHistory: (history ?? []) as ChatMessage[],
-    leadCaptureContext: visitorDataContext(visitorData),
-    disableAutomaticEscalation: true,
   });
+  const leadInterestedCourse = visitorData.interested_courses?.at(-1) ?? null;
+  const courseResolution = await resolveCourseQueryForMessage({
+    supabase,
+    agentId: conversation.ai_agent_id,
+    userText: content,
+    leadInterestedCourse,
+  });
+
+  const aiResult =
+    courseResolution.kind === "matched"
+      ? {
+          reply: buildCourseMatchedReply(courseResolution.selection),
+          shouldEscalate: false,
+        }
+      : courseResolution.kind === "ambiguous"
+        ? {
+            reply: buildCourseDisambiguationReply(courseResolution.options),
+            shouldEscalate: false,
+          }
+        : courseResolution.kind === "not_found"
+          ? {
+              reply: buildCourseNotFoundReply(),
+              shouldEscalate: false,
+            }
+          : await getAIResponse({
+              agentId: conversation.ai_agent_id,
+              channel: "website",
+              conversationHistory: (history ?? []) as ChatMessage[],
+              leadCaptureContext: visitorDataContext(visitorData),
+              courseCatalogContext,
+              disableAutomaticEscalation: true,
+            });
 
   const { error: assistantMessageError } = await supabase.from("messages").insert({
     conversation_id: conversation.id,
@@ -390,6 +426,28 @@ export async function submitWebsiteMessage(
     conversation.lifecycle_status === "escalation_requested"
       ? "escalation_requested"
       : "bot_handled";
+
+  if (courseResolution.kind === "matched" && courseResolution.selection.assets.length) {
+    const assetsToShare = await filterAssetsByCooldown({
+      supabase,
+      conversationId: conversation.id,
+      assets: courseResolution.selection.assets,
+    });
+
+    for (const asset of assetsToShare) {
+      const label = asset.assetType === "brochure" ? "Brochure" : "Creative";
+      const linkMessage = `${label}: ${asset.url}`;
+      const { error: linkMessageError } = await supabase.from("messages").insert({
+        conversation_id: conversation.id,
+        role: "assistant",
+        content: linkMessage,
+        ai_course_catalog_id: courseResolution.selection.courseId,
+        ai_course_asset_id: asset.id,
+      });
+      if (linkMessageError) throw new Error(linkMessageError.message);
+    }
+  }
+
   await supabase
     .from("conversations")
     .update({ ...commonUpdates, lifecycle_status: lifecycleStatus })
