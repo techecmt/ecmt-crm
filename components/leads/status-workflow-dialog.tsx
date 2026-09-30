@@ -272,7 +272,7 @@ function SimpleStatusConfirm({
                 <SelectValue placeholder="Select counsellor" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">— Select counsellor —</SelectItem>
+                <SelectItem value="none">Select counsellor</SelectItem>
                 {counsellors.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.full_name || p.email}
@@ -292,7 +292,7 @@ function SimpleStatusConfirm({
           Cancel
         </Button>
         <Button onClick={handleConfirm} disabled={updateStatus.isPending}>
-          {updateStatus.isPending ? "Updating…" : "Confirm change"}
+          {updateStatus.isPending ? "Updating..." : "Confirm change"}
         </Button>
       </DialogFooter>
     </>
@@ -394,6 +394,24 @@ function CounsellingCompletedForm({
   );
   const selectedQualification = form.watch("highest_qualification");
   const selectedNationality = form.watch("nationality");
+  const counsellingChecks = form.watch("counselling_checks");
+  const allCounsellingChecksSelected = COUNSELLING_CHECK_KEYS.every(
+    (key) => counsellingChecks?.[key],
+  );
+
+  const setAllCounsellingChecks = (checked: boolean) => {
+    form.setValue(
+      "counselling_checks",
+      {
+        website_details: checked,
+        mer: checked,
+        policies: checked,
+        fee_structure: checked,
+        attendance: checked,
+      },
+      { shouldDirty: true, shouldValidate: true },
+    );
+  };
 
   const onSubmit = async (values: CounsellingFormValues) => {
     await completeCounselling.mutateAsync({
@@ -429,8 +447,21 @@ function CounsellingCompletedForm({
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
           <div className="rounded-lg border bg-muted/20 p-3">
-            <div className="mb-2 text-sm font-medium">
-              Mandatory counselling checks
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-sm font-medium">
+                Mandatory counselling checks
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 text-xs"
+                onClick={() =>
+                  setAllCounsellingChecks(!allCounsellingChecksSelected)
+                }
+              >
+                {allCounsellingChecksSelected ? "Clear all" : "Select all"}
+              </Button>
             </div>
             <div className="grid gap-2">
               {COUNSELLING_CHECK_KEYS.map((key) => (
@@ -610,7 +641,7 @@ function CounsellingCompletedForm({
             </Button>
             <Button type="submit" disabled={completeCounselling.isPending}>
               {completeCounselling.isPending
-                ? "Completing…"
+                ? "Completing..."
                 : "Complete counselling"}
             </Button>
           </DialogFooter>
@@ -756,7 +787,7 @@ function NotInterestedForm({
               Cancel
             </Button>
             <Button type="submit" disabled={markNotInterested.isPending}>
-              {markNotInterested.isPending ? "Saving…" : "Mark Not Interested"}
+              {markNotInterested.isPending ? "Saving..." : "Mark Not Interested"}
             </Button>
           </DialogFooter>
         </form>
@@ -834,7 +865,7 @@ function RegistrationForm({
               Cancel
             </Button>
             <Button type="submit" disabled={updateStatus.isPending}>
-              {updateStatus.isPending ? "Updating…" : "Confirm"}
+              {updateStatus.isPending ? "Updating..." : "Confirm"}
             </Button>
           </DialogFooter>
         </form>
@@ -906,7 +937,7 @@ function InactiveCoursesForm({
               Cancel
             </Button>
             <Button type="submit" disabled={updateStatus.isPending}>
-              {updateStatus.isPending ? "Saving…" : "Mark Inactive Courses"}
+              {updateStatus.isPending ? "Saving..." : "Mark Inactive Courses"}
             </Button>
           </DialogFooter>
         </form>

@@ -208,8 +208,8 @@ BEGIN
     )
     VALUES (
       NEW.id,
-      COALESCE(OLD.status, ''),
-      COALESCE(NEW.status, ''),
+      COALESCE(OLD.status::text, 'unknown'),
+      COALESCE(NEW.status::text, 'unknown'),
       now(),
       auth.uid(),
       v_source,
