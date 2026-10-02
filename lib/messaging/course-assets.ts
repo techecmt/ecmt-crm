@@ -2,6 +2,7 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildProactiveCallbackOffer } from "@/lib/messaging/proactive-callback";
+import { looksLikeNamedCourseQuery, scoreCourseMatch } from "./course-matching";
 
 type CourseCatalogRow = {
   id: string;
@@ -53,38 +54,6 @@ const ASSET_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function includesToken(haystack: string, needle: string) {
-  if (!needle) return false;
-  return haystack.includes(needle);
-}
-
-function scoreCourseMatch(input: {
-  text: string;
-  leadCourse: string;
-  course: CourseCatalogRow;
-}) {
-  const normalizedCourseName = normalizeText(input.course.course_name);
-  if (!normalizedCourseName) return 0;
-
-  let score = 0;
-  if (includesToken(input.text, normalizedCourseName)) score += 90;
-
-  if (input.leadCourse) {
-    if (input.leadCourse === normalizedCourseName) score += 140;
-    if (includesToken(input.leadCourse, normalizedCourseName)) score += 50;
-    if (includesToken(normalizedCourseName, input.leadCourse)) score += 50;
-  }
-
-  for (const alias of input.course.keyword_aliases ?? []) {
-    const normalizedAlias = normalizeText(alias);
-    if (normalizedAlias && includesToken(input.text, normalizedAlias)) {
-      score += 30;
-    }
-  }
-
-  return score;
 }
 
 function detectAssetIntent(text: string) {
@@ -169,13 +138,18 @@ export async function resolveCourseQueryForMessage(input: {
       score: scoreCourseMatch({
         text: normalizedUserText,
         leadCourse: normalizedLeadCourse,
-        course,
+        courseName: course.course_name,
+        aliases: course.keyword_aliases,
       }),
     }))
     .sort((a, b) => b.score - a.score || a.course.sort_order - b.course.sort_order);
 
   const top = ranked[0];
-  if (!top || top.score <= 0) return { kind: "not_found" };
+  if (!top || top.score <= 0) {
+    return looksLikeNamedCourseQuery(input.userText)
+      ? { kind: "not_found" }
+      : { kind: "none" };
+  }
 
   const ambiguousMatches = ranked
     .filter((entry, index) => index < 3 && entry.score > 0 && entry.score >= top.score - 12)
