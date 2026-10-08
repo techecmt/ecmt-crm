@@ -24,7 +24,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CheckCircle2, GraduationCap, TrendingUp, UsersRound } from "lucide-react";
+import { CheckCircle2, GraduationCap, UsersRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -491,13 +491,67 @@ function chartCountLabel(value: unknown) {
   return String(count);
 }
 
+function chartCountLabelAll(value: unknown) {
+  const count = Number(value);
+  if (!Number.isFinite(count)) return "";
+  return String(count);
+}
+
+function chartPercentLabel(value: unknown) {
+  const percent = Number(value);
+  if (!Number.isFinite(percent)) return "";
+  return `${percent.toFixed(1)}%`;
+}
+
 type TrendGranularity = "daily" | "weekly" | "monthly";
+type TrendMode = "overall" | "by_source";
+
+type TrendBucket = {
+  key: string;
+  label: string;
+};
+
+type TrendBySourceRow = { label: string; total: number } & Partial<Record<LeadSource, number>>;
+type ConversionTrendRow = { label: string; created: number; registered: number; conversion: number };
+type ConversionTrendBySourceRow = ConversionTrendRow & Partial<Record<LeadSource, number>>;
 
 function defaultTrendGranularity(fromDate: string, toDate: string): TrendGranularity {
   const days = differenceInCalendarDays(new Date(toDate), new Date(fromDate));
   if (days > 90) return "monthly";
   if (days > 31) return "weekly";
   return "daily";
+}
+
+function trendBucketKey(date: Date, granularity: TrendGranularity) {
+  if (granularity === "daily") return format(date, "yyyy-MM-dd");
+  if (granularity === "weekly") {
+    return format(startOfWeek(date, { weekStartsOn: 1 }), "yyyy-MM-dd");
+  }
+  return format(date, "yyyy-MM");
+}
+
+function buildTrendBuckets(from: Date, to: Date, granularity: TrendGranularity): TrendBucket[] {
+  if (granularity === "daily") {
+    return eachDayOfInterval({ start: from, end: to }).map((bucket) => ({
+      key: format(bucket, "yyyy-MM-dd"),
+      label: format(bucket, "d MMM"),
+    }));
+  }
+
+  if (granularity === "weekly") {
+    return eachWeekOfInterval({ start: from, end: to }, { weekStartsOn: 1 }).map((bucket) => {
+      const weekEnd = endOfWeek(bucket, { weekStartsOn: 1 });
+      return {
+        key: format(bucket, "yyyy-MM-dd"),
+        label: `${format(bucket, "d MMM")} – ${format(weekEnd, "d MMM")}`,
+      };
+    });
+  }
+
+  return eachMonthOfInterval({ start: from, end: to }).map((bucket) => ({
+    key: format(bucket, "yyyy-MM"),
+    label: format(bucket, "MMM yyyy"),
+  }));
 }
 
 function buildTrendData(
@@ -510,49 +564,169 @@ function buildTrendData(
   const to = new Date(`${toDate}T00:00:00`);
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) return [];
 
+  const buckets = buildTrendBuckets(from, to, granularity);
   const counts = new Map<string, number>();
 
-  if (granularity === "daily") {
-    for (const lead of leads) {
-      const key = format(new Date(lead.created_at), "yyyy-MM-dd");
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return eachDayOfInterval({ start: from, end: to }).map((bucket) => {
-      const key = format(bucket, "yyyy-MM-dd");
-      return {
-        label: format(bucket, "d MMM"),
-        count: counts.get(key) ?? 0,
-      };
-    });
-  }
-
-  if (granularity === "weekly") {
-    for (const lead of leads) {
-      const weekStart = startOfWeek(new Date(lead.created_at), { weekStartsOn: 1 });
-      const key = format(weekStart, "yyyy-MM-dd");
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return eachWeekOfInterval({ start: from, end: to }, { weekStartsOn: 1 }).map((bucket) => {
-      const weekEnd = endOfWeek(bucket, { weekStartsOn: 1 });
-      const key = format(bucket, "yyyy-MM-dd");
-      return {
-        label: `${format(bucket, "d MMM")} – ${format(weekEnd, "d MMM")}`,
-        count: counts.get(key) ?? 0,
-      };
-    });
-  }
-
   for (const lead of leads) {
-    const key = format(new Date(lead.created_at), "yyyy-MM");
+    const key = trendBucketKey(new Date(lead.created_at), granularity);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  return eachMonthOfInterval({ start: from, end: to }).map((bucket) => {
-    const key = format(bucket, "yyyy-MM");
+
+  return buckets.map((bucket) => ({
+    label: bucket.label,
+    count: counts.get(bucket.key) ?? 0,
+  }));
+}
+
+function buildTrendDataBySource(
+  leads: Lead[],
+  fromDate: string,
+  toDate: string,
+  granularity: TrendGranularity,
+  sourceKeys: LeadSource[],
+) {
+  const from = new Date(`${fromDate}T00:00:00`);
+  const to = new Date(`${toDate}T00:00:00`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) return [];
+
+  const buckets = buildTrendBuckets(from, to, granularity);
+  const countsByBucket = new Map<string, Map<LeadSource, number>>();
+
+  for (const lead of leads) {
+    const bucket = trendBucketKey(new Date(lead.created_at), granularity);
+    const sourceCounts = countsByBucket.get(bucket) ?? new Map<LeadSource, number>();
+    sourceCounts.set(lead.source, (sourceCounts.get(lead.source) ?? 0) + 1);
+    countsByBucket.set(bucket, sourceCounts);
+  }
+
+  return buckets.map((bucket) => {
+    const sourceCounts = countsByBucket.get(bucket.key);
+    const row: TrendBySourceRow = { label: bucket.label, total: 0 };
+
+    for (const sourceKey of sourceKeys) {
+      const count = sourceCounts?.get(sourceKey) ?? 0;
+      row[sourceKey] = count;
+      row.total += count;
+    }
+
+    return row;
+  });
+}
+
+function buildTrendSourceConfig(sourceKeys: LeadSource[]): ChartConfig {
+  return sourceKeys.reduce<ChartConfig>((acc, sourceKey, index) => {
+    acc[sourceKey] = {
+      label: LEAD_SOURCE_LABELS[sourceKey] ?? sourceKey,
+      color: SOURCE_STACK_COLORS[index % SOURCE_STACK_COLORS.length],
+    };
+    return acc;
+  }, {});
+}
+
+function trendSourceTooltipLabelFormatter(label: string, payload: unknown[]) {
+  const row = (payload[0] as { payload?: { total?: number } })?.payload;
+  return (
+    <div className="space-y-1">
+      <div className="font-medium">{label}</div>
+      <div className="text-muted-foreground">Total leads: {row?.total ?? 0}</div>
+    </div>
+  );
+}
+
+function buildConversionTrendData(
+  leads: Lead[],
+  fromDate: string,
+  toDate: string,
+  granularity: TrendGranularity,
+): ConversionTrendRow[] {
+  const from = new Date(`${fromDate}T00:00:00`);
+  const to = new Date(`${toDate}T00:00:00`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) return [];
+
+  const buckets = buildTrendBuckets(from, to, granularity);
+  const createdCounts = new Map<string, number>();
+  const registeredCounts = new Map<string, number>();
+
+  for (const lead of leads) {
+    const bucketKey = trendBucketKey(new Date(lead.created_at), granularity);
+    createdCounts.set(bucketKey, (createdCounts.get(bucketKey) ?? 0) + 1);
+    if (isLeadRegistered(lead)) {
+      registeredCounts.set(bucketKey, (registeredCounts.get(bucketKey) ?? 0) + 1);
+    }
+  }
+
+  return buckets.map((bucket) => {
+    const created = createdCounts.get(bucket.key) ?? 0;
+    const registered = registeredCounts.get(bucket.key) ?? 0;
     return {
-      label: format(bucket, "MMM yyyy"),
-      count: counts.get(key) ?? 0,
+      label: bucket.label,
+      created,
+      registered,
+      conversion: percentValue(registered, created),
     };
   });
+}
+
+function buildConversionTrendBySourceData(
+  leads: Lead[],
+  fromDate: string,
+  toDate: string,
+  granularity: TrendGranularity,
+  sourceKeys: LeadSource[],
+): ConversionTrendBySourceRow[] {
+  const from = new Date(`${fromDate}T00:00:00`);
+  const to = new Date(`${toDate}T00:00:00`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) return [];
+
+  const buckets = buildTrendBuckets(from, to, granularity);
+  const createdCounts = new Map<string, number>();
+  const registeredCounts = new Map<string, number>();
+  const createdBySource = new Map<string, Map<LeadSource, number>>();
+
+  for (const lead of leads) {
+    const bucketKey = trendBucketKey(new Date(lead.created_at), granularity);
+    createdCounts.set(bucketKey, (createdCounts.get(bucketKey) ?? 0) + 1);
+
+    const sourceCounts = createdBySource.get(bucketKey) ?? new Map<LeadSource, number>();
+    sourceCounts.set(lead.source, (sourceCounts.get(lead.source) ?? 0) + 1);
+    createdBySource.set(bucketKey, sourceCounts);
+
+    if (isLeadRegistered(lead)) {
+      registeredCounts.set(bucketKey, (registeredCounts.get(bucketKey) ?? 0) + 1);
+    }
+  }
+
+  return buckets.map((bucket) => {
+    const created = createdCounts.get(bucket.key) ?? 0;
+    const registered = registeredCounts.get(bucket.key) ?? 0;
+    const row: ConversionTrendBySourceRow = {
+      label: bucket.label,
+      created,
+      registered,
+      conversion: percentValue(registered, created),
+    };
+
+    const sourceCounts = createdBySource.get(bucket.key);
+    for (const sourceKey of sourceKeys) {
+      row[sourceKey] = sourceCounts?.get(sourceKey) ?? 0;
+    }
+
+    return row;
+  });
+}
+
+function conversionTrendTooltipLabelFormatter(label: string, payload: unknown[]) {
+  const row = (payload[0] as { payload?: { created?: number; registered?: number; conversion?: number } })
+    ?.payload;
+  return (
+    <div className="space-y-1">
+      <div className="font-medium">{label}</div>
+      <div className="text-muted-foreground">
+        Created: {row?.created ?? 0} | Registered: {row?.registered ?? 0} | Conversion:{" "}
+        {Number(row?.conversion ?? 0).toFixed(1)}%
+      </div>
+    </div>
+  );
 }
 
 function KpiCard({
@@ -730,9 +904,14 @@ export function LeadFunnelReportsClient({
     [appliedFilters.fromDate, appliedFilters.toDate],
   );
   const [trendGranularity, setTrendGranularity] = React.useState<TrendGranularity>("daily");
+  const [trendMode, setTrendMode] = React.useState<TrendMode>("overall");
+  const [conversionTrendGranularity, setConversionTrendGranularity] =
+    React.useState<TrendGranularity>("daily");
+  const [conversionTrendMode, setConversionTrendMode] = React.useState<TrendMode>("overall");
 
   React.useEffect(() => {
     setTrendGranularity(defaultGranularity);
+    setConversionTrendGranularity(defaultGranularity);
   }, [defaultGranularity]);
 
   const trendData = React.useMemo(
@@ -746,7 +925,109 @@ export function LeadFunnelReportsClient({
     [appliedFilters.fromDate, appliedFilters.toDate, leads, trendGranularity],
   );
 
-  const showTrendLabels = trendData.length <= 31;
+  const trendSourceKeys = React.useMemo<LeadSource[]>(
+    () => sourcePerformanceData.map((row) => row.key as LeadSource),
+    [sourcePerformanceData],
+  );
+  const trendBySourceData = React.useMemo(
+    () =>
+      buildTrendDataBySource(
+        leads,
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+        trendGranularity,
+        trendSourceKeys,
+      ),
+    [
+      appliedFilters.fromDate,
+      appliedFilters.toDate,
+      leads,
+      trendGranularity,
+      trendSourceKeys,
+    ],
+  );
+  const trendChartConfig = React.useMemo<ChartConfig>(
+    () =>
+      trendMode === "overall"
+        ? { count: { label: "New leads", color: "hsl(var(--chart-2))" } }
+        : buildTrendSourceConfig(trendSourceKeys),
+    [trendMode, trendSourceKeys],
+  );
+  const trendRows = React.useMemo<Array<Record<string, string | number>>>(
+    () =>
+      trendMode === "overall"
+        ? trendData.map((row) => ({ label: row.label, count: row.count }))
+        : trendBySourceData.map((row) => ({ ...row })),
+    [trendBySourceData, trendData, trendMode],
+  );
+  const hasTrendData =
+    trendMode === "overall" ? trendData.length > 0 : trendBySourceData.some((row) => row.total > 0);
+  const trendBySourceTotals = React.useMemo(() => {
+    const sourceTotals: Partial<Record<LeadSource, number>> = {};
+    let grandTotal = 0;
+    for (const sourceKey of trendSourceKeys) {
+      sourceTotals[sourceKey] = 0;
+    }
+    for (const row of trendBySourceData) {
+      grandTotal += row.total;
+      for (const sourceKey of trendSourceKeys) {
+        sourceTotals[sourceKey] = (sourceTotals[sourceKey] ?? 0) + (row[sourceKey] ?? 0);
+      }
+    }
+    return { sourceTotals, grandTotal };
+  }, [trendBySourceData, trendSourceKeys]);
+
+  const conversionTrendData = React.useMemo(
+    () =>
+      buildConversionTrendData(
+        leads,
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+        conversionTrendGranularity,
+      ),
+    [
+      appliedFilters.fromDate,
+      appliedFilters.toDate,
+      leads,
+      conversionTrendGranularity,
+    ],
+  );
+  const conversionTrendBySourceData = React.useMemo(
+    () =>
+      buildConversionTrendBySourceData(
+        leads,
+        appliedFilters.fromDate,
+        appliedFilters.toDate,
+        conversionTrendGranularity,
+        trendSourceKeys,
+      ),
+    [
+      appliedFilters.fromDate,
+      appliedFilters.toDate,
+      leads,
+      conversionTrendGranularity,
+      trendSourceKeys,
+    ],
+  );
+  const conversionTrendChartConfig = React.useMemo<ChartConfig>(
+    () =>
+      conversionTrendMode === "overall"
+        ? { conversion: { label: "Conversion %", color: "hsl(var(--chart-4))" } }
+        : buildTrendSourceConfig(trendSourceKeys),
+    [conversionTrendMode, trendSourceKeys],
+  );
+  const conversionTrendRows =
+    conversionTrendMode === "overall" ? conversionTrendData : conversionTrendBySourceData;
+  const hasConversionTrendData = conversionTrendRows.some((row) => row.created > 0);
+  const conversionTrendTotals = React.useMemo(() => {
+    const created = conversionTrendRows.reduce((sum, row) => sum + row.created, 0);
+    const registered = conversionTrendRows.reduce((sum, row) => sum + row.registered, 0);
+    return {
+      created,
+      registered,
+      conversion: percentValue(registered, created),
+    };
+  }, [conversionTrendRows]);
 
   const totalLeads = funnelRows[0]?.count ?? 0;
   const counsellingCompleted =
@@ -926,7 +1207,7 @@ export function LeadFunnelReportsClient({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <KpiCard
           label="Total Leads"
           value={totalLeads}
@@ -945,13 +1226,195 @@ export function LeadFunnelReportsClient({
           hint={`${percent(registrations, totalLeads)} of leads`}
           icon={<GraduationCap className="h-4 w-4 text-muted-foreground" />}
         />
-        <KpiCard
-          label="Conversion Rate"
-          value={percent(registrations, totalLeads)}
-          hint="Inquiry → registration"
-          icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
-        />
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+          <div className="space-y-1">
+            <CardTitle>Conversion Rate Trend</CardTitle>
+            <CardDescription>
+              Inquiry to registration conversion per{" "}
+              {conversionTrendGranularity === "daily"
+                ? "day"
+                : conversionTrendGranularity === "weekly"
+                  ? "week"
+                  : "month"}
+              {conversionTrendMode === "by_source" ? " with source-wise lead contribution" : ""}.
+            </CardDescription>
+          </div>
+          <div className="no-print flex shrink-0 flex-col gap-2 sm:items-end">
+            <div className="flex rounded-lg border p-0.5">
+              {(["daily", "weekly", "monthly"] as const).map((granularity) => (
+                <Button
+                  key={granularity}
+                  type="button"
+                  size="sm"
+                  variant={conversionTrendGranularity === granularity ? "secondary" : "ghost"}
+                  className="h-7 px-3 text-xs capitalize"
+                  onClick={() => setConversionTrendGranularity(granularity)}
+                >
+                  {granularity}
+                </Button>
+              ))}
+            </div>
+            <div className="flex rounded-lg border p-0.5">
+              {([
+                { id: "overall" as const, label: "Overall" },
+                { id: "by_source" as const, label: "By source" },
+              ] satisfies Array<{ id: TrendMode; label: string }>).map((option) => (
+                <Button
+                  key={option.id}
+                  type="button"
+                  size="sm"
+                  variant={conversionTrendMode === option.id ? "secondary" : "ghost"}
+                  className="h-7 px-3 text-xs"
+                  onClick={() => setConversionTrendMode(option.id)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!hasConversionTrendData ? (
+            <EmptyChart label="No leads in selected period" />
+          ) : (
+            <>
+              <ChartContainer config={conversionTrendChartConfig} className="h-[300px] w-full">
+                <AreaChart data={conversionTrendRows} margin={{ left: 8, right: 8, top: 20, bottom: 8 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    fontSize={11}
+                    interval={
+                      conversionTrendGranularity === "daily" && conversionTrendRows.length > 14
+                        ? "preserveStartEnd"
+                        : 0
+                    }
+                    angle={conversionTrendGranularity === "weekly" ? -18 : 0}
+                    height={conversionTrendGranularity === "weekly" ? 48 : 30}
+                    textAnchor={conversionTrendGranularity === "weekly" ? "end" : "middle"}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={11}
+                    allowDecimals={false}
+                    domain={conversionTrendMode === "overall" ? [0, 100] : undefined}
+                  />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        indicator={conversionTrendMode === "overall" ? "dot" : "line"}
+                        labelFormatter={conversionTrendTooltipLabelFormatter}
+                      />
+                    }
+                  />
+                  {conversionTrendMode === "by_source" ? <ChartLegend content={<ChartLegendContent />} /> : null}
+                  {conversionTrendMode === "overall" ? (
+                    <Area
+                      dataKey="conversion"
+                      type="monotone"
+                      fill="hsl(var(--chart-4))"
+                      fillOpacity={0.2}
+                      stroke="hsl(var(--chart-4))"
+                      strokeWidth={2}
+                      dot={{
+                        r: 3,
+                        strokeWidth: 1,
+                        stroke: "hsl(var(--chart-4))",
+                        fill: "hsl(var(--background))",
+                      }}
+                      activeDot={{ r: 4, strokeWidth: 1, stroke: "hsl(var(--chart-4))" }}
+                      isAnimationActive
+                    >
+                      <LabelList
+                        dataKey="conversion"
+                        position="top"
+                        formatter={chartPercentLabel}
+                        className="fill-foreground"
+                        fontSize={10}
+                      />
+                    </Area>
+                  ) : (
+                    trendSourceKeys.map((sourceKey) => (
+                      <Area
+                        key={sourceKey}
+                        dataKey={sourceKey}
+                        type="monotone"
+                        stackId="sources"
+                        fill={`var(--color-${sourceKey})`}
+                        fillOpacity={0.22}
+                        stroke={`var(--color-${sourceKey})`}
+                        strokeWidth={1.6}
+                        dot={{
+                          r: 2.5,
+                          strokeWidth: 1,
+                          stroke: `var(--color-${sourceKey})`,
+                          fill: "hsl(var(--background))",
+                        }}
+                        activeDot={{ r: 3.5, strokeWidth: 1, stroke: `var(--color-${sourceKey})` }}
+                        isAnimationActive
+                      >
+                        <LabelList
+                          dataKey={sourceKey}
+                          position="top"
+                          formatter={chartCountLabelAll}
+                          className="fill-foreground"
+                          fontSize={9}
+                        />
+                      </Area>
+                    ))
+                  )}
+                </AreaChart>
+              </ChartContainer>
+
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>
+                        {conversionTrendGranularity === "daily"
+                          ? "Day"
+                          : conversionTrendGranularity === "weekly"
+                            ? "Week"
+                            : "Month"}
+                      </TableHead>
+                      <TableHead className="text-right">Created</TableHead>
+                      <TableHead className="text-right">Registered</TableHead>
+                      <TableHead className="text-right">Conversion %</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {conversionTrendRows.map((row) => (
+                      <TableRow key={row.label}>
+                        <TableCell>{row.label}</TableCell>
+                        <TableCell className="text-right tabular-nums">{row.created}</TableCell>
+                        <TableCell className="text-right tabular-nums">{row.registered}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {row.conversion.toFixed(1)}%
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="bg-muted/30 font-semibold">
+                      <TableCell>Total</TableCell>
+                      <TableCell className="text-right tabular-nums">{conversionTrendTotals.created}</TableCell>
+                      <TableCell className="text-right tabular-nums">{conversionTrendTotals.registered}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {conversionTrendTotals.conversion.toFixed(1)}%
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -1242,69 +1705,200 @@ export function LeadFunnelReportsClient({
                 ? "day"
                 : trendGranularity === "weekly"
                   ? "week"
-                  : "month"}{" "}
-              in the selected period.
+                  : "month"}
+              {trendMode === "by_source" ? ", split by source" : ""} in the selected period.
             </CardDescription>
           </div>
-          <div className="no-print flex shrink-0 rounded-lg border p-0.5">
-            {(["daily", "weekly", "monthly"] as const).map((granularity) => (
-              <Button
-                key={granularity}
-                type="button"
-                size="sm"
-                variant={trendGranularity === granularity ? "secondary" : "ghost"}
-                className="h-7 px-3 text-xs capitalize"
-                onClick={() => setTrendGranularity(granularity)}
-              >
-                {granularity}
-              </Button>
-            ))}
+          <div className="no-print flex shrink-0 flex-col gap-2 sm:items-end">
+            <div className="flex rounded-lg border p-0.5">
+              {(["daily", "weekly", "monthly"] as const).map((granularity) => (
+                <Button
+                  key={granularity}
+                  type="button"
+                  size="sm"
+                  variant={trendGranularity === granularity ? "secondary" : "ghost"}
+                  className="h-7 px-3 text-xs capitalize"
+                  onClick={() => setTrendGranularity(granularity)}
+                >
+                  {granularity}
+                </Button>
+              ))}
+            </div>
+            <div className="flex rounded-lg border p-0.5">
+              {([
+                { id: "overall" as const, label: "Overall" },
+                { id: "by_source" as const, label: "By source" },
+              ] satisfies Array<{ id: TrendMode; label: string }>).map((option) => (
+                <Button
+                  key={option.id}
+                  type="button"
+                  size="sm"
+                  variant={trendMode === option.id ? "secondary" : "ghost"}
+                  className="h-7 px-3 text-xs"
+                  onClick={() => setTrendMode(option.id)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
           </div>
         </CardHeader>
-        <CardContent>
-          {trendData.length === 0 ? (
+        <CardContent className="space-y-4">
+          {!hasTrendData ? (
             <EmptyChart label="No data for selected period" />
           ) : (
-            <ChartContainer
-              config={{ count: { label: "New leads", color: "hsl(var(--chart-2))" } }}
-              className="h-[280px] w-full"
-            >
-              <AreaChart data={trendData} margin={{ left: 8, right: 8, top: 20, bottom: 8 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  fontSize={11}
-                  interval={trendGranularity === "daily" && trendData.length > 14 ? "preserveStartEnd" : 0}
-                  angle={trendGranularity === "weekly" ? -18 : 0}
-                  height={trendGranularity === "weekly" ? 48 : 30}
-                  textAnchor={trendGranularity === "weekly" ? "end" : "middle"}
-                />
-                <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Area
-                  dataKey="count"
-                  type="monotone"
-                  fill="hsl(var(--chart-2))"
-                  fillOpacity={0.2}
-                  stroke="hsl(var(--chart-2))"
-                  strokeWidth={2}
-                  isAnimationActive
-                >
-                  {showTrendLabels ? (
-                    <LabelList
+            <>
+              <ChartContainer
+                config={trendChartConfig}
+                className="h-[280px] w-full"
+              >
+                <AreaChart data={trendRows} margin={{ left: 8, right: 8, top: 20, bottom: 8 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    fontSize={11}
+                    interval={
+                      trendGranularity === "daily" && trendRows.length > 14
+                        ? "preserveStartEnd"
+                        : 0
+                    }
+                    angle={trendGranularity === "weekly" ? -18 : 0}
+                    height={trendGranularity === "weekly" ? 48 : 30}
+                    textAnchor={trendGranularity === "weekly" ? "end" : "middle"}
+                  />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} allowDecimals={false} />
+                  <ChartTooltip
+                    content={
+                      trendMode === "overall" ? (
+                        <ChartTooltipContent />
+                      ) : (
+                        <ChartTooltipContent
+                          indicator="line"
+                          labelFormatter={trendSourceTooltipLabelFormatter}
+                        />
+                      )
+                    }
+                  />
+                  {trendMode === "by_source" ? <ChartLegend content={<ChartLegendContent />} /> : null}
+                  {trendMode === "overall" ? (
+                    <Area
                       dataKey="count"
-                      position="top"
-                      formatter={chartCountLabel}
-                      className="fill-foreground"
-                      fontSize={10}
-                    />
-                  ) : null}
-                </Area>
-              </AreaChart>
-            </ChartContainer>
+                      type="monotone"
+                      fill="hsl(var(--chart-2))"
+                      fillOpacity={0.2}
+                      stroke="hsl(var(--chart-2))"
+                      strokeWidth={2}
+                      dot={{ r: 3, strokeWidth: 1, stroke: "hsl(var(--chart-2))", fill: "hsl(var(--background))" }}
+                      activeDot={{ r: 4, strokeWidth: 1, stroke: "hsl(var(--chart-2))" }}
+                      isAnimationActive
+                    >
+                      <LabelList
+                        dataKey="count"
+                        position="top"
+                        formatter={chartCountLabel}
+                        className="fill-foreground"
+                        fontSize={10}
+                      />
+                    </Area>
+                  ) : (
+                    trendSourceKeys.map((sourceKey) => (
+                      <Area
+                        key={sourceKey}
+                        dataKey={sourceKey}
+                        type="monotone"
+                        stackId="sources"
+                        fill={`var(--color-${sourceKey})`}
+                        fillOpacity={0.22}
+                        stroke={`var(--color-${sourceKey})`}
+                        strokeWidth={1.6}
+                        dot={{
+                          r: 2.5,
+                          strokeWidth: 1,
+                          stroke: `var(--color-${sourceKey})`,
+                          fill: "hsl(var(--background))",
+                        }}
+                        activeDot={{ r: 3.5, strokeWidth: 1, stroke: `var(--color-${sourceKey})` }}
+                        isAnimationActive
+                      >
+                        <LabelList
+                          dataKey={sourceKey}
+                          position="top"
+                          formatter={chartCountLabel}
+                          className="fill-foreground"
+                          fontSize={9}
+                        />
+                      </Area>
+                    ))
+                  )}
+                </AreaChart>
+              </ChartContainer>
+
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    {trendMode === "overall" ? (
+                      <TableRow>
+                        <TableHead>{trendGranularity === "daily" ? "Day" : trendGranularity === "weekly" ? "Week" : "Month"}</TableHead>
+                        <TableHead className="text-right">New leads</TableHead>
+                      </TableRow>
+                    ) : (
+                      <TableRow>
+                        <TableHead>{trendGranularity === "daily" ? "Day" : trendGranularity === "weekly" ? "Week" : "Month"}</TableHead>
+                        {trendSourceKeys.map((sourceKey) => (
+                          <TableHead key={sourceKey} className="text-right">
+                            {LEAD_SOURCE_LABELS[sourceKey] ?? sourceKey}
+                          </TableHead>
+                        ))}
+                        <TableHead className="text-right font-semibold">Total</TableHead>
+                      </TableRow>
+                    )}
+                  </TableHeader>
+                  <TableBody>
+                    {trendMode === "overall"
+                      ? trendData.map((row) => (
+                          <TableRow key={row.label}>
+                            <TableCell>{row.label}</TableCell>
+                            <TableCell className="text-right tabular-nums">{row.count}</TableCell>
+                          </TableRow>
+                        ))
+                      : trendBySourceData.map((row) => (
+                          <TableRow key={row.label}>
+                            <TableCell>{row.label}</TableCell>
+                            {trendSourceKeys.map((sourceKey) => (
+                              <TableCell key={sourceKey} className="text-right tabular-nums">
+                                {row[sourceKey] ?? 0}
+                              </TableCell>
+                            ))}
+                            <TableCell className="text-right tabular-nums font-medium">{row.total}</TableCell>
+                          </TableRow>
+                        ))}
+                    {trendMode === "overall" ? (
+                      <TableRow className="bg-muted/30 font-semibold">
+                        <TableCell>Total</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {trendData.reduce((sum, row) => sum + row.count, 0)}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      <TableRow className="bg-muted/30 font-semibold">
+                        <TableCell>Total</TableCell>
+                        {trendSourceKeys.map((sourceKey) => (
+                          <TableCell key={sourceKey} className="text-right tabular-nums">
+                            {trendBySourceTotals.sourceTotals[sourceKey] ?? 0}
+                          </TableCell>
+                        ))}
+                        <TableCell className="text-right tabular-nums">
+                          {trendBySourceTotals.grandTotal}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
